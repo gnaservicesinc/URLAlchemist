@@ -4,14 +4,28 @@ import { useEffect, useRef, useState } from 'react';
 import { REGEX_TIMEOUT_MS } from '../shared/constants';
 import { simulateActionPack } from '../shared/engine/engine';
 import type { EngineRuntime } from '../shared/engine/runtime';
-import { ensureActivityOrder, formatTimestamp, isGlobalScope, normalizeHotkeyLabel, packUsesClipboard } from '../shared/helpers';
+import { getHotkeyValidationError } from '../shared/hotkeys';
+import { formatTimestamp, isGlobalScope, packUsesClipboard } from '../shared/helpers';
 import { deletePack, saveStoredState, updateSettings, upsertPack } from '../shared/storage';
 import type { ActionPack, ImportEnvelope, StoredState } from '../shared/types';
 import { exportActionPackBinary, importActionPackBinary } from '../shared/vault';
-import { createActivityDraft, createPackDraft, fromPackDraft, reorderDraftActivities, toPackDraft, updateActivityDraft, type ActivityDraft, type PackDraft } from './drafts';
+import {
+  createActivityDraft,
+  createPackDraft,
+  fromPackDraft,
+  getActivityPatternValidationError,
+  reorderDraftActivities,
+  toPackDraft,
+  updateActivityDraft,
+  validatePackDraftInputs,
+  type ActivityDraft,
+  type PackDraft,
+} from './drafts';
 import { StagingModal } from './components/StagingModal';
+import { HotkeyRecorder } from './components/HotkeyRecorder';
 import { useStoredExtensionState } from './hooks/useStoredExtensionState';
 import { createPageRegexExecutor } from '../shared/regex/pageRunner';
+import { RegexBuilderPanel } from './components/RegexBuilderPanel';
 
 function slugify(value: string): string {
   return value
@@ -70,6 +84,8 @@ function copyForNewPack(draft: PackDraft): PackDraft {
         condition: activity.condition,
         helperInput: activity.helperInput,
         helperMode: activity.helperMode,
+        regexBuilder: activity.regexBuilder,
+        regexSourceMode: activity.regexSourceMode,
       })),
   };
 }
@@ -77,6 +93,8 @@ function copyForNewPack(draft: PackDraft): PackDraft {
 function App() {
   const { state, setState, loading } = useStoredExtensionState();
   const [draft, setDraft] = useState<PackDraft>(() => createPackDraft());
+  const [draftTouched, setDraftTouched] = useState(false);
+  const [draftSaveMessage, setDraftSaveMessage] = useState<string | null>(null);
   const [stagedImport, setStagedImport] = useState<ImportEnvelope | null>(null);
   const [sandboxInput, setSandboxInput] = useState('');
   const [sandboxOutput, setSandboxOutput] = useState('');
@@ -89,6 +107,19 @@ function App() {
   const [draggedActivityId, setDraggedActivityId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const runtimeRef = useRef<EngineRuntime | null>(null);
+  const advancedModeEnabled = state.settings.advancedModeEnabled;
+  const hotkeyValidationError =
+    draft.trigger.type === 'HOTKEY'
+      ? getHotkeyValidationError(
+          draft.trigger.hotkey,
+          state.packs
+            .filter((pack) => pack.id !== draft.id && pack.trigger.type === 'HOTKEY')
+            .map((pack) => pack.trigger.hotkey ?? ''),
+        )
+      : null;
+  const draftValidationErrors = validatePackDraftInputs(draft, state.packs);
+  const canSaveDraft = draftValidationErrors.length === 0;
+  const shouldShowDraftValidation = draftTouched && draftValidationErrors.length > 0;
 
   if (!runtimeRef.current) {
     runtimeRef.current = {
@@ -201,12 +232,16 @@ function App() {
 
   function resetDraft(): void {
     setDraft(createPackDraft());
+    setDraftTouched(false);
+    setDraftSaveMessage(null);
   }
 
   async function handleSaveDraft(): Promise<void> {
     const pack = fromPackDraft(draft);
     await applyState(upsertPack(pack));
+    setDraftSaveMessage(`Saved "${pack.name}". You can start a new pack whenever you're ready.`);
     setDraft(createPackDraft());
+    setDraftTouched(false);
   }
 
   async function handleDeletePack(packId: string): Promise<void> {
@@ -245,6 +280,14 @@ function App() {
     );
   }
 
+  async function handleToggleAdvancedMode(): Promise<void> {
+    await applyState(
+      updateSettings({
+        advancedModeEnabled: !state.settings.advancedModeEnabled,
+      }),
+    );
+  }
+
   async function handleConfirmImport(): Promise<void> {
     if (!stagedImport) {
       return;
@@ -259,7 +302,19 @@ function App() {
     setReviewAcknowledged(false);
   }
 
+  function markDraftEditing(): void {
+    if (!draftTouched) {
+      setDraftTouched(true);
+    }
+
+    if (draftSaveMessage) {
+      setDraftSaveMessage(null);
+    }
+  }
+
   function updateDraftActivity(activityId: string, updates: Partial<ActivityDraft>): void {
+    setDraftTouched(true);
+    setDraftSaveMessage(null);
     setDraft((current) => ({
       ...current,
       activities: current.activities.map((activity) =>
@@ -269,6 +324,8 @@ function App() {
   }
 
   function removeDraftActivity(activityId: string): void {
+    setDraftTouched(true);
+    setDraftSaveMessage(null);
     setDraft((current) => ({
       ...current,
       activities:
@@ -281,6 +338,8 @@ function App() {
   }
 
   function addDraftActivity(): void {
+    setDraftTouched(true);
+    setDraftSaveMessage(null);
     setDraft((current) => ({
       ...current,
       activities: [...current.activities, createActivityDraft(current.activities.length + 1)],
@@ -296,6 +355,8 @@ function App() {
       return;
     }
 
+    setDraftTouched(true);
+    setDraftSaveMessage(null);
     setDraft((current) => ({
       ...current,
       activities: reorderDraftActivities(current.activities, draggedActivityId, targetId),
@@ -308,7 +369,9 @@ function App() {
     const nextState = { ...state, packs: [duplicated, ...state.packs] };
     await saveStoredState(nextState);
     setState(nextState);
+    setDraftSaveMessage(`Saved a duplicate of "${duplicated.name}".`);
     setDraft(createPackDraft());
+    setDraftTouched(false);
   }
 
   return (
@@ -343,6 +406,16 @@ function App() {
                   <p className="text-xs text-slate-500">Disabled by default for local file safety.</p>
                 </div>
                 <input checked={state.settings.allowLocalFiles} className="h-5 w-5 accent-amber-600" type="checkbox" onChange={() => void handleToggleLocalFiles()} />
+              </label>
+
+              <label className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white/80 px-4 py-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">Advanced Mode</p>
+                  <p className="text-xs text-slate-500">
+                    Shows manual regex, scope rules, raw pattern previews, and conditions.
+                  </p>
+                </div>
+                <input checked={advancedModeEnabled} className="h-5 w-5 accent-amber-600" type="checkbox" onChange={() => void handleToggleAdvancedMode()} />
               </label>
 
               <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-4">
@@ -439,7 +512,15 @@ function App() {
                   </div>
 
                   <div className="mt-5 flex flex-wrap gap-3">
-                    <button className="ghost-button" type="button" onClick={() => setDraft(toPackDraft(pack))}>
+                    <button
+                      className="ghost-button"
+                      type="button"
+                      onClick={() => {
+                        setDraft(toPackDraft(pack));
+                        setDraftTouched(false);
+                        setDraftSaveMessage(null);
+                      }}
+                    >
                       Edit
                     </button>
                     <button className="ghost-button" type="button" onClick={() => void downloadPack(pack)}>
@@ -462,26 +543,59 @@ function App() {
             <p className="eyebrow">Forge</p>
             <h2 className="mt-2 text-2xl font-semibold text-slate-900">Compose an action pack</h2>
             <p className="mt-2 max-w-3xl text-sm text-slate-600">
-              Chrome uses one shared extension command for hotkey execution, so the pack hotkey field is descriptive and stays aligned with the manifest-level shortcut.
+              {advancedModeEnabled
+                ? 'Advanced mode is on, so you can edit manual regex, scope rules, and conditional logic directly.'
+                : 'Simple mode is on, so the Forge stays focused on sample URLs, clear actions, and recorded hotkeys.'}
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
             <button className="ghost-button" type="button" onClick={resetDraft}>
               New Pack
             </button>
-            <button className="ghost-button" type="button" onClick={() => void duplicateDraftIntoNewPack()}>
+            <button className="ghost-button" disabled={!canSaveDraft} type="button" onClick={() => void duplicateDraftIntoNewPack()}>
               Duplicate Draft
             </button>
-            <button className="primary-button" type="button" onClick={() => void handleSaveDraft()}>
+            <button className="primary-button" disabled={!canSaveDraft} type="button" onClick={() => void handleSaveDraft()}>
               Save Pack
             </button>
           </div>
         </div>
 
+        {draftSaveMessage ? (
+          <div className="mt-5 rounded-[1.5rem] border border-emerald-200 bg-emerald-50/90 px-5 py-4 text-sm text-emerald-800">
+            <p className="font-semibold text-emerald-950">{draftSaveMessage}</p>
+          </div>
+        ) : null}
+
+        {shouldShowDraftValidation ? (
+          <div className="mt-5 rounded-[1.5rem] border border-rose-200 bg-rose-50/80 px-5 py-4 text-sm text-rose-700">
+            <p className="font-semibold text-rose-900">Fix these safety checks before saving:</p>
+            <ul className="mt-2 list-disc pl-5">
+              {draftValidationErrors.map((error) => (
+                <li key={error}>{error}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        {!advancedModeEnabled ? (
+          <div className="mt-5 rounded-[1.5rem] border border-amber-200 bg-amber-50/75 px-5 py-4 text-sm text-amber-900">
+            Simple mode hides manual regex, scope regex, raw regex previews, payload variables, and activity
+            conditions. Turn on <strong>Advanced Mode</strong> in Global Controls whenever you need those tools.
+          </div>
+        ) : null}
+
         <div className="mt-6 grid gap-5 lg:grid-cols-2">
           <label className="field-shell">
             <span className="field-label">Pack Name</span>
-            <input className="field-input" value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} />
+            <input
+              className="field-input"
+              value={draft.name}
+              onChange={(event) => {
+                markDraftEditing();
+                setDraft((current) => ({ ...current, name: event.target.value }));
+              }}
+            />
           </label>
           <label className="field-shell">
             <span className="field-label">Version</span>
@@ -490,12 +604,13 @@ function App() {
               min={1}
               type="number"
               value={draft.version}
-              onChange={(event) =>
+              onChange={(event) => {
+                markDraftEditing();
                 setDraft((current) => ({
                   ...current,
                   version: Math.max(1, Number.parseInt(event.target.value || '1', 10)),
-                }))
-              }
+                }));
+              }}
             />
           </label>
           <label className="field-shell">
@@ -503,15 +618,16 @@ function App() {
             <input
               className="field-input"
               value={draft.metadata.author ?? ''}
-              onChange={(event) =>
+              onChange={(event) => {
+                markDraftEditing();
                 setDraft((current) => ({
                   ...current,
                   metadata: {
                     ...current.metadata,
                     author: event.target.value,
                   },
-                }))
-              }
+                }));
+              }}
             />
           </label>
           <label className="field-shell">
@@ -519,15 +635,16 @@ function App() {
             <select
               className="field-select"
               value={draft.trigger.type}
-              onChange={(event) =>
+              onChange={(event) => {
+                markDraftEditing();
                 setDraft((current) => ({
                   ...current,
                   trigger: {
                     ...current.trigger,
                     type: event.target.value as PackDraft['trigger']['type'],
                   },
-                }))
-              }
+                }));
+              }}
             >
               <option value="ALWAYS">Always</option>
               <option value="HOTKEY">Hotkey</option>
@@ -540,51 +657,57 @@ function App() {
             <textarea
               className="field-textarea min-h-24"
               value={draft.metadata.description ?? ''}
-              onChange={(event) =>
+              onChange={(event) => {
+                markDraftEditing();
                 setDraft((current) => ({
                   ...current,
                   metadata: {
                     ...current.metadata,
                     description: event.target.value,
                   },
-                }))
-              }
+                }));
+              }}
             />
           </label>
-          <label className="field-shell">
-            <span className="field-label">Scope Regex</span>
-            <input
-              className="field-input"
-              placeholder="Leave blank to run globally"
-              value={draft.trigger.scope_regex ?? ''}
-              onChange={(event) =>
-                setDraft((current) => ({
-                  ...current,
-                  trigger: {
-                    ...current.trigger,
-                    scope_regex: event.target.value,
-                  },
-                }))
-              }
-            />
-          </label>
-          <label className="field-shell">
-            <span className="field-label">Hotkey Label</span>
-            <input
-              className="field-input"
-              value={draft.trigger.hotkey ?? ''}
-              onChange={(event) =>
-                setDraft((current) => ({
-                  ...current,
-                  trigger: {
-                    ...current.trigger,
-                    hotkey: event.target.value,
-                  },
-                }))
-              }
-            />
-            <span className="text-xs text-slate-500">Shared Chrome shortcut: {normalizeHotkeyLabel(draft.trigger.hotkey)}</span>
-          </label>
+          {advancedModeEnabled ? (
+            <label className="field-shell">
+              <span className="field-label">Scope Regex</span>
+              <input
+                className="field-input"
+                placeholder="Leave blank to run globally"
+                value={draft.trigger.scope_regex ?? ''}
+                onChange={(event) => {
+                  markDraftEditing();
+                  setDraft((current) => ({
+                    ...current,
+                    trigger: {
+                      ...current.trigger,
+                      scope_regex: event.target.value,
+                    },
+                  }));
+                }}
+              />
+            </label>
+          ) : null}
+
+          {draft.trigger.type === 'HOTKEY' ? (
+            <div className={advancedModeEnabled ? '' : 'lg:col-span-2'}>
+              <HotkeyRecorder
+                validationError={hotkeyValidationError}
+                value={draft.trigger.hotkey}
+                onChange={(hotkey) => {
+                  markDraftEditing();
+                  setDraft((current) => ({
+                    ...current,
+                    trigger: {
+                      ...current.trigger,
+                      hotkey,
+                    },
+                  }));
+                }}
+              />
+            </div>
+          ) : null}
         </div>
 
         <div className="mt-8 flex items-center justify-between gap-4">
@@ -674,7 +797,7 @@ function App() {
                 ) : null}
 
                 <label className="field-shell">
-                  <span className="field-label">Regex Helper</span>
+                  <span className="field-label">Match Helper</span>
                   <select
                     className="field-select"
                     value={activity.helperMode}
@@ -686,27 +809,38 @@ function App() {
                   >
                     <option value="CONTAINS">Contains</option>
                     <option value="STARTS_WITH">Starts With</option>
-                    <option value="REGEX">Regex</option>
+                    <option value="REGEX">{advancedModeEnabled ? 'Manual Regex' : 'Build From Sample URL'}</option>
                   </select>
                 </label>
 
-                <label className="field-shell lg:col-span-2">
-                  <span className="field-label">Helper Input</span>
-                  <input
-                    className="field-input"
-                    value={activity.helperInput}
-                    onChange={(event) =>
-                      updateDraftActivity(activity.id, {
-                        helperInput: event.target.value,
-                      })
-                    }
+                {activity.helperMode === 'REGEX' ? (
+                  <RegexBuilderPanel
+                    advancedModeEnabled={advancedModeEnabled}
+                    activity={activity}
+                    validationError={getActivityPatternValidationError(activity)}
+                    onUpdate={(updates) => updateDraftActivity(activity.id, updates)}
                   />
-                </label>
+                ) : (
+                  <label className="field-shell lg:col-span-2">
+                    <span className="field-label">Text to Match</span>
+                    <input
+                      className="field-input"
+                      value={activity.helperInput}
+                      onChange={(event) =>
+                        updateDraftActivity(activity.id, {
+                          helperInput: event.target.value,
+                        })
+                      }
+                    />
+                  </label>
+                )}
 
-                <label className="field-shell lg:col-span-2">
-                  <span className="field-label">Generated Pattern</span>
-                  <input className="field-input font-mono text-xs" readOnly value={activity.pattern} />
-                </label>
+                {advancedModeEnabled ? (
+                  <label className="field-shell lg:col-span-2">
+                    <span className="field-label">Generated Pattern</span>
+                    <input className="field-input font-mono text-xs" readOnly value={activity.pattern} />
+                  </label>
+                ) : null}
 
                 <label className="field-shell lg:col-span-2">
                   <span className="field-label">Payload</span>
@@ -723,80 +857,84 @@ function App() {
                   />
                 </label>
 
-                <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white/70 px-4 py-3 text-sm text-slate-700 lg:col-span-2">
-                  <input
-                    checked={activity.payload_vars}
-                    className="h-4 w-4 accent-amber-600"
-                    type="checkbox"
-                    onChange={(event) =>
-                      updateDraftActivity(activity.id, {
-                        payload_vars: event.target.checked,
-                      })
-                    }
-                  />
-                  Resolve payload variables like <span className="font-mono">{'{date}'}</span>,{' '}
-                  <span className="font-mono">{'{clipboard}'}</span>, and regex groups.
-                </label>
-
-                <label className="field-shell">
-                  <span className="field-label">Condition</span>
-                  <select
-                    className="field-select"
-                    value={activity.condition?.type ?? 'NONE'}
-                    onChange={(event) =>
-                      updateDraftActivity(activity.id, {
-                        condition:
-                          event.target.value === 'NONE'
-                            ? undefined
-                            : {
-                                type: event.target.value as NonNullable<ActivityDraft['condition']>['type'],
-                                value: activity.condition?.value ?? '',
-                                target: activity.condition?.target ?? 'PREVIOUS_OUTPUT',
-                              },
-                      })
-                    }
-                  >
-                    <option value="NONE">No Condition</option>
-                    <option value="IF_CONTAINS">If Contains</option>
-                    <option value="IF_REGEX_MATCH">If Regex Match</option>
-                  </select>
-                </label>
-
-                {activity.condition ? (
+                {advancedModeEnabled ? (
                   <>
-                    <label className="field-shell">
-                      <span className="field-label">Condition Target</span>
-                      <select
-                        className="field-select"
-                        value={activity.condition.target}
-                        onChange={(event) =>
-                          updateDraftActivity(activity.id, {
-                            condition: {
-                              ...activity.condition!,
-                              target: event.target.value as NonNullable<ActivityDraft['condition']>['target'],
-                            },
-                          })
-                        }
-                      >
-                        <option value="URL">Original URL</option>
-                        <option value="PREVIOUS_OUTPUT">Previous Output</option>
-                      </select>
-                    </label>
-                    <label className="field-shell lg:col-span-2">
-                      <span className="field-label">Condition Value</span>
+                    <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white/70 px-4 py-3 text-sm text-slate-700 lg:col-span-2">
                       <input
-                        className="field-input"
-                        value={activity.condition.value}
+                        checked={activity.payload_vars}
+                        className="h-4 w-4 accent-amber-600"
+                        type="checkbox"
                         onChange={(event) =>
                           updateDraftActivity(activity.id, {
-                            condition: {
-                              ...activity.condition!,
-                              value: event.target.value,
-                            },
+                            payload_vars: event.target.checked,
                           })
                         }
                       />
+                      Resolve payload variables like <span className="font-mono">{'{date}'}</span>,{' '}
+                      <span className="font-mono">{'{clipboard}'}</span>, and regex groups.
                     </label>
+
+                    <label className="field-shell">
+                      <span className="field-label">Condition</span>
+                      <select
+                        className="field-select"
+                        value={activity.condition?.type ?? 'NONE'}
+                        onChange={(event) =>
+                          updateDraftActivity(activity.id, {
+                            condition:
+                              event.target.value === 'NONE'
+                                ? undefined
+                                : {
+                                    type: event.target.value as NonNullable<ActivityDraft['condition']>['type'],
+                                    value: activity.condition?.value ?? '',
+                                    target: activity.condition?.target ?? 'PREVIOUS_OUTPUT',
+                                  },
+                          })
+                        }
+                      >
+                        <option value="NONE">No Condition</option>
+                        <option value="IF_CONTAINS">If Contains</option>
+                        <option value="IF_REGEX_MATCH">If Regex Match</option>
+                      </select>
+                    </label>
+
+                    {activity.condition ? (
+                      <>
+                        <label className="field-shell">
+                          <span className="field-label">Condition Target</span>
+                          <select
+                            className="field-select"
+                            value={activity.condition.target}
+                            onChange={(event) =>
+                              updateDraftActivity(activity.id, {
+                                condition: {
+                                  ...activity.condition!,
+                                  target: event.target.value as NonNullable<ActivityDraft['condition']>['target'],
+                                },
+                              })
+                            }
+                          >
+                            <option value="URL">Original URL</option>
+                            <option value="PREVIOUS_OUTPUT">Previous Output</option>
+                          </select>
+                        </label>
+                        <label className="field-shell lg:col-span-2">
+                          <span className="field-label">Condition Value</span>
+                          <input
+                            className="field-input"
+                            value={activity.condition.value}
+                            onChange={(event) =>
+                              updateDraftActivity(activity.id, {
+                                condition: {
+                                  ...activity.condition!,
+                                  value: event.target.value,
+                                },
+                              })
+                            }
+                          />
+                        </label>
+                      </>
+                    ) : null}
                   </>
                 ) : null}
               </div>

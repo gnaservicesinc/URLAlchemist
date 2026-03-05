@@ -36,7 +36,7 @@ const METADATA_KEYS = ['author', 'description', 'created_at'];
 const TRIGGER_KEYS = ['type', 'hotkey', 'scope_regex'];
 const CONDITION_KEYS = ['type', 'value', 'target'];
 const STORED_STATE_KEYS = ['settings', 'packs'];
-const SETTINGS_KEYS = ['globalEnabled', 'allowLocalFiles'];
+const SETTINGS_KEYS = ['globalEnabled', 'allowLocalFiles', 'advancedModeEnabled'];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -259,7 +259,8 @@ export function validateStoredState(candidate: unknown): ValidationResult<Stored
 
   if (
     typeof candidate.settings.globalEnabled !== 'boolean' ||
-    typeof candidate.settings.allowLocalFiles !== 'boolean'
+    typeof candidate.settings.allowLocalFiles !== 'boolean' ||
+    typeof candidate.settings.advancedModeEnabled !== 'boolean'
   ) {
     return { ok: false, errors: ['Stored settings values must be booleans'] };
   }
@@ -291,6 +292,7 @@ export function validateStoredState(candidate: unknown): ValidationResult<Stored
       settings: {
         globalEnabled: candidate.settings.globalEnabled,
         allowLocalFiles: candidate.settings.allowLocalFiles,
+        advancedModeEnabled: candidate.settings.advancedModeEnabled,
       },
       packs,
     },

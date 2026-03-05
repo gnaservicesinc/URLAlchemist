@@ -1,4 +1,5 @@
 import type { EngineRuntime } from './runtime';
+import { normalizeHotkeyValue } from '../hotkeys';
 import type { ActionPack, EngineExecutionResult, EngineIssue, GlobalSettings, TriggerType } from '../types';
 import { packUsesClipboard, sortActivities } from '../helpers';
 
@@ -59,8 +60,16 @@ async function evaluateCondition(
   return await runtime.regex.test(source, activity.condition.value);
 }
 
-export function triggerMatches(pack: ActionPack, trigger: TriggerType): boolean {
-  return pack.enabled && pack.trigger.type === trigger;
+export function triggerMatches(pack: ActionPack, trigger: TriggerType, triggeredHotkey?: string): boolean {
+  if (!pack.enabled || pack.trigger.type !== trigger) {
+    return false;
+  }
+
+  if (trigger !== 'HOTKEY') {
+    return true;
+  }
+
+  return normalizeHotkeyValue(pack.trigger.hotkey) === normalizeHotkeyValue(triggeredHotkey);
 }
 
 export async function packMatchesScope(
@@ -147,13 +156,14 @@ export async function executeActionPackSet(
   runtime: EngineRuntime,
   settings: GlobalSettings,
   trigger: TriggerType,
+  triggeredHotkey?: string,
 ): Promise<EngineExecutionResult> {
   let currentUrl = inputUrl;
   const issues: EngineIssue[] = [];
   const appliedPackIds: string[] = [];
 
   for (const pack of packs) {
-    if (!triggerMatches(pack, trigger)) {
+    if (!triggerMatches(pack, trigger, triggeredHotkey)) {
       continue;
     }
 

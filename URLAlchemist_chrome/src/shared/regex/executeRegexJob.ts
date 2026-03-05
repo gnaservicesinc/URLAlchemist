@@ -30,6 +30,10 @@ function parsePattern(pattern: string, forceGlobal: boolean): RegExp {
   return new RegExp(source, Array.from(mergedFlags).join(''));
 }
 
+export function assertSafeRegexPattern(pattern: string): void {
+  parsePattern(pattern, false);
+}
+
 function applyFragmentAction(fragment: string, action: ActionType, replacement: string): string {
   switch (action) {
     case 'REMOVE':

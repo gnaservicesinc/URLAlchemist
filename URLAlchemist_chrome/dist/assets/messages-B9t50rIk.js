@@ -1,0 +1,1 @@
+const R="URL_ALCHEMIST_OFFSCREEN_REGEX",_="URL_ALCHEMIST_OFFSCREEN_CLIPBOARD",t="URL_ALCHEMIST_HOTKEY_TRIGGER";function S(E){return typeof E=="object"&&E!==null&&"type"in E&&"hotkey"in E&&"url"in E&&E.type===t&&typeof E.hotkey=="string"&&typeof E.url=="string"}export{R as O,_ as a,S as i};

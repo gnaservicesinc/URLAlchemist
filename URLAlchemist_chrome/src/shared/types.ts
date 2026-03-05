@@ -49,6 +49,7 @@ export interface ActionPack {
 export interface GlobalSettings {
   globalEnabled: boolean;
   allowLocalFiles: boolean;
+  advancedModeEnabled: boolean;
 }
 
 export interface StoredState {

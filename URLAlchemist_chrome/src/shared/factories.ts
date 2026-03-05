@@ -1,3 +1,4 @@
+import { getDefaultHotkey } from './hotkeys';
 import type { ActionPack, Activity } from './types';
 
 export function createActivity(order: number): Activity {
@@ -26,7 +27,7 @@ export function createPack(): ActionPack {
     },
     trigger: {
       type: 'ALWAYS',
-      hotkey: 'Ctrl+Shift+U',
+      hotkey: getDefaultHotkey(),
       scope_regex: '',
     },
     activities: [createActivity(1)],

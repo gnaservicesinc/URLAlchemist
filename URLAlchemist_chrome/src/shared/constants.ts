@@ -11,4 +11,5 @@ export const CONTEXT_MENU_RUN_ID = 'url-alchemist-run-context';
 export const DEFAULT_SETTINGS: GlobalSettings = {
   globalEnabled: true,
   allowLocalFiles: false,
+  advancedModeEnabled: false,
 };

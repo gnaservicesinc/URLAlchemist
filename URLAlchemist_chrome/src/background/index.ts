@@ -1,5 +1,7 @@
 import { CONTEXT_MENU_RUN_ID, MAX_REDIRECT_DEPTH } from '../shared/constants';
 import { packMatchesScope, simulateActionPack, triggerMatches } from '../shared/engine/engine';
+import { normalizeHotkeyValue } from '../shared/hotkeys';
+import { isHotkeyTriggerMessage } from '../shared/messages';
 import { loadStoredState } from '../shared/storage';
 import type { ActionPack, EngineIssue, TriggerType } from '../shared/types';
 import { createOffscreenRegexExecutor, readClipboardFromOffscreen } from './offscreenBridge';
@@ -61,7 +63,12 @@ async function ensureContextMenu(): Promise<void> {
   });
 }
 
-async function applyPacksToTab(tabId: number, inputUrl: string, trigger: TriggerType): Promise<void> {
+async function applyPacksToTab(
+  tabId: number,
+  inputUrl: string,
+  trigger: TriggerType,
+  triggeredHotkey?: string,
+): Promise<void> {
   const state = await loadStoredState();
   if (!state.settings.globalEnabled) {
     return;
@@ -71,7 +78,7 @@ async function applyPacksToTab(tabId: number, inputUrl: string, trigger: Trigger
   let urlChanged = false;
 
   for (const pack of state.packs) {
-    if (!triggerMatches(pack, trigger)) {
+    if (!triggerMatches(pack, trigger, triggeredHotkey)) {
       continue;
     }
 
@@ -114,19 +121,6 @@ async function applyPacksToTab(tabId: number, inputUrl: string, trigger: Trigger
   }
 }
 
-async function runActiveTabPacks(trigger: TriggerType): Promise<void> {
-  const [tab] = await chrome.tabs.query({
-    active: true,
-    lastFocusedWindow: true,
-  });
-
-  if (tab?.id === undefined || !tab.url) {
-    return;
-  }
-
-  await applyPacksToTab(tab.id, tab.url, trigger);
-}
-
 chrome.runtime.onInstalled.addListener(() => {
   void ensureContextMenu();
 });
@@ -147,12 +141,30 @@ chrome.webNavigation.onBeforeNavigate.addListener((details) => {
   void applyPacksToTab(details.tabId, details.url, 'ALWAYS');
 });
 
-chrome.commands.onCommand.addListener((command) => {
-  if (command !== 'run-hotkey-packs') {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (!isHotkeyTriggerMessage(message)) {
     return;
   }
 
-  void runActiveTabPacks('HOTKEY');
+  const tabId = sender.tab?.id;
+  const hotkey = normalizeHotkeyValue(message.hotkey);
+  const url = message.url || sender.tab?.url;
+
+  if (tabId === undefined || !hotkey || !url) {
+    sendResponse({ handled: false });
+    return;
+  }
+
+  void applyPacksToTab(tabId, url, 'HOTKEY', hotkey)
+    .then(() => {
+      sendResponse({ handled: true });
+    })
+    .catch((error) => {
+      console.warn('[URL Alchemist] Hotkey execution failed', error instanceof Error ? error.message : error);
+      sendResponse({ handled: false });
+    });
+
+  return true;
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {

@@ -1,4 +1,5 @@
 import { GLOBAL_SCOPE_PATTERNS } from './constants';
+import { formatHotkeyLabel } from './hotkeys';
 import type { ActionPack, Activity } from './types';
 
 export function escapeRegexLiteral(value: string): string {
@@ -38,7 +39,7 @@ export function formatTimestamp(timestamp: number): string {
 }
 
 export function normalizeHotkeyLabel(hotkey?: string): string {
-  return hotkey?.trim() || 'Uses the shared extension hotkey';
+  return formatHotkeyLabel(hotkey);
 }
 
 export function ensureActivityOrder(activities: Activity[]): Activity[] {
