@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "URL Alchemist",
+  "version": "0.1.0",
+  "description": "A middleware layer for URL navigation powered by binary action packs.",
+  "permissions": [
+    "storage",
+    "tabs",
+    "webNavigation",
+    "contextMenus",
+    "downloads",
+    "offscreen"
+  ],
+  "optional_permissions": ["clipboardRead"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "action": {
+    "default_title": "URL Alchemist"
+  },
+  "commands": {
+    "run-hotkey-packs": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+U",
+        "mac": "Command+Shift+U"
+      },
+      "description": "Run enabled hotkey action packs on the active tab"
+    }
+  }
+}

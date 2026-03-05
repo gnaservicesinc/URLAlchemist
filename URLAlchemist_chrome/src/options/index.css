@@ -1,0 +1,107 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+  --paper: #f9f4eb;
+  --ink: #172033;
+  --accent: #c76a1a;
+  --accent-strong: #90400d;
+  --teal: #0f766e;
+  --blush: #f3c8a6;
+}
+
+html {
+  min-height: 100%;
+  background:
+    radial-gradient(circle at top left, rgba(255, 214, 153, 0.72), transparent 32%),
+    radial-gradient(circle at top right, rgba(15, 118, 110, 0.18), transparent 26%),
+    linear-gradient(160deg, #fff9f2 0%, #f7efe4 48%, #f4efe7 100%);
+}
+
+body {
+  min-height: 100vh;
+  font-family: "Avenir Next", "SF Pro Rounded", "Trebuchet MS", sans-serif;
+  color: var(--ink);
+}
+
+#root {
+  min-height: 100vh;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@layer components {
+  .reveal-panel {
+    animation: rise-in 320ms ease-out;
+  }
+
+  .eyebrow {
+    @apply text-xs font-semibold uppercase tracking-[0.26em] text-amber-700;
+  }
+
+  .panel-shell {
+    @apply rounded-[1.75rem] border border-white/70 bg-[rgba(255,255,255,0.72)] p-5 shadow-[0_16px_44px_rgba(15,23,42,0.08)] backdrop-blur-md;
+  }
+
+  .field-shell {
+    @apply flex flex-col gap-2;
+  }
+
+  .field-label {
+    @apply text-xs font-semibold uppercase tracking-[0.2em] text-slate-500;
+  }
+
+  .field-input {
+    @apply w-full rounded-2xl border border-slate-200 bg-white/90 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-200;
+  }
+
+  .field-textarea {
+    @apply w-full rounded-2xl border border-slate-200 bg-white/90 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-200;
+  }
+
+  .field-select {
+    @apply w-full rounded-2xl border border-slate-200 bg-white/90 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-200;
+  }
+
+  .ghost-button {
+    @apply rounded-full border border-slate-300 bg-white/70 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .primary-button {
+    @apply rounded-full bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-white shadow-[0_14px_30px_rgba(199,106,26,0.35)] transition hover:bg-[var(--accent-strong)] disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600 disabled:shadow-none;
+  }
+
+  .secondary-button {
+    @apply rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300;
+  }
+
+  .risk-badge {
+    @apply rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em];
+  }
+
+  .risk-badge-danger {
+    @apply bg-rose-100 text-rose-700;
+  }
+
+  .risk-badge-warn {
+    @apply bg-amber-100 text-amber-700;
+  }
+
+  .risk-badge-soft {
+    @apply bg-slate-100 text-slate-600;
+  }
+
+  .info-chip {
+    @apply rounded-2xl border border-slate-200 bg-white/70 p-3;
+  }
+}
