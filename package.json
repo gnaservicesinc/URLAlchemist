@@ -1,0 +1,12 @@
+{
+  "name": "url-alchemist-workspace",
+  "private": true,
+  "scripts": {
+    "build": "npm run build:chrome && npm run build:firefox",
+    "build:chrome": "npm --prefix ./URLAlchemist_chrome run build",
+    "build:firefox": "npm --prefix ./URLAlchemist_Firefox run build",
+    "test": "npm run test:chrome && npm run test:firefox",
+    "test:chrome": "npm --prefix ./URLAlchemist_chrome run test",
+    "test:firefox": "npm --prefix ./URLAlchemist_Firefox run test"
+  }
+}
