@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "build:reviewer": "bash ./reviewer-build.sh",
     "test": "vitest run"
   },
   "dependencies": {
