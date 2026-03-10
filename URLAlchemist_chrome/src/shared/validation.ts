@@ -42,9 +42,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function hasOwn(record: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key);
+}
+
 function hasExactKeys(record: Record<string, unknown>, allowedKeys: string[]): boolean {
   const keys = Object.keys(record);
-  return keys.every((key) => allowedKeys.includes(key)) && allowedKeys.every((key) => key in record || !requiredByDefault(allowedKeys, key));
+  return keys.every((key) => allowedKeys.includes(key)) && allowedKeys.every((key) => hasOwn(record, key) || !requiredByDefault(allowedKeys, key));
 }
 
 function requiredByDefault(allowedKeys: string[], key: string): boolean {
@@ -69,6 +73,14 @@ function isOptionalString(value: unknown): value is string | undefined {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return Number.isInteger(value) && (value as number) > 0;
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return Number.isInteger(value) && (value as number) >= 0;
 }
 
 function validateCondition(candidate: unknown, prefix: string): ValidationResult<ActivityCondition> {
@@ -109,8 +121,8 @@ function validateActivity(candidate: unknown, index: number): ValidationResult<A
     return { ok: false, errors: [`${prefix}.id must be a string`] };
   }
 
-  if (!isFiniteNumber(candidate.order)) {
-    return { ok: false, errors: [`${prefix}.order must be a number`] };
+  if (!isPositiveInteger(candidate.order)) {
+    return { ok: false, errors: [`${prefix}.order must be a positive integer`] };
   }
 
   if (!ACTION_TYPES.includes(candidate.action as Activity['action'])) {
@@ -129,8 +141,8 @@ function validateActivity(candidate: unknown, index: number): ValidationResult<A
     return { ok: false, errors: [`${prefix}.payload must be a string`] };
   }
 
-  if (candidate.nth_occurrence !== undefined && !isFiniteNumber(candidate.nth_occurrence)) {
-    return { ok: false, errors: [`${prefix}.nth_occurrence must be numeric when provided`] };
+  if (candidate.nth_occurrence !== undefined && !isPositiveInteger(candidate.nth_occurrence)) {
+    return { ok: false, errors: [`${prefix}.nth_occurrence must be a positive integer when provided`] };
   }
 
   if (typeof candidate.payload_vars !== 'boolean') {
@@ -173,8 +185,8 @@ export function validateActionPack(candidate: unknown): ValidationResult<ActionP
     return { ok: false, errors: ['Pack name must be a non-empty string'] };
   }
 
-  if (!isFiniteNumber(candidate.version)) {
-    return { ok: false, errors: ['Pack version must be numeric'] };
+  if (!isPositiveInteger(candidate.version)) {
+    return { ok: false, errors: ['Pack version must be a positive integer'] };
   }
 
   if (typeof candidate.enabled !== 'boolean') {
@@ -189,8 +201,8 @@ export function validateActionPack(candidate: unknown): ValidationResult<ActionP
     return { ok: false, errors: ['Pack metadata text fields must be strings'] };
   }
 
-  if (!isFiniteNumber(candidate.metadata.created_at)) {
-    return { ok: false, errors: ['Pack metadata.created_at must be numeric'] };
+  if (!isNonNegativeInteger(candidate.metadata.created_at)) {
+    return { ok: false, errors: ['Pack metadata.created_at must be a non-negative integer'] };
   }
 
   if (!isRecord(candidate.trigger) || !hasExactKeys(candidate.trigger, TRIGGER_KEYS)) {

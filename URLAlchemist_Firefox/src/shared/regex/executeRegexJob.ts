@@ -48,6 +48,12 @@ function applyFragmentAction(fragment: string, action: ActionType, replacement: 
   }
 }
 
+function resolveReplacement(pattern: string, match: RegExpExecArray, replacement: string): string {
+  const regex = parsePattern(pattern, false);
+  regex.lastIndex = 0;
+  return match[0].replace(regex, replacement);
+}
+
 function selectNthMatch(input: string, pattern: string, nthOccurrence: number): RegExpExecArray | null {
   const regex = parsePattern(pattern, true);
   let currentIndex = 0;
@@ -129,19 +135,20 @@ function transformAroundPattern(
   const before = input.slice(0, match.index);
   const matchedText = input.slice(match.index, match.index + match[0].length);
   const after = input.slice(match.index + match[0].length);
+  const resolvedReplacement = resolveReplacement(pattern, match, replacement);
 
   if (mode === 'BEFORE_PATTERN') {
     return {
       kind: 'transform',
       matched: true,
-      result: `${applyFragmentAction(before, action, replacement)}${matchedText}${after}`,
+      result: `${applyFragmentAction(before, action, resolvedReplacement)}${matchedText}${after}`,
     };
   }
 
   return {
     kind: 'transform',
     matched: true,
-    result: `${before}${matchedText}${applyFragmentAction(after, action, replacement)}`,
+    result: `${before}${matchedText}${applyFragmentAction(after, action, resolvedReplacement)}`,
   };
 }
 
@@ -165,11 +172,12 @@ function transformNthOccurrence(
   const before = input.slice(0, match.index);
   const matchedText = input.slice(match.index, match.index + match[0].length);
   const after = input.slice(match.index + match[0].length);
+  const resolvedReplacement = resolveReplacement(pattern, match, replacement);
 
   return {
     kind: 'transform',
     matched: true,
-    result: `${before}${applyFragmentAction(matchedText, action, replacement)}${after}`,
+    result: `${before}${applyFragmentAction(matchedText, action, resolvedReplacement)}${after}`,
   };
 }
 

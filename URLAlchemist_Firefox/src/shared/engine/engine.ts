@@ -1,5 +1,6 @@
 import type { EngineRuntime } from './runtime';
 import { normalizeHotkeyValue } from '../hotkeys';
+import { ALLOWED_NAVIGATION_PROTOCOLS } from '../constants';
 import type { ActionPack, EngineExecutionResult, EngineIssue, GlobalSettings, TriggerType } from '../types';
 import { packUsesClipboard, sortActivities } from '../helpers';
 
@@ -9,6 +10,26 @@ function escapeReplacementLiteral(value: string): string {
 
 function createIssue(message: string, activityId?: string): EngineIssue {
   return { message, activityId };
+}
+
+function getBlockedNavigationIssue(url: string, settings: GlobalSettings): string | null {
+  let parsedUrl: URL;
+
+  try {
+    parsedUrl = new URL(url);
+  } catch {
+    return 'Blocked the transformed output because it is not a valid absolute URL';
+  }
+
+  if (parsedUrl.protocol === 'file:') {
+    return settings.allowLocalFiles ? null : 'Local file URLs are blocked by global settings';
+  }
+
+  if (!ALLOWED_NAVIGATION_PROTOCOLS.includes(parsedUrl.protocol as (typeof ALLOWED_NAVIGATION_PROTOCOLS)[number])) {
+    return `Blocked the transformed output because the "${parsedUrl.protocol}" protocol is not allowed`;
+  }
+
+  return null;
 }
 
 async function buildReplacementTemplate(
@@ -138,6 +159,14 @@ export async function simulateActionPack(
         ),
       );
       break;
+    }
+  }
+
+  if (currentUrl !== inputUrl) {
+    const blockedNavigationIssue = getBlockedNavigationIssue(currentUrl, settings);
+    if (blockedNavigationIssue) {
+      issues.push(createIssue(blockedNavigationIssue));
+      currentUrl = inputUrl;
     }
   }
 

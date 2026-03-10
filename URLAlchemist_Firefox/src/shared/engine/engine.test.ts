@@ -126,6 +126,32 @@ describe('simulateActionPack', () => {
     expect(result.finalUrl).toBe('https://example.com/a-bX-c');
   });
 
+  it('expands regex groups for nth-occurrence replacements', async () => {
+    const pack = createPack({
+      activities: [
+        {
+          id: 'activity-1',
+          order: 1,
+          action: 'SUBSTITUTE',
+          pattern: 'item-(\\d+)',
+          match_mode: 'NTH_OCCURRENCE',
+          nth_occurrence: 2,
+          payload: 'row-$1',
+          payload_vars: true,
+        },
+      ],
+    });
+
+    const result = await simulateActionPack(
+      'https://example.com/item-1/item-2',
+      pack,
+      runtime,
+      DEFAULT_SETTINGS,
+    );
+
+    expect(result.finalUrl).toBe('https://example.com/item-1/row-2');
+  });
+
   it('interpolates clipboard and date placeholders', async () => {
     const pack = createPack({
       activities: [
@@ -133,7 +159,7 @@ describe('simulateActionPack', () => {
           id: 'activity-1',
           order: 1,
           action: 'APPEND',
-          pattern: 'example',
+          pattern: '/path',
           match_mode: 'STANDARD',
           nth_occurrence: 1,
           payload: '-{clipboard}-{date}',
@@ -142,9 +168,9 @@ describe('simulateActionPack', () => {
       ],
     });
 
-    const result = await simulateActionPack('https://example.com', pack, runtime, DEFAULT_SETTINGS);
+    const result = await simulateActionPack('https://example.com/path', pack, runtime, DEFAULT_SETTINGS);
 
-    expect(result.finalUrl).toBe('https://example-clipboard-token-2026-03-05T12:00:00.000Z.com');
+    expect(result.finalUrl).toBe('https://example.com/path-clipboard-token-2026-03-05T12:00:00.000Z');
   });
 
   it('blocks file urls when local file access is disabled', async () => {
@@ -167,5 +193,28 @@ describe('simulateActionPack', () => {
 
     expect(result.changed).toBe(false);
     expect(result.issues[0]?.message).toContain('Local file URLs are blocked');
+  });
+
+  it('blocks transformed urls that switch to unsafe protocols', async () => {
+    const pack = createPack({
+      activities: [
+        {
+          id: 'activity-1',
+          order: 1,
+          action: 'SUBSTITUTE',
+          pattern: 'https://example.com',
+          match_mode: 'STANDARD',
+          nth_occurrence: 1,
+          payload: 'javascript:alert(1)',
+          payload_vars: false,
+        },
+      ],
+    });
+
+    const result = await simulateActionPack('https://example.com', pack, runtime, DEFAULT_SETTINGS);
+
+    expect(result.changed).toBe(false);
+    expect(result.finalUrl).toBe('https://example.com');
+    expect(result.issues[0]?.message).toContain('protocol');
   });
 });

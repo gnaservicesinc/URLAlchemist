@@ -1,6 +1,6 @@
 import { decode, encode } from '@msgpack/msgpack';
 
-import { VAULT_MAGIC, VAULT_SCHEMA_VERSION } from './constants';
+import { MAX_ACTION_PACK_BINARY_BYTES, VAULT_MAGIC, VAULT_SCHEMA_VERSION } from './constants';
 import { hexToBytes, sha256Hex } from './crypto';
 import type { ActionPack, ImportEnvelope } from './types';
 import { validateActionPack } from './validation';
@@ -15,6 +15,10 @@ export async function exportActionPackBinary(pack: ActionPack): Promise<Uint8Arr
   const checksumBytes = hexToBytes(checksumHex);
   const output = new Uint8Array(HEADER_LENGTH + payload.length);
 
+  if (output.byteLength > MAX_ACTION_PACK_BINARY_BYTES) {
+    throw new Error('Pack export exceeds the 1MB URL Alchemist pack size limit');
+  }
+
   output.set(MAGIC_BYTES, 0);
   output[MAGIC_BYTES.length] = VAULT_SCHEMA_VERSION;
   output.set(checksumBytes, MAGIC_BYTES.length + 1);
@@ -24,6 +28,10 @@ export async function exportActionPackBinary(pack: ActionPack): Promise<Uint8Arr
 }
 
 export async function importActionPackBinary(bytes: Uint8Array): Promise<ImportEnvelope> {
+  if (bytes.byteLength > MAX_ACTION_PACK_BINARY_BYTES) {
+    throw new Error('Pack files larger than 1MB are rejected');
+  }
+
   if (bytes.length <= HEADER_LENGTH) {
     throw new Error('The file is too small to be a URL Alchemist pack');
   }

@@ -1,7 +1,7 @@
 import type { ChangeEvent, DragEvent } from 'react';
 import { useEffect, useRef, useState } from 'react';
 
-import { REGEX_TIMEOUT_MS } from '../shared/constants';
+import { MAX_ACTION_PACK_BINARY_BYTES, REGEX_TIMEOUT_MS } from '../shared/constants';
 import { simulateActionPack } from '../shared/engine/engine';
 import type { EngineRuntime } from '../shared/engine/runtime';
 import { getHotkeyValidationError } from '../shared/hotkeys';
@@ -74,20 +74,38 @@ function copyForNewPack(draft: PackDraft): PackDraft {
       scope_regex: draft.trigger.scope_regex,
     },
     activities: draft.activities.map((activity, index) => ({
-        ...createActivityDraft(index + 1),
-        action: activity.action,
-        pattern: activity.pattern,
-        payload: activity.payload,
-        payload_vars: activity.payload_vars,
-        match_mode: activity.match_mode,
-        nth_occurrence: activity.nth_occurrence,
-        condition: activity.condition,
-        helperInput: activity.helperInput,
-        helperMode: activity.helperMode,
-        regexBuilder: activity.regexBuilder,
-        regexSourceMode: activity.regexSourceMode,
-      })),
+      ...createActivityDraft(index + 1),
+      action: activity.action,
+      pattern: activity.pattern,
+      payload: activity.payload,
+      payload_vars: activity.payload_vars,
+      match_mode: activity.match_mode,
+      nth_occurrence: activity.nth_occurrence,
+      condition: activity.condition,
+      helperInput: activity.helperInput,
+      helperMode: activity.helperMode,
+      regexBuilder: activity.regexBuilder,
+      regexSourceMode: activity.regexSourceMode,
+    })),
   };
+}
+
+function getPackImportValidationErrors(
+  envelope: ImportEnvelope | null,
+  installedPacks: ActionPack[],
+): string[] {
+  if (!envelope) {
+    return [];
+  }
+
+  const errors = validatePackDraftInputs(toPackDraft(envelope.pack), installedPacks);
+  const installedPack = installedPacks.find((pack) => pack.id === envelope.pack.id);
+
+  if (installedPack) {
+    errors.push(`An installed pack already uses this pack ID (${installedPack.name}). Delete it before importing this file.`);
+  }
+
+  return Array.from(new Set(errors));
 }
 
 function App() {
@@ -118,7 +136,10 @@ function App() {
         )
       : null;
   const draftValidationErrors = validatePackDraftInputs(draft, state.packs);
+  const duplicateDraftValidationErrors = validatePackDraftInputs(copyForNewPack(draft), state.packs);
+  const stagedImportValidationErrors = getPackImportValidationErrors(stagedImport, state.packs);
   const canSaveDraft = draftValidationErrors.length === 0;
+  const canDuplicateDraft = duplicateDraftValidationErrors.length === 0;
   const shouldShowDraftValidation = draftTouched && draftValidationErrors.length > 0;
 
   if (!runtimeRef.current) {
@@ -195,17 +216,23 @@ function App() {
   async function handleFileSelection(file: File): Promise<void> {
     setImportBusy(true);
     setImportError(null);
+    setStagedImport(null);
+    setSandboxInput('');
+    setSandboxOutput('');
+    setSandboxError(null);
+    setHasSandboxRun(false);
+    setReviewAcknowledged(false);
 
     try {
+      if (file.size > MAX_ACTION_PACK_BINARY_BYTES) {
+        throw new Error('Pack files larger than 1MB are rejected');
+      }
+
       const bytes = new Uint8Array(await file.arrayBuffer());
       const envelope = await importActionPackBinary(bytes);
       setStagedImport(envelope);
-      setSandboxInput('');
-      setSandboxOutput('');
-      setSandboxError(null);
-      setHasSandboxRun(false);
-      setReviewAcknowledged(false);
     } catch (error) {
+      setStagedImport(null);
       setImportError(error instanceof Error ? error.message : 'Unable to import this pack');
     } finally {
       setImportBusy(false);
@@ -289,10 +316,11 @@ function App() {
   }
 
   async function handleConfirmImport(): Promise<void> {
-    if (!stagedImport) {
+    if (!stagedImport || stagedImportValidationErrors.length > 0) {
       return;
     }
 
+    setImportError(null);
     await applyState(upsertPack(stagedImport.pack));
     setStagedImport(null);
     setSandboxInput('');
@@ -365,6 +393,10 @@ function App() {
   }
 
   async function duplicateDraftIntoNewPack(): Promise<void> {
+    if (!canDuplicateDraft) {
+      return;
+    }
+
     const duplicated = fromPackDraft(copyForNewPack(draft));
     const nextState = { ...state, packs: [duplicated, ...state.packs] };
     await saveStoredState(nextState);
@@ -552,7 +584,7 @@ function App() {
             <button className="ghost-button" type="button" onClick={resetDraft}>
               New Pack
             </button>
-            <button className="ghost-button" disabled={!canSaveDraft} type="button" onClick={() => void duplicateDraftIntoNewPack()}>
+            <button className="ghost-button" disabled={!canDuplicateDraft} type="button" onClick={() => void duplicateDraftIntoNewPack()}>
               Duplicate Draft
             </button>
             <button className="primary-button" disabled={!canSaveDraft} type="button" onClick={() => void handleSaveDraft()}>
@@ -950,6 +982,7 @@ function App() {
         sandboxError={sandboxError}
         sandboxInput={sandboxInput}
         sandboxOutput={sandboxOutput}
+        validationErrors={stagedImportValidationErrors}
         onClose={() => setStagedImport(null)}
         onConfirm={() => void handleConfirmImport()}
         onReviewAcknowledgedChange={setReviewAcknowledged}

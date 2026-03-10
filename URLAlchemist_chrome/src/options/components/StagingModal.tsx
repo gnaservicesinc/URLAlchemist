@@ -6,6 +6,7 @@ interface StagingModalProps {
   sandboxInput: string;
   sandboxOutput: string;
   sandboxError: string | null;
+  validationErrors: string[];
   hasSandboxRun: boolean;
   reviewAcknowledged: boolean;
   onClose: () => void;
@@ -19,6 +20,7 @@ export function StagingModal({
   sandboxInput,
   sandboxOutput,
   sandboxError,
+  validationErrors,
   hasSandboxRun,
   reviewAcknowledged,
   onClose,
@@ -31,7 +33,7 @@ export function StagingModal({
   }
 
   const { pack } = envelope;
-  const confirmUnlocked = hasSandboxRun || reviewAcknowledged;
+  const confirmUnlocked = (hasSandboxRun || reviewAcknowledged) && validationErrors.length === 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/55 px-4 py-10 backdrop-blur-md">
@@ -132,6 +134,17 @@ export function StagingModal({
             <p className="mt-3 text-xs text-slate-500">
               Confirm unlocks after one sandbox run or after the review checkbox is enabled.
             </p>
+
+            {validationErrors.length > 0 ? (
+              <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50/90 px-4 py-3 text-sm text-rose-700">
+                <p className="font-semibold text-rose-900">Import is blocked until these issues are resolved:</p>
+                <ul className="mt-2 list-disc pl-5">
+                  {validationErrors.map((error) => (
+                    <li key={error}>{error}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
 
             <div className="mt-6 flex flex-wrap justify-end gap-3">
               <button className="ghost-button" type="button" onClick={onClose}>

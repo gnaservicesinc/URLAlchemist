@@ -148,7 +148,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   const tabId = sender.tab?.id;
   const hotkey = normalizeHotkeyValue(message.hotkey);
-  const url = message.url || sender.tab?.url;
+  const url = sender.tab?.url || message.url;
 
   if (tabId === undefined || !hotkey || !url) {
     sendResponse({ handled: false });
