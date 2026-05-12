@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import {
   Background,
   Controls,
@@ -7,6 +7,8 @@ import {
   Position,
   ReactFlow,
   ReactFlowProvider,
+  applyEdgeChanges as applyReactFlowEdgeChanges,
+  applyNodeChanges as applyReactFlowNodeChanges,
   type Connection,
   type Edge,
   type EdgeChange,
@@ -185,7 +187,7 @@ function renderBlockSettings(node: WorkspaceNodeV2, onSettingsChange: (settings:
   }
 }
 
-function WorkspaceBlockNode({ data, selected }: NodeProps<WorkspaceFlowNode>) {
+const WorkspaceBlockNode = memo(function WorkspaceBlockNode({ data, selected }: NodeProps<WorkspaceFlowNode>) {
   const { definition, invalidInputs, node, onSettingsChange } = data;
   const locked = !definition.flags.canDelete || node.settings.locked;
 
@@ -240,7 +242,7 @@ function WorkspaceBlockNode({ data, selected }: NodeProps<WorkspaceFlowNode>) {
       </div>
     </div>
   );
-}
+});
 
 const nodeTypes = {
   workspaceBlock: WorkspaceBlockNode,
@@ -250,13 +252,19 @@ function WorkspaceFlow({ workspace, onWorkspaceChange }: Pick<WorkspaceEditorPro
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; flowX: number; flowY: number } | null>(null);
   const [flowInstance, setFlowInstance] = useState<ReactFlowInstance | null>(null);
   const compileResult = useMemo(() => compileWorkspace(workspace), [workspace]);
-  const invalidEdgeIds = new Set(compileResult.validation.invalidEdgeIds);
+  const invalidEdgeIds = useMemo(
+    () => new Set(compileResult.validation.invalidEdgeIds),
+    [compileResult.validation.invalidEdgeIds],
+  );
 
-  function handleSettingsChange(nodeId: string, settings: Partial<WorkspaceBlockSettings>): void {
-    onWorkspaceChange(updateNodeSettings(workspace, nodeId, settings));
-  }
+  const handleSettingsChange = useCallback(
+    (nodeId: string, settings: Partial<WorkspaceBlockSettings>): void => {
+      onWorkspaceChange(updateNodeSettings(workspace, nodeId, settings));
+    },
+    [onWorkspaceChange, workspace],
+  );
 
-  const nodes = useMemo<WorkspaceFlowNode[]>(
+  const workspaceNodes = useMemo<WorkspaceFlowNode[]>(
     () =>
       workspace.nodes.map((node) => {
         const definition = getBlockDefinition(node.type);
@@ -280,7 +288,7 @@ function WorkspaceFlow({ workspace, onWorkspaceChange }: Pick<WorkspaceEditorPro
     [workspace, invalidEdgeIds],
   );
 
-  const edges = useMemo<Edge[]>(
+  const workspaceEdges = useMemo<Edge[]>(
     () =>
       workspace.edges.map((edge) => ({
         id: edge.id,
@@ -297,7 +305,18 @@ function WorkspaceFlow({ workspace, onWorkspaceChange }: Pick<WorkspaceEditorPro
     [workspace.edges, invalidEdgeIds],
   );
 
-  function applyNodeChanges(changes: NodeChange[]): void {
+  const [flowNodes, setFlowNodes] = useState<WorkspaceFlowNode[]>(workspaceNodes);
+  const [flowEdges, setFlowEdges] = useState<Edge[]>(workspaceEdges);
+
+  useEffect(() => {
+    setFlowNodes(workspaceNodes);
+  }, [workspaceNodes]);
+
+  useEffect(() => {
+    setFlowEdges(workspaceEdges);
+  }, [workspaceEdges]);
+
+  const handleNodeChanges = useCallback((changes: NodeChange[]): void => {
     const removedIds = new Set(
       changes
         .filter((change) => change.type === 'remove')
@@ -308,30 +327,47 @@ function WorkspaceFlow({ workspace, onWorkspaceChange }: Pick<WorkspaceEditorPro
         }),
     );
 
-    const positionChanges = new Map<string, WorkspaceNodeV2['position']>();
-    changes.forEach((change) => {
-      if (change.type === 'position' && change.position) {
-        positionChanges.set(change.id, change.position);
-      }
-    });
-
-    if (removedIds.size === 0 && positionChanges.size === 0) {
+    if (removedIds.size === 0) {
+      setFlowNodes((currentNodes) => applyReactFlowNodeChanges(changes, currentNodes) as WorkspaceFlowNode[]);
       return;
     }
 
     onWorkspaceChange({
       ...workspace,
       metadata: { ...workspace.metadata, updated_at: Date.now() },
-      nodes: workspace.nodes
-        .filter((node) => !removedIds.has(node.id))
-        .map((node) => (positionChanges.has(node.id) ? { ...node, position: positionChanges.get(node.id)! } : node)),
+      nodes: workspace.nodes.filter((node) => !removedIds.has(node.id)),
       edges: workspace.edges.filter((edge) => !removedIds.has(edge.source) && !removedIds.has(edge.target)),
     });
-  }
+  }, [onWorkspaceChange, workspace]);
 
-  function applyEdgeChanges(changes: EdgeChange[]): void {
+  const handleNodeDragStop = useCallback((_event: ReactMouseEvent, node: Node): void => {
+    const currentNode = workspace.nodes.find((candidate) => candidate.id === node.id);
+    if (!currentNode) {
+      return;
+    }
+
+    if (currentNode.position.x === node.position.x && currentNode.position.y === node.position.y) {
+      return;
+    }
+
+    onWorkspaceChange({
+      ...workspace,
+      metadata: { ...workspace.metadata, updated_at: Date.now() },
+      nodes: workspace.nodes.map((candidate) =>
+        candidate.id === node.id
+          ? {
+              ...candidate,
+              position: node.position,
+            }
+          : candidate,
+      ),
+    });
+  }, [onWorkspaceChange, workspace]);
+
+  const handleEdgeChanges = useCallback((changes: EdgeChange[]): void => {
     const removedIds = new Set(changes.filter((change) => change.type === 'remove').map((change) => change.id));
     if (removedIds.size === 0) {
+      setFlowEdges((currentEdges) => applyReactFlowEdgeChanges(changes, currentEdges));
       return;
     }
 
@@ -340,7 +376,7 @@ function WorkspaceFlow({ workspace, onWorkspaceChange }: Pick<WorkspaceEditorPro
       metadata: { ...workspace.metadata, updated_at: Date.now() },
       edges: workspace.edges.filter((edge) => !removedIds.has(edge.id)),
     });
-  }
+  }, [onWorkspaceChange, workspace]);
 
   function canConnect(connection: Connection | Edge): boolean {
     if (!connection.source || !connection.sourceHandle || !connection.target || !connection.targetHandle) {
@@ -386,11 +422,12 @@ function WorkspaceFlow({ workspace, onWorkspaceChange }: Pick<WorkspaceEditorPro
       <ReactFlow
         colorMode="light"
         connectionLineStyle={{ stroke: '#c76a1a', strokeWidth: 2 }}
-        edges={edges}
-        fitView
+        defaultViewport={workspace.viewport}
+        edges={flowEdges}
         isValidConnection={canConnect}
         nodeTypes={nodeTypes}
-        nodes={nodes}
+        nodes={flowNodes}
+        onlyRenderVisibleElements
         onConnect={connect}
         onEdgeContextMenu={(event, edge) => {
           event.preventDefault();
@@ -399,9 +436,10 @@ function WorkspaceFlow({ workspace, onWorkspaceChange }: Pick<WorkspaceEditorPro
             edges: workspace.edges.filter((candidate) => candidate.id !== edge.id),
           });
         }}
-        onEdgesChange={applyEdgeChanges}
+        onEdgesChange={handleEdgeChanges}
         onInit={setFlowInstance}
-        onNodesChange={applyNodeChanges}
+        onNodeDragStop={handleNodeDragStop}
+        onNodesChange={handleNodeChanges}
         onPaneClick={() => setContextMenu(null)}
         onPaneContextMenu={(event) => {
           event.preventDefault();
