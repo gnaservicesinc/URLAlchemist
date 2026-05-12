@@ -1,3 +1,5 @@
+import type { CompiledActionPackV2, WorkspaceFileV2 } from './v2/types';
+
 export const TRIGGER_TYPES = ['ALWAYS', 'HOTKEY', 'CONTEXT_MENU', 'NEVER'] as const;
 export const ACTION_TYPES = ['SUBSTITUTE', 'REMOVE', 'APPEND', 'PREPEND'] as const;
 export const MATCH_MODES = ['STANDARD', 'BEFORE_PATTERN', 'AFTER_PATTERN', 'NTH_OCCURRENCE'] as const;
@@ -52,9 +54,30 @@ export interface GlobalSettings {
   advancedModeEnabled: boolean;
 }
 
+export interface StoredTraceEntry {
+  id: string;
+  packId: string;
+  packName: string;
+  timestamp: number;
+  inputUrl: string;
+  outputUrl: string;
+  changed: boolean;
+  entries: Array<{
+    nodeId: string;
+    op: string;
+    message: string;
+    valueType?: string;
+    preview?: string;
+  }>;
+  issues: EngineIssue[];
+}
+
 export interface StoredState {
   settings: GlobalSettings;
   packs: ActionPack[];
+  actionPacksV2: CompiledActionPackV2[];
+  workspacesV2: WorkspaceFileV2[];
+  traceEntries: StoredTraceEntry[];
 }
 
 export interface EngineIssue {

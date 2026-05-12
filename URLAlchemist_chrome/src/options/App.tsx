@@ -4,28 +4,47 @@ import { useEffect, useRef, useState } from 'react';
 import { MAX_ACTION_PACK_BINARY_BYTES, REGEX_TIMEOUT_MS } from '../shared/constants';
 import { simulateActionPack } from '../shared/engine/engine';
 import type { EngineRuntime } from '../shared/engine/runtime';
-import { getHotkeyValidationError } from '../shared/hotkeys';
 import { formatTimestamp, isGlobalScope, packUsesClipboard } from '../shared/helpers';
-import { deletePack, saveStoredState, updateSettings, upsertPack } from '../shared/storage';
-import type { ActionPack, ImportEnvelope, StoredState } from '../shared/types';
-import { exportActionPackBinary, importActionPackBinary } from '../shared/vault';
 import {
-  createActivityDraft,
-  createPackDraft,
-  fromPackDraft,
-  getActivityPatternValidationError,
-  reorderDraftActivities,
-  toPackDraft,
-  updateActivityDraft,
-  validatePackDraftInputs,
-  type ActivityDraft,
-  type PackDraft,
-} from './drafts';
-import { StagingModal } from './components/StagingModal';
-import { HotkeyRecorder } from './components/HotkeyRecorder';
-import { useStoredExtensionState } from './hooks/useStoredExtensionState';
+  deleteActionPackV2,
+  deletePack,
+  updateActionPackV2Trace,
+  updateSettings,
+  upsertActionPackV2,
+  upsertWorkspaceV2,
+} from '../shared/storage';
+import type { ActionPack, StoredState } from '../shared/types';
+import { exportActionPackBinary } from '../shared/vault';
 import { createPageRegexExecutor } from '../shared/regex/pageRunner';
-import { RegexBuilderPanel } from './components/RegexBuilderPanel';
+import { compileWorkspace } from '../shared/v2/compiler';
+import { executeCompiledActionPackV2, type GraphRuntime } from '../shared/v2/vm';
+import type { CompiledActionPackV2, WorkspaceFileV2 } from '../shared/v2/types';
+import { createDefaultWorkspace, workspaceFromLegacyPack } from '../shared/v2/workspace';
+import {
+  exportCompiledActionPackV2Binary,
+  exportWorkspaceBinary,
+  importAnyArtifact,
+} from '../shared/v2/vault';
+import { StagingModal } from './components/StagingModal';
+import { WorkspaceEditor } from './components/WorkspaceEditor';
+import { useStoredExtensionState } from './hooks/useStoredExtensionState';
+
+type BrowserChromeApi = {
+  downloads?: {
+    download?: typeof chrome.downloads.download;
+  };
+  permissions?: {
+    contains?: typeof chrome.permissions.contains;
+    request?: typeof chrome.permissions.request;
+  };
+  storage?: {
+    local?: typeof chrome.storage.local;
+  };
+};
+
+function getChromeApi(): BrowserChromeApi {
+  return (globalThis as unknown as { chrome?: BrowserChromeApi }).chrome ?? {};
+}
 
 function slugify(value: string): string {
   return value
@@ -35,85 +54,76 @@ function slugify(value: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
-async function downloadPack(pack: ActionPack): Promise<void> {
-  const bytes = await exportActionPackBinary(pack);
+async function downloadBytes(bytes: Uint8Array, filename: string): Promise<void> {
   const bufferCopy = new Uint8Array(bytes.byteLength);
   bufferCopy.set(bytes);
-  const buffer = bufferCopy.buffer;
-  const objectUrl = URL.createObjectURL(new Blob([buffer], { type: 'application/octet-stream' }));
+  const objectUrl = URL.createObjectURL(new Blob([bufferCopy.buffer], { type: 'application/octet-stream' }));
 
   try {
-    await chrome.downloads.download({
-      url: objectUrl,
-      filename: `url-alchemist/${slugify(pack.name) || 'action-pack'}.urlpack`,
-      saveAs: true,
-    });
+    const chromeApi = getChromeApi();
+    if (chromeApi.downloads?.download) {
+      await chromeApi.downloads.download({
+        url: objectUrl,
+        filename,
+        saveAs: true,
+      });
+      return;
+    }
+
+    const anchor = document.createElement('a');
+    anchor.href = objectUrl;
+    anchor.download = filename.split('/').pop() || 'download.bin';
+    anchor.click();
   } finally {
-    window.setTimeout(() => {
-      URL.revokeObjectURL(objectUrl);
-    }, 1_000);
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000);
   }
 }
 
-function copyForNewPack(draft: PackDraft): PackDraft {
-  const freshDraft = createPackDraft();
-
-  return {
-    ...freshDraft,
-    name: draft.name,
-    version: draft.version,
-    metadata: {
-      ...freshDraft.metadata,
-      author: draft.metadata.author,
-      description: draft.metadata.description,
-    },
-    trigger: {
-      ...freshDraft.trigger,
-      type: draft.trigger.type,
-      hotkey: draft.trigger.hotkey,
-      scope_regex: draft.trigger.scope_regex,
-    },
-    activities: draft.activities.map((activity, index) => ({
-      ...createActivityDraft(index + 1),
-      action: activity.action,
-      pattern: activity.pattern,
-      payload: activity.payload,
-      payload_vars: activity.payload_vars,
-      match_mode: activity.match_mode,
-      nth_occurrence: activity.nth_occurrence,
-      condition: activity.condition,
-      helperInput: activity.helperInput,
-      helperMode: activity.helperMode,
-      regexBuilder: activity.regexBuilder,
-      regexSourceMode: activity.regexSourceMode,
-    })),
-  };
+async function downloadLegacyPack(pack: ActionPack): Promise<void> {
+  await downloadBytes(await exportActionPackBinary(pack), `action-packs/${slugify(pack.name) || 'legacy-pack'}.urlpack`);
 }
 
-function getPackImportValidationErrors(
-  envelope: ImportEnvelope | null,
-  installedPacks: ActionPack[],
-): string[] {
-  if (!envelope) {
+function riskBadgeClass(pack: CompiledActionPackV2): string {
+  if (pack.risk.highest === 'high') {
+    return 'risk-badge-danger';
+  }
+
+  if (pack.risk.highest === 'extended') {
+    return 'risk-badge-warn';
+  }
+
+  return 'risk-badge-soft';
+}
+
+function getPackImportValidationErrors(pack: CompiledActionPackV2 | null, installedPacks: CompiledActionPackV2[]): string[] {
+  if (!pack) {
     return [];
   }
 
-  const errors = validatePackDraftInputs(toPackDraft(envelope.pack), installedPacks);
-  const installedPack = installedPacks.find((pack) => pack.id === envelope.pack.id);
-
-  if (installedPack) {
-    errors.push(`An installed pack already uses this pack ID (${installedPack.name}). Delete it before importing this file.`);
+  const errors: string[] = [];
+  const existing = installedPacks.find((candidate) => candidate.manifest.id === pack.manifest.id);
+  if (existing) {
+    errors.push(`An installed Action Pack already uses this ID (${existing.manifest.name}). Delete it before importing this file.`);
   }
 
-  return Array.from(new Set(errors));
+  if (!pack.vm.instructions.some((instruction) => instruction.op === 'OUTPUT')) {
+    errors.push('This Action Pack has no output instruction.');
+  }
+
+  return errors;
+}
+
+function shouldTrace(pack: CompiledActionPackV2): boolean {
+  return Boolean(pack.traceEnabledUntil && pack.traceEnabledUntil > Date.now());
 }
 
 function App() {
   const { state, setState, loading } = useStoredExtensionState();
-  const [draft, setDraft] = useState<PackDraft>(() => createPackDraft());
-  const [draftTouched, setDraftTouched] = useState(false);
-  const [draftSaveMessage, setDraftSaveMessage] = useState<string | null>(null);
-  const [stagedImport, setStagedImport] = useState<ImportEnvelope | null>(null);
+  const [workspace, setWorkspace] = useState<WorkspaceFileV2>(() => createDefaultWorkspace());
+  const [workspaceLoaded, setWorkspaceLoaded] = useState(false);
+  const [workspaceMessage, setWorkspaceMessage] = useState<string | null>(null);
+  const [stagedPack, setStagedPack] = useState<CompiledActionPackV2 | null>(null);
+  const [stagedChecksum, setStagedChecksum] = useState<string | undefined>(undefined);
   const [sandboxInput, setSandboxInput] = useState('');
   const [sandboxOutput, setSandboxOutput] = useState('');
   const [sandboxError, setSandboxError] = useState<string | null>(null);
@@ -122,45 +132,76 @@ function App() {
   const [clipboardGranted, setClipboardGranted] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [importBusy, setImportBusy] = useState(false);
-  const [draggedActivityId, setDraggedActivityId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const runtimeRef = useRef<EngineRuntime | null>(null);
-  const advancedModeEnabled = state.settings.advancedModeEnabled;
-  const hotkeyValidationError =
-    draft.trigger.type === 'HOTKEY'
-      ? getHotkeyValidationError(
-          draft.trigger.hotkey,
-          state.packs
-            .filter((pack) => pack.id !== draft.id && pack.trigger.type === 'HOTKEY')
-            .map((pack) => pack.trigger.hotkey ?? ''),
-        )
-      : null;
-  const draftValidationErrors = validatePackDraftInputs(draft, state.packs);
-  const duplicateDraftValidationErrors = validatePackDraftInputs(copyForNewPack(draft), state.packs);
-  const stagedImportValidationErrors = getPackImportValidationErrors(stagedImport, state.packs);
-  const canSaveDraft = draftValidationErrors.length === 0;
-  const canDuplicateDraft = duplicateDraftValidationErrors.length === 0;
-  const shouldShowDraftValidation = draftTouched && draftValidationErrors.length > 0;
+  const runtimeRef = useRef<GraphRuntime | null>(null);
+  const legacyRuntimeRef = useRef<EngineRuntime | null>(null);
+  const compiledWorkspace = compileWorkspace(workspace);
+  const stagedValidationErrors = getPackImportValidationErrors(stagedPack, state.actionPacksV2);
 
   if (!runtimeRef.current) {
-    runtimeRef.current = {
-      regex: createPageRegexExecutor(),
-      readClipboard: async () => {
-        const granted = await chrome.permissions.contains({
-          permissions: ['clipboardRead'],
-        });
+    const regex = createPageRegexExecutor();
+    const readClipboard = async () => {
+      const chromeApi = getChromeApi();
+      if (!chromeApi.permissions?.contains) {
+        return await navigator.clipboard.readText();
+      }
 
-        if (!granted) {
-          throw new Error('Clipboard access requires the optional clipboardRead permission.');
+      const granted = await chromeApi.permissions.contains({
+        permissions: ['clipboardRead'],
+      });
+
+      if (!granted) {
+        throw new Error('Clipboard access requires the optional clipboardRead permission.');
+      }
+
+      return await navigator.clipboard.readText();
+    };
+
+    runtimeRef.current = {
+      regex,
+      readClipboard,
+      readSource: async (source) => {
+        if (source === 'clipboard') {
+          return { type: 'string', value: await readClipboard() };
         }
 
-        return await navigator.clipboard.readText();
+        return undefined;
       },
+      loadSessionValue: async (key) => {
+        const chromeApi = getChromeApi();
+        if (!chromeApi.storage?.local) {
+          const stored = globalThis.localStorage?.getItem(`url-alchemist-session:${key}`);
+          return stored ? JSON.parse(stored) : undefined;
+        }
+
+        const stored = await chromeApi.storage.local.get(`url-alchemist-session:${key}`);
+        return stored[`url-alchemist-session:${key}`] as Awaited<ReturnType<NonNullable<GraphRuntime['loadSessionValue']>>>;
+      },
+      saveSessionValue: async (key, value) => {
+        const chromeApi = getChromeApi();
+        if (!chromeApi.storage?.local) {
+          globalThis.localStorage?.setItem(`url-alchemist-session:${key}`, JSON.stringify(value));
+          return;
+        }
+
+        await chromeApi.storage.local.set({ [`url-alchemist-session:${key}`]: value });
+      },
+    };
+
+    legacyRuntimeRef.current = {
+      regex,
+      readClipboard,
     };
   }
 
   useEffect(() => {
-    void chrome.permissions
+    const chromeApi = getChromeApi();
+    if (!chromeApi.permissions?.contains) {
+      setClipboardGranted(false);
+      return;
+    }
+
+    void chromeApi.permissions
       .contains({
         permissions: ['clipboardRead'],
       })
@@ -168,15 +209,21 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!stagedImport || !sandboxInput.trim()) {
+    if (!loading && !workspaceLoaded) {
+      setWorkspace(state.workspacesV2[0] ?? createDefaultWorkspace());
+      setWorkspaceLoaded(true);
+    }
+  }, [loading, state.workspacesV2, workspaceLoaded]);
+
+  useEffect(() => {
+    if (!stagedPack || !sandboxInput.trim()) {
       setSandboxOutput('');
       setSandboxError(null);
       return;
     }
 
     let cancelled = false;
-
-    void simulateActionPack(sandboxInput, stagedImport.pack, runtimeRef.current!, state.settings)
+    void executeCompiledActionPackV2(sandboxInput, stagedPack, runtimeRef.current!, state.settings)
       .then((result) => {
         if (cancelled) {
           return;
@@ -198,7 +245,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [sandboxInput, stagedImport, state.settings]);
+  }, [sandboxInput, stagedPack, state.settings]);
 
   async function applyState(nextStatePromise: Promise<StoredState>): Promise<void> {
     const nextState = await nextStatePromise;
@@ -206,17 +253,62 @@ function App() {
   }
 
   async function requestClipboardPermission(): Promise<void> {
-    const granted = await chrome.permissions.request({
+    const chromeApi = getChromeApi();
+    if (!chromeApi.permissions?.request) {
+      setClipboardGranted(false);
+      return;
+    }
+
+    const granted = await chromeApi.permissions.request({
       permissions: ['clipboardRead'],
     });
 
     setClipboardGranted(granted);
   }
 
+  async function saveWorkspace(): Promise<void> {
+    await applyState(upsertWorkspaceV2({ ...workspace, validationState: compiledWorkspace.validation }));
+    setWorkspaceMessage(`Saved workspace "${workspace.metadata.name}".`);
+  }
+
+  async function buildActionPack(): Promise<void> {
+    const result = compileWorkspace(workspace);
+    if (!result.ok || !result.pack) {
+      setWorkspaceMessage('Fix workspace validation before building an Action Pack.');
+      return;
+    }
+
+    await applyState(upsertWorkspaceV2(result.workspace));
+    await applyState(upsertActionPackV2(result.pack));
+    setWorkspace(result.workspace);
+    setWorkspaceMessage(`Built and installed "${result.pack.manifest.name}".`);
+  }
+
+  async function exportWorkspace(): Promise<void> {
+    await downloadBytes(
+      await exportWorkspaceBinary({ ...workspace, validationState: compiledWorkspace.validation }),
+      `workspaces/${slugify(workspace.metadata.name) || 'workspace'}.workspace`,
+    );
+  }
+
+  async function exportActionPack(): Promise<void> {
+    const result = compileWorkspace(workspace);
+    if (!result.ok || !result.pack) {
+      setWorkspaceMessage('Fix workspace validation before exporting an Action Pack.');
+      return;
+    }
+
+    await downloadBytes(
+      await exportCompiledActionPackV2Binary(result.pack),
+      `action-packs/${slugify(result.pack.manifest.name) || 'action-pack'}.actionpack`,
+    );
+  }
+
   async function handleFileSelection(file: File): Promise<void> {
     setImportBusy(true);
     setImportError(null);
-    setStagedImport(null);
+    setStagedPack(null);
+    setStagedChecksum(undefined);
     setSandboxInput('');
     setSandboxOutput('');
     setSandboxError(null);
@@ -225,15 +317,36 @@ function App() {
 
     try {
       if (file.size > MAX_ACTION_PACK_BINARY_BYTES) {
-        throw new Error('Pack files larger than 1MB are rejected');
+        throw new Error('Files larger than 1MB are rejected');
       }
 
       const bytes = new Uint8Array(await file.arrayBuffer());
-      const envelope = await importActionPackBinary(bytes);
-      setStagedImport(envelope);
+      const artifact = await importAnyArtifact(bytes);
+
+      if (artifact.kind === 'workspace') {
+        setWorkspace(artifact.workspace);
+        await applyState(upsertWorkspaceV2(artifact.workspace));
+        setWorkspaceMessage(`Opened workspace "${artifact.workspace.metadata.name}".`);
+        return;
+      }
+
+      if (artifact.kind === 'action-pack') {
+        setStagedPack(artifact.pack);
+        setStagedChecksum(artifact.checksumHex);
+        return;
+      }
+
+      const convertedWorkspace = workspaceFromLegacyPack(artifact.pack);
+      const result = compileWorkspace(convertedWorkspace);
+      setWorkspace(result.workspace);
+      await applyState(upsertWorkspaceV2(result.workspace));
+      if (result.pack) {
+        setStagedPack(result.pack);
+        setStagedChecksum(artifact.checksumHex);
+      }
+      setWorkspaceMessage(`Converted v1 pack "${artifact.pack.name}" into a v2 workspace.`);
     } catch (error) {
-      setStagedImport(null);
-      setImportError(error instanceof Error ? error.message : 'Unable to import this pack');
+      setImportError(error instanceof Error ? error.message : 'Unable to import this file');
     } finally {
       setImportBusy(false);
     }
@@ -257,72 +370,14 @@ function App() {
     }
   }
 
-  function resetDraft(): void {
-    setDraft(createPackDraft());
-    setDraftTouched(false);
-    setDraftSaveMessage(null);
-  }
-
-  async function handleSaveDraft(): Promise<void> {
-    const pack = fromPackDraft(draft);
-    await applyState(upsertPack(pack));
-    setDraftSaveMessage(`Saved "${pack.name}". You can start a new pack whenever you're ready.`);
-    setDraft(createPackDraft());
-    setDraftTouched(false);
-  }
-
-  async function handleDeletePack(packId: string): Promise<void> {
-    if (!window.confirm('Delete this action pack?')) {
+  async function confirmImport(): Promise<void> {
+    if (!stagedPack || stagedValidationErrors.length > 0) {
       return;
     }
 
-    await applyState(deletePack(packId));
-    if (draft.id === packId) {
-      resetDraft();
-    }
-  }
-
-  async function handleTogglePack(pack: ActionPack): Promise<void> {
-    await applyState(
-      upsertPack({
-        ...pack,
-        enabled: !pack.enabled,
-      }),
-    );
-  }
-
-  async function handleToggleGlobalEnabled(): Promise<void> {
-    await applyState(
-      updateSettings({
-        globalEnabled: !state.settings.globalEnabled,
-      }),
-    );
-  }
-
-  async function handleToggleLocalFiles(): Promise<void> {
-    await applyState(
-      updateSettings({
-        allowLocalFiles: !state.settings.allowLocalFiles,
-      }),
-    );
-  }
-
-  async function handleToggleAdvancedMode(): Promise<void> {
-    await applyState(
-      updateSettings({
-        advancedModeEnabled: !state.settings.advancedModeEnabled,
-      }),
-    );
-  }
-
-  async function handleConfirmImport(): Promise<void> {
-    if (!stagedImport || stagedImportValidationErrors.length > 0) {
-      return;
-    }
-
-    setImportError(null);
-    await applyState(upsertPack(stagedImport.pack));
-    setStagedImport(null);
+    await applyState(upsertActionPackV2(stagedPack));
+    setStagedPack(null);
+    setStagedChecksum(undefined);
     setSandboxInput('');
     setSandboxOutput('');
     setSandboxError(null);
@@ -330,94 +385,75 @@ function App() {
     setReviewAcknowledged(false);
   }
 
-  function markDraftEditing(): void {
-    if (!draftTouched) {
-      setDraftTouched(true);
-    }
-
-    if (draftSaveMessage) {
-      setDraftSaveMessage(null);
-    }
+  async function toggleV2Pack(pack: CompiledActionPackV2): Promise<void> {
+    await applyState(
+      upsertActionPackV2({
+        ...pack,
+        manifest: {
+          ...pack.manifest,
+          enabled: !pack.manifest.enabled,
+        },
+      }),
+    );
   }
 
-  function updateDraftActivity(activityId: string, updates: Partial<ActivityDraft>): void {
-    setDraftTouched(true);
-    setDraftSaveMessage(null);
-    setDraft((current) => ({
-      ...current,
-      activities: current.activities.map((activity) =>
-        activity.id === activityId ? updateActivityDraft(activity, updates) : activity,
-      ),
-    }));
-  }
-
-  function removeDraftActivity(activityId: string): void {
-    setDraftTouched(true);
-    setDraftSaveMessage(null);
-    setDraft((current) => ({
-      ...current,
-      activities:
-        current.activities.length === 1
-          ? current.activities
-          : current.activities
-              .filter((activity) => activity.id !== activityId)
-              .map((activity, index) => ({ ...activity, order: index + 1 })),
-    }));
-  }
-
-  function addDraftActivity(): void {
-    setDraftTouched(true);
-    setDraftSaveMessage(null);
-    setDraft((current) => ({
-      ...current,
-      activities: [...current.activities, createActivityDraft(current.activities.length + 1)],
-    }));
-  }
-
-  function handleDragStart(activityId: string): void {
-    setDraggedActivityId(activityId);
-  }
-
-  function handleDropOnActivity(targetId: string): void {
-    if (!draggedActivityId) {
+  async function deleteV2Pack(packId: string): Promise<void> {
+    if (!window.confirm('Delete this Action Pack?')) {
       return;
     }
 
-    setDraftTouched(true);
-    setDraftSaveMessage(null);
-    setDraft((current) => ({
-      ...current,
-      activities: reorderDraftActivities(current.activities, draggedActivityId, targetId),
-    }));
-    setDraggedActivityId(null);
+    await applyState(deleteActionPackV2(packId));
   }
 
-  async function duplicateDraftIntoNewPack(): Promise<void> {
-    if (!canDuplicateDraft) {
+  async function deleteLegacyPack(packId: string): Promise<void> {
+    if (!window.confirm('Delete this legacy URL pack?')) {
       return;
     }
 
-    const duplicated = fromPackDraft(copyForNewPack(draft));
-    const nextState = { ...state, packs: [duplicated, ...state.packs] };
-    await saveStoredState(nextState);
-    setState(nextState);
-    setDraftSaveMessage(`Saved a duplicate of "${duplicated.name}".`);
-    setDraft(createPackDraft());
-    setDraftTouched(false);
+    await applyState(deletePack(packId));
+  }
+
+  async function enableTraceForPack(pack: CompiledActionPackV2): Promise<void> {
+    await applyState(updateActionPackV2Trace(pack.manifest.id, Date.now() + 24 * 60 * 60 * 1000));
+  }
+
+  async function toggleGlobalEnabled(): Promise<void> {
+    await applyState(updateSettings({ globalEnabled: !state.settings.globalEnabled }));
+  }
+
+  async function toggleLocalFiles(): Promise<void> {
+    await applyState(updateSettings({ allowLocalFiles: !state.settings.allowLocalFiles }));
+  }
+
+  async function toggleAdvancedMode(): Promise<void> {
+    await applyState(updateSettings({ advancedModeEnabled: !state.settings.advancedModeEnabled }));
+  }
+
+  async function previewLegacyPack(pack: ActionPack): Promise<void> {
+    const convertedWorkspace = workspaceFromLegacyPack(pack);
+    const result = compileWorkspace(convertedWorkspace);
+    setWorkspace(result.workspace);
+    if (result.pack) {
+      setStagedPack(result.pack);
+      setStagedChecksum(undefined);
+    }
+
+    if (legacyRuntimeRef.current) {
+      await simulateActionPack('https://example.com/', pack, legacyRuntimeRef.current, state.settings);
+    }
   }
 
   return (
     <main className="mx-auto flex min-h-screen max-w-7xl flex-col gap-6 px-4 py-6 md:px-8 md:py-10">
-      <header className="reveal-panel rounded-[2rem] border border-white/65 bg-[linear-gradient(135deg,rgba(255,249,242,0.93),rgba(252,236,217,0.88))] px-6 py-7 shadow-[0_24px_70px_rgba(15,23,42,0.16)] md:px-8">
+      <header className="reveal-panel rounded-[1.75rem] border border-white/65 bg-[linear-gradient(135deg,rgba(255,249,242,0.93),rgba(252,236,217,0.88))] px-6 py-7 shadow-[0_24px_70px_rgba(15,23,42,0.16)] md:px-8">
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div className="max-w-3xl">
-            <p className="eyebrow">URL Alchemist</p>
+            <p className="eyebrow">URL Alchemist V2</p>
             <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950 md:text-5xl">
-              Chrome middleware for URL transformation.
+              Visual Action Pack workspaces.
             </h1>
             <p className="mt-4 max-w-2xl text-sm leading-6 text-slate-700 md:text-base">
-              Build action packs, import signed binary packs into a staging area, and route navigation through a
-              hardened transformation engine with {REGEX_TIMEOUT_MS}ms regex budgets.
+              Build node workspaces, compile them into optimized Action Packs, and stage binary imports through a sandboxed transparency flow with {REGEX_TIMEOUT_MS}ms regex budgets.
             </p>
           </div>
 
@@ -429,7 +465,7 @@ function App() {
                   <p className="text-sm font-semibold text-slate-900">Engine Enabled</p>
                   <p className="text-xs text-slate-500">Allow background navigation interception.</p>
                 </div>
-                <input checked={state.settings.globalEnabled} className="h-5 w-5 accent-amber-600" type="checkbox" onChange={() => void handleToggleGlobalEnabled()} />
+                <input checked={state.settings.globalEnabled} className="h-5 w-5 accent-amber-600" type="checkbox" onChange={() => void toggleGlobalEnabled()} />
               </label>
 
               <label className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white/80 px-4 py-3">
@@ -437,29 +473,25 @@ function App() {
                   <p className="text-sm font-semibold text-slate-900">Allow file URLs</p>
                   <p className="text-xs text-slate-500">Disabled by default for local file safety.</p>
                 </div>
-                <input checked={state.settings.allowLocalFiles} className="h-5 w-5 accent-amber-600" type="checkbox" onChange={() => void handleToggleLocalFiles()} />
+                <input checked={state.settings.allowLocalFiles} className="h-5 w-5 accent-amber-600" type="checkbox" onChange={() => void toggleLocalFiles()} />
               </label>
 
               <label className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white/80 px-4 py-3">
                 <div>
                   <p className="text-sm font-semibold text-slate-900">Advanced Mode</p>
-                  <p className="text-xs text-slate-500">
-                    Shows manual regex, scope rules, raw pattern previews, and conditions.
-                  </p>
+                  <p className="text-xs text-slate-500">Reserved for compatibility with v1 settings.</p>
                 </div>
-                <input checked={advancedModeEnabled} className="h-5 w-5 accent-amber-600" type="checkbox" onChange={() => void handleToggleAdvancedMode()} />
+                <input checked={state.settings.advancedModeEnabled} className="h-5 w-5 accent-amber-600" type="checkbox" onChange={() => void toggleAdvancedMode()} />
               </label>
 
               <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-4">
                 <p className="text-sm font-semibold text-slate-900">Clipboard Permission</p>
-                <p className="mt-1 text-xs text-slate-500">
-                  Needed only for packs that interpolate <span className="font-mono">{'{clipboard}'}</span>.
-                </p>
+                <p className="mt-1 text-xs text-slate-500">Needed only for high-risk clipboard sources or outputs.</p>
                 <div className="mt-3 flex items-center justify-between gap-3">
                   <span className={`risk-badge ${clipboardGranted ? 'risk-badge-soft' : 'risk-badge-warn'}`}>
                     {clipboardGranted ? 'Granted' : 'Not granted'}
                   </span>
-                  <button className="ghost-button" type="button" disabled={clipboardGranted} onClick={() => void requestClipboardPermission()}>
+                  <button className="ghost-button" disabled={clipboardGranted} type="button" onClick={() => void requestClipboardPermission()}>
                     Grant Access
                   </button>
                 </div>
@@ -469,18 +501,14 @@ function App() {
         </div>
       </header>
 
-      <section className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
-        <article
-          className="panel-shell reveal-panel"
-          onDragOver={(event) => event.preventDefault()}
-          onDrop={(event) => void handleDrop(event)}
-        >
+      <section className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
+        <article className="panel-shell reveal-panel" onDragOver={(event) => event.preventDefault()} onDrop={(event) => void handleDrop(event)}>
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="eyebrow">Vault</p>
-              <h2 className="mt-2 text-2xl font-semibold text-slate-900">Import binary action packs</h2>
+              <p className="eyebrow">Import</p>
+              <h2 className="mt-2 text-2xl font-semibold text-slate-900">Open workspace or stage pack</h2>
               <p className="mt-2 text-sm text-slate-600">
-                Drop a <span className="font-mono">.urlpack</span> file here to stage it for review without saving it.
+                Drop a v2 workspace, v2 Action Pack, or v1 <span className="font-mono">.urlpack</span>. File contents decide the route, not the extension.
               </p>
             </div>
             <button className="ghost-button" type="button" onClick={() => fileInputRef.current?.click()}>
@@ -488,20 +516,15 @@ function App() {
             </button>
           </div>
 
-          <div className="mt-5 rounded-[1.75rem] border border-dashed border-amber-300 bg-[linear-gradient(135deg,rgba(255,250,243,0.92),rgba(252,235,215,0.76))] px-6 py-10 text-center">
-            <p className="text-lg font-semibold text-slate-900">{importBusy ? 'Inspecting pack...' : 'Drop file to stage import'}</p>
-            <p className="mt-2 text-sm text-slate-600">The manifest, risk badges, decompiler cards, and sandbox appear before confirmation.</p>
+          <div className="mt-5 rounded-[1.5rem] border border-dashed border-amber-300 bg-amber-50/70 px-6 py-10 text-center">
+            <p className="text-lg font-semibold text-slate-900">{importBusy ? 'Inspecting file...' : 'Drop file to inspect'}</p>
+            <p className="mt-2 text-sm text-slate-600">Workspaces open in the editor; Action Packs open in the staging gate.</p>
           </div>
 
           {importError ? <p className="mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{importError}</p> : null}
+          {workspaceMessage ? <p className="mt-4 rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{workspaceMessage}</p> : null}
 
-          <input
-            ref={fileInputRef}
-            accept=".urlpack,application/octet-stream"
-            className="hidden"
-            type="file"
-            onChange={(event) => void handleImportChange(event)}
-          />
+          <input ref={fileInputRef} accept=".workspace,.actionpack,.urlpack,application/octet-stream" className="hidden" type="file" onChange={(event) => void handleImportChange(event)} />
         </article>
 
         <article className="panel-shell reveal-panel">
@@ -509,482 +532,141 @@ function App() {
           <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
             <div>
               <h2 className="text-2xl font-semibold text-slate-900">Installed packs</h2>
-              <p className="mt-1 text-sm text-slate-600">{loading ? 'Loading...' : `${state.packs.length} pack${state.packs.length === 1 ? '' : 's'} installed`}</p>
+              <p className="mt-1 text-sm text-slate-600">
+                {loading
+                  ? 'Loading...'
+                  : `${state.actionPacksV2.length} v2 Action Pack${state.actionPacksV2.length === 1 ? '' : 's'} · ${state.packs.length} legacy pack${state.packs.length === 1 ? '' : 's'}`}
+              </p>
             </div>
           </div>
 
           <div className="mt-5 grid gap-4">
-            {state.packs.length === 0 ? (
-              <div className="rounded-[1.5rem] border border-slate-200 bg-white/70 px-5 py-8 text-center text-sm text-slate-500">
-                No packs installed yet. Build one in the Forge or import a staged binary pack.
+            {state.actionPacksV2.length === 0 && state.packs.length === 0 ? (
+              <div className="rounded-[1.25rem] border border-slate-200 bg-white/70 px-5 py-8 text-center text-sm text-slate-500">
+                No packs installed yet. Build one from the workspace or import a staged binary pack.
               </div>
-            ) : (
-              state.packs.map((pack) => (
-                <article key={pack.id} className="rounded-[1.6rem] border border-slate-200 bg-white/85 p-5 shadow-[0_12px_28px_rgba(15,23,42,0.08)]">
-                  <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-lg font-semibold text-slate-900">{pack.name}</h3>
-                        <span className={`risk-badge ${pack.enabled ? 'risk-badge-soft' : 'risk-badge-danger'}`}>
-                          {pack.enabled ? 'Enabled' : 'Disabled'}
-                        </span>
-                        {isGlobalScope(pack.trigger.scope_regex) ? <span className="risk-badge risk-badge-danger">Global scope</span> : null}
-                        {packUsesClipboard(pack) ? <span className="risk-badge risk-badge-warn">Clipboard</span> : null}
-                      </div>
-                      <p className="mt-2 text-sm text-slate-600">{pack.metadata.description?.trim() || 'No description supplied.'}</p>
-                      <p className="mt-3 text-xs uppercase tracking-[0.2em] text-slate-500">
-                        {pack.trigger.type} · {pack.activities.length} activities · Created {formatTimestamp(pack.metadata.created_at)}
-                      </p>
+            ) : null}
+
+            {state.actionPacksV2.map((pack) => (
+              <article key={pack.manifest.id} className={`rounded-[1.25rem] border bg-white/85 p-5 shadow-[0_12px_28px_rgba(15,23,42,0.08)] ${pack.risk.highest === 'high' ? 'border-rose-300 ring-2 ring-rose-100' : pack.risk.highest === 'extended' ? 'border-amber-300' : 'border-slate-200'}`}>
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-lg font-semibold text-slate-900">{pack.manifest.name}</h3>
+                      <span className={`risk-badge ${pack.manifest.enabled ? 'risk-badge-soft' : 'risk-badge-danger'}`}>
+                        {pack.manifest.enabled ? 'Enabled' : 'Disabled'}
+                      </span>
+                      <span className={`risk-badge ${riskBadgeClass(pack)}`}>{pack.risk.highest} risk</span>
+                      {isGlobalScope(pack.manifest.trigger.scope_regex) ? <span className="risk-badge risk-badge-danger">Global scope</span> : null}
+                      {shouldTrace(pack) ? <span className="risk-badge risk-badge-warn">Trace active</span> : null}
                     </div>
-
-                    <label className="flex items-center gap-3 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">
-                      Enabled
-                      <input checked={pack.enabled} className="h-4 w-4 accent-amber-600" type="checkbox" onChange={() => void handleTogglePack(pack)} />
-                    </label>
+                    <p className="mt-2 text-sm text-slate-600">{pack.manifest.metadata.description?.trim() || 'No description supplied.'}</p>
+                    <p className="mt-3 text-xs uppercase tracking-[0.2em] text-slate-500">
+                      {pack.manifest.trigger.type} · {pack.vm.instructions.length} instructions · Created {formatTimestamp(pack.manifest.metadata.created_at)}
+                    </p>
                   </div>
 
-                  <div className="mt-5 flex flex-wrap gap-3">
-                    <button
-                      className="ghost-button"
-                      type="button"
-                      onClick={() => {
-                        setDraft(toPackDraft(pack));
-                        setDraftTouched(false);
-                        setDraftSaveMessage(null);
-                      }}
-                    >
-                      Edit
-                    </button>
-                    <button className="ghost-button" type="button" onClick={() => void downloadPack(pack)}>
-                      Export
-                    </button>
-                    <button className="ghost-button" type="button" onClick={() => void handleDeletePack(pack.id)}>
-                      Delete
-                    </button>
-                  </div>
-                </article>
-              ))
-            )}
+                  <label className="flex items-center gap-3 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">
+                    Enabled
+                    <input checked={pack.manifest.enabled} className="h-4 w-4 accent-amber-600" type="checkbox" onChange={() => void toggleV2Pack(pack)} />
+                  </label>
+                </div>
+
+                <div className="mt-5 flex flex-wrap gap-3">
+                  <button className="ghost-button" type="button" onClick={() => void enableTraceForPack(pack)}>
+                    Enable 24h Trace
+                  </button>
+                  <button
+                    className="ghost-button"
+                    type="button"
+                    onClick={() =>
+                      void exportCompiledActionPackV2Binary(pack).then((bytes) =>
+                        downloadBytes(bytes, `action-packs/${slugify(pack.manifest.name) || 'action-pack'}.actionpack`),
+                      )
+                    }
+                  >
+                    Export
+                  </button>
+                  <button className="ghost-button" type="button" onClick={() => void deleteV2Pack(pack.manifest.id)}>
+                    Delete
+                  </button>
+                </div>
+              </article>
+            ))}
+
+            {state.packs.map((pack) => (
+              <article key={pack.id} className="rounded-[1.25rem] border border-slate-200 bg-white/75 p-5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="text-lg font-semibold text-slate-900">{pack.name}</h3>
+                  <span className="risk-badge risk-badge-soft">Legacy v1</span>
+                  {packUsesClipboard(pack) ? <span className="risk-badge risk-badge-danger">Clipboard</span> : null}
+                </div>
+                <p className="mt-2 text-sm text-slate-600">{pack.metadata.description?.trim() || 'No description supplied.'}</p>
+                <div className="mt-5 flex flex-wrap gap-3">
+                  <button className="ghost-button" type="button" onClick={() => void previewLegacyPack(pack)}>
+                    Convert Preview
+                  </button>
+                  <button className="ghost-button" type="button" onClick={() => void downloadLegacyPack(pack)}>
+                    Export v1
+                  </button>
+                  <button className="ghost-button" type="button" onClick={() => void deleteLegacyPack(pack.id)}>
+                    Delete
+                  </button>
+                </div>
+              </article>
+            ))}
           </div>
         </article>
       </section>
 
+      <WorkspaceEditor
+        workspace={workspace}
+        onBuildActionPack={() => void buildActionPack()}
+        onExportActionPack={() => void exportActionPack()}
+        onExportWorkspace={() => void exportWorkspace()}
+        onSaveWorkspace={() => void saveWorkspace()}
+        onWorkspaceChange={(nextWorkspace) => {
+          setWorkspace(nextWorkspace);
+          setWorkspaceMessage(null);
+        }}
+      />
+
       <section className="panel-shell reveal-panel">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <p className="eyebrow">Forge</p>
-            <h2 className="mt-2 text-2xl font-semibold text-slate-900">Compose an action pack</h2>
-            <p className="mt-2 max-w-3xl text-sm text-slate-600">
-              {advancedModeEnabled
-                ? 'Advanced mode is on, so you can edit manual regex, scope rules, and conditional logic directly.'
-                : 'Simple mode is on, so the Forge stays focused on sample URLs, clear actions, and recorded hotkeys.'}
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-3">
-            <button className="ghost-button" type="button" onClick={resetDraft}>
-              New Pack
-            </button>
-            <button className="ghost-button" disabled={!canDuplicateDraft} type="button" onClick={() => void duplicateDraftIntoNewPack()}>
-              Duplicate Draft
-            </button>
-            <button className="primary-button" disabled={!canSaveDraft} type="button" onClick={() => void handleSaveDraft()}>
-              Save Pack
-            </button>
-          </div>
-        </div>
-
-        {draftSaveMessage ? (
-          <div className="mt-5 rounded-[1.5rem] border border-emerald-200 bg-emerald-50/90 px-5 py-4 text-sm text-emerald-800">
-            <p className="font-semibold text-emerald-950">{draftSaveMessage}</p>
-          </div>
-        ) : null}
-
-        {shouldShowDraftValidation ? (
-          <div className="mt-5 rounded-[1.5rem] border border-rose-200 bg-rose-50/80 px-5 py-4 text-sm text-rose-700">
-            <p className="font-semibold text-rose-900">Fix these safety checks before saving:</p>
-            <ul className="mt-2 list-disc pl-5">
-              {draftValidationErrors.map((error) => (
-                <li key={error}>{error}</li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-
-        {!advancedModeEnabled ? (
-          <div className="mt-5 rounded-[1.5rem] border border-amber-200 bg-amber-50/75 px-5 py-4 text-sm text-amber-900">
-            Simple mode hides manual regex, scope regex, raw regex previews, payload variables, and activity
-            conditions. Turn on <strong>Advanced Mode</strong> in Global Controls whenever you need those tools.
-          </div>
-        ) : null}
-
-        <div className="mt-6 grid gap-5 lg:grid-cols-2">
-          <label className="field-shell">
-            <span className="field-label">Pack Name</span>
-            <input
-              className="field-input"
-              value={draft.name}
-              onChange={(event) => {
-                markDraftEditing();
-                setDraft((current) => ({ ...current, name: event.target.value }));
-              }}
-            />
-          </label>
-          <label className="field-shell">
-            <span className="field-label">Version</span>
-            <input
-              className="field-input"
-              min={1}
-              type="number"
-              value={draft.version}
-              onChange={(event) => {
-                markDraftEditing();
-                setDraft((current) => ({
-                  ...current,
-                  version: Math.max(1, Number.parseInt(event.target.value || '1', 10)),
-                }));
-              }}
-            />
-          </label>
-          <label className="field-shell">
-            <span className="field-label">Author</span>
-            <input
-              className="field-input"
-              value={draft.metadata.author ?? ''}
-              onChange={(event) => {
-                markDraftEditing();
-                setDraft((current) => ({
-                  ...current,
-                  metadata: {
-                    ...current.metadata,
-                    author: event.target.value,
-                  },
-                }));
-              }}
-            />
-          </label>
-          <label className="field-shell">
-            <span className="field-label">Trigger</span>
-            <select
-              className="field-select"
-              value={draft.trigger.type}
-              onChange={(event) => {
-                markDraftEditing();
-                setDraft((current) => ({
-                  ...current,
-                  trigger: {
-                    ...current.trigger,
-                    type: event.target.value as PackDraft['trigger']['type'],
-                  },
-                }));
-              }}
-            >
-              <option value="ALWAYS">Always</option>
-              <option value="HOTKEY">Hotkey</option>
-              <option value="CONTEXT_MENU">Context Menu</option>
-              <option value="NEVER">Never</option>
-            </select>
-          </label>
-          <label className="field-shell lg:col-span-2">
-            <span className="field-label">Description</span>
-            <textarea
-              className="field-textarea min-h-24"
-              value={draft.metadata.description ?? ''}
-              onChange={(event) => {
-                markDraftEditing();
-                setDraft((current) => ({
-                  ...current,
-                  metadata: {
-                    ...current.metadata,
-                    description: event.target.value,
-                  },
-                }));
-              }}
-            />
-          </label>
-          {advancedModeEnabled ? (
-            <label className="field-shell">
-              <span className="field-label">Scope Regex</span>
-              <input
-                className="field-input"
-                placeholder="Leave blank to run globally"
-                value={draft.trigger.scope_regex ?? ''}
-                onChange={(event) => {
-                  markDraftEditing();
-                  setDraft((current) => ({
-                    ...current,
-                    trigger: {
-                      ...current.trigger,
-                      scope_regex: event.target.value,
-                    },
-                  }));
-                }}
-              />
-            </label>
-          ) : null}
-
-          {draft.trigger.type === 'HOTKEY' ? (
-            <div className={advancedModeEnabled ? '' : 'lg:col-span-2'}>
-              <HotkeyRecorder
-                validationError={hotkeyValidationError}
-                value={draft.trigger.hotkey}
-                onChange={(hotkey) => {
-                  markDraftEditing();
-                  setDraft((current) => ({
-                    ...current,
-                    trigger: {
-                      ...current.trigger,
-                      hotkey,
-                    },
-                  }));
-                }}
-              />
+        <p className="eyebrow">Trace</p>
+        <h2 className="mt-2 text-2xl font-semibold text-slate-900">Recent local traces</h2>
+        <div className="mt-5 grid gap-3">
+          {state.traceEntries.length === 0 ? (
+            <div className="rounded-[1.25rem] border border-slate-200 bg-white/70 px-5 py-6 text-sm text-slate-500">
+              No trace entries yet. Extended and high-risk packs can enable trace from the dashboard.
             </div>
-          ) : null}
-        </div>
-
-        <div className="mt-8 flex items-center justify-between gap-4">
-          <div>
-            <p className="eyebrow">Activities</p>
-            <p className="mt-1 text-sm text-slate-600">Drag cards to reorder the execution pipeline.</p>
-          </div>
-          <button className="secondary-button" type="button" onClick={addDraftActivity}>
-            Add Activity
-          </button>
-        </div>
-
-        <div className="mt-5 grid gap-4">
-          {draft.activities.map((activity) => (
-            <article
-              key={activity.id}
-              draggable
-              className="rounded-[1.7rem] border border-slate-200 bg-white/85 p-5 shadow-[0_14px_30px_rgba(15,23,42,0.08)]"
-              onDragOver={(event) => event.preventDefault()}
-              onDragStart={() => handleDragStart(activity.id)}
-              onDrop={() => handleDropOnActivity(activity.id)}
-            >
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Activity {activity.order}</p>
-                  <h3 className="mt-2 text-xl font-semibold text-slate-900">{activity.action}</h3>
+          ) : (
+            state.traceEntries.slice(0, 8).map((entry) => (
+              <article key={entry.id} className="rounded-[1.25rem] border border-slate-200 bg-white/75 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="font-semibold text-slate-900">{entry.packName}</p>
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{formatTimestamp(entry.timestamp)}</p>
                 </div>
-                <div className="flex flex-wrap gap-3">
-                  <button className="ghost-button" type="button" onClick={() => removeDraftActivity(activity.id)}>
-                    Remove
-                  </button>
-                </div>
-              </div>
-
-              <div className="mt-5 grid gap-4 lg:grid-cols-2">
-                <label className="field-shell">
-                  <span className="field-label">Action</span>
-                  <select
-                    className="field-select"
-                    value={activity.action}
-                    onChange={(event) =>
-                      updateDraftActivity(activity.id, {
-                        action: event.target.value as ActivityDraft['action'],
-                      })
-                    }
-                  >
-                    <option value="SUBSTITUTE">Substitute</option>
-                    <option value="REMOVE">Remove</option>
-                    <option value="APPEND">Append</option>
-                    <option value="PREPEND">Prepend</option>
-                  </select>
-                </label>
-
-                <label className="field-shell">
-                  <span className="field-label">Match Mode</span>
-                  <select
-                    className="field-select"
-                    value={activity.match_mode}
-                    onChange={(event) =>
-                      updateDraftActivity(activity.id, {
-                        match_mode: event.target.value as ActivityDraft['match_mode'],
-                      })
-                    }
-                  >
-                    <option value="STANDARD">Standard</option>
-                    <option value="BEFORE_PATTERN">Before Pattern</option>
-                    <option value="AFTER_PATTERN">After Pattern</option>
-                    <option value="NTH_OCCURRENCE">Nth Occurrence</option>
-                  </select>
-                </label>
-
-                {activity.match_mode === 'NTH_OCCURRENCE' ? (
-                  <label className="field-shell">
-                    <span className="field-label">Occurrence Number</span>
-                    <input
-                      className="field-input"
-                      min={1}
-                      type="number"
-                      value={activity.nth_occurrence ?? 1}
-                      onChange={(event) =>
-                        updateDraftActivity(activity.id, {
-                          nth_occurrence: Math.max(1, Number.parseInt(event.target.value || '1', 10)),
-                        })
-                      }
-                    />
-                  </label>
-                ) : null}
-
-                <label className="field-shell">
-                  <span className="field-label">Match Helper</span>
-                  <select
-                    className="field-select"
-                    value={activity.helperMode}
-                    onChange={(event) =>
-                      updateDraftActivity(activity.id, {
-                        helperMode: event.target.value as ActivityDraft['helperMode'],
-                      })
-                    }
-                  >
-                    <option value="CONTAINS">Contains</option>
-                    <option value="STARTS_WITH">Starts With</option>
-                    <option value="REGEX">{advancedModeEnabled ? 'Manual Regex' : 'Build From Sample URL'}</option>
-                  </select>
-                </label>
-
-                {activity.helperMode === 'REGEX' ? (
-                  <RegexBuilderPanel
-                    advancedModeEnabled={advancedModeEnabled}
-                    activity={activity}
-                    validationError={getActivityPatternValidationError(activity)}
-                    onUpdate={(updates) => updateDraftActivity(activity.id, updates)}
-                  />
-                ) : (
-                  <label className="field-shell lg:col-span-2">
-                    <span className="field-label">Text to Match</span>
-                    <input
-                      className="field-input"
-                      value={activity.helperInput}
-                      onChange={(event) =>
-                        updateDraftActivity(activity.id, {
-                          helperInput: event.target.value,
-                        })
-                      }
-                    />
-                  </label>
-                )}
-
-                {advancedModeEnabled ? (
-                  <label className="field-shell lg:col-span-2">
-                    <span className="field-label">Generated Pattern</span>
-                    <input className="field-input font-mono text-xs" readOnly value={activity.pattern} />
-                  </label>
-                ) : null}
-
-                <label className="field-shell lg:col-span-2">
-                  <span className="field-label">Payload</span>
-                  <textarea
-                    className="field-textarea min-h-24"
-                    disabled={activity.action === 'REMOVE'}
-                    placeholder={activity.action === 'REMOVE' ? 'Ignored for REMOVE activities' : 'Injected value or replacement text'}
-                    value={activity.payload}
-                    onChange={(event) =>
-                      updateDraftActivity(activity.id, {
-                        payload: event.target.value,
-                      })
-                    }
-                  />
-                </label>
-
-                {advancedModeEnabled ? (
-                  <>
-                    <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white/70 px-4 py-3 text-sm text-slate-700 lg:col-span-2">
-                      <input
-                        checked={activity.payload_vars}
-                        className="h-4 w-4 accent-amber-600"
-                        type="checkbox"
-                        onChange={(event) =>
-                          updateDraftActivity(activity.id, {
-                            payload_vars: event.target.checked,
-                          })
-                        }
-                      />
-                      Resolve payload variables like <span className="font-mono">{'{date}'}</span>,{' '}
-                      <span className="font-mono">{'{clipboard}'}</span>, and regex groups.
-                    </label>
-
-                    <label className="field-shell">
-                      <span className="field-label">Condition</span>
-                      <select
-                        className="field-select"
-                        value={activity.condition?.type ?? 'NONE'}
-                        onChange={(event) =>
-                          updateDraftActivity(activity.id, {
-                            condition:
-                              event.target.value === 'NONE'
-                                ? undefined
-                                : {
-                                    type: event.target.value as NonNullable<ActivityDraft['condition']>['type'],
-                                    value: activity.condition?.value ?? '',
-                                    target: activity.condition?.target ?? 'PREVIOUS_OUTPUT',
-                                  },
-                          })
-                        }
-                      >
-                        <option value="NONE">No Condition</option>
-                        <option value="IF_CONTAINS">If Contains</option>
-                        <option value="IF_REGEX_MATCH">If Regex Match</option>
-                      </select>
-                    </label>
-
-                    {activity.condition ? (
-                      <>
-                        <label className="field-shell">
-                          <span className="field-label">Condition Target</span>
-                          <select
-                            className="field-select"
-                            value={activity.condition.target}
-                            onChange={(event) =>
-                              updateDraftActivity(activity.id, {
-                                condition: {
-                                  ...activity.condition!,
-                                  target: event.target.value as NonNullable<ActivityDraft['condition']>['target'],
-                                },
-                              })
-                            }
-                          >
-                            <option value="URL">Original URL</option>
-                            <option value="PREVIOUS_OUTPUT">Previous Output</option>
-                          </select>
-                        </label>
-                        <label className="field-shell lg:col-span-2">
-                          <span className="field-label">Condition Value</span>
-                          <input
-                            className="field-input"
-                            value={activity.condition.value}
-                            onChange={(event) =>
-                              updateDraftActivity(activity.id, {
-                                condition: {
-                                  ...activity.condition!,
-                                  value: event.target.value,
-                                },
-                              })
-                            }
-                          />
-                        </label>
-                      </>
-                    ) : null}
-                  </>
-                ) : null}
-              </div>
-            </article>
-          ))}
+                <p className="mt-2 break-all text-xs text-slate-500">
+                  {entry.inputUrl} → {entry.outputUrl}
+                </p>
+                <p className="mt-2 text-sm text-slate-600">{entry.entries.length} trace steps · {entry.issues.length} issues</p>
+              </article>
+            ))
+          )}
         </div>
       </section>
 
       <StagingModal
-        envelope={stagedImport}
+        checksumHex={stagedChecksum}
         hasSandboxRun={hasSandboxRun}
+        pack={stagedPack}
         reviewAcknowledged={reviewAcknowledged}
         sandboxError={sandboxError}
         sandboxInput={sandboxInput}
         sandboxOutput={sandboxOutput}
-        validationErrors={stagedImportValidationErrors}
-        onClose={() => setStagedImport(null)}
-        onConfirm={() => void handleConfirmImport()}
+        validationErrors={stagedValidationErrors}
+        onClose={() => setStagedPack(null)}
+        onConfirm={() => void confirmImport()}
         onReviewAcknowledgedChange={setReviewAcknowledged}
         onSandboxInputChange={setSandboxInput}
       />
