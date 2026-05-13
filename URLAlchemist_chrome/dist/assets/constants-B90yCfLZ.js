@@ -1,1 +1,0 @@
-const s="url-alchemist-state",a="URLA1",t=1,E=1048576,_=3,A=50,T=new Set(["",".*","^.*$","(?:.*)"]),n="url-alchemist-run-context",o=["http:","https:"],c={globalEnabled:!0,allowLocalFiles:!1,advancedModeEnabled:!1};export{o as A,n as C,c as D,T as G,E as M,A as R,s as S,a as V,t as a,_ as b};

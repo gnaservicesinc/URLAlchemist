@@ -132,21 +132,33 @@ function asString(value: GraphValue | undefined): string {
   return JSON.stringify(value.value);
 }
 
-function asNumber(value: GraphValue | undefined): number {
+function numericValues(value: GraphValue | undefined): number[] {
   if (!value) {
-    return 0;
+    return [];
   }
 
   if (typeof value.value === 'number') {
-    return Number.isFinite(value.value) ? value.value : 0;
+    return Number.isFinite(value.value) ? [value.value] : [];
   }
 
   if (Array.isArray(value.value)) {
-    return Number(value.value[0] ?? 0);
+    return value.value.map((entry) => Number(entry)).filter(Number.isFinite);
+  }
+
+  if (typeof value.value === 'string') {
+    return Array.from(value.value, (character) => character.charCodeAt(0));
+  }
+
+  if (value.type === 'data' && Array.isArray(value.value)) {
+    return value.value.map((entry) => Number(entry)).filter(Number.isFinite);
   }
 
   const parsed = Number.parseFloat(asString(value));
-  return Number.isFinite(parsed) ? parsed : 0;
+  return Number.isFinite(parsed) ? [parsed] : [];
+}
+
+function asNumber(value: GraphValue | undefined): number {
+  return numericValues(value)[0] ?? 0;
 }
 
 function getValue(state: VmState, key?: string): GraphValue | undefined {
@@ -211,6 +223,65 @@ function defaultSourceValue(source: string, inputUrl: string): GraphValue {
   }
 }
 
+function numericPayload(value: GraphValue | undefined): number | number[] {
+  const numbers = numericValues(value);
+  if (numbers.length === 0) {
+    return 0;
+  }
+
+  return numbers.length === 1 ? numbers[0] : numbers;
+}
+
+function applyNumericOperation(
+  left: number | number[],
+  right: number | number[],
+  operation: Extract<GraphVmInstruction, { op: 'MATH' }>['operation'],
+): number | number[] {
+  const calculate = (leftValue: number, rightValue: number): number =>
+    operation === 'SUBTRACT'
+      ? leftValue - rightValue
+      : operation === 'MULTIPLY'
+        ? leftValue * rightValue
+        : operation === 'DIVIDE'
+          ? rightValue === 0
+            ? 0
+            : leftValue / rightValue
+          : operation === 'MODULO'
+            ? rightValue === 0
+              ? 0
+              : leftValue % rightValue
+            : leftValue + rightValue;
+
+  if (Array.isArray(left) || Array.isArray(right)) {
+    const leftValues = Array.isArray(left) ? left : [left];
+    const rightValues = Array.isArray(right) ? right : [right];
+    const count = Math.max(leftValues.length, rightValues.length);
+    return Array.from({ length: count }, (_, index) => calculate(leftValues[index] ?? 0, rightValues[index] ?? rightValues[0] ?? 0));
+  }
+
+  return calculate(left, right);
+}
+
+function cleanupStringCodes(values: number[]): number[] {
+  return values
+    .map((value) => Math.trunc(value))
+    .filter(
+      (value) =>
+        (value >= 32 && value <= 126) ||
+        (value >= 128 && value <= 140) ||
+        value === 142 ||
+        (value >= 145 && value <= 255),
+    );
+}
+
+function numberValuesToString(values: number[], ord: boolean): string {
+  const codes = ord
+    ? values.flatMap((value) => Array.from(String(Math.trunc(value)), (character) => character.charCodeAt(0)))
+    : values;
+
+  return `${String.fromCharCode(...cleanupStringCodes(codes))}\0`;
+}
+
 async function executeInstruction(
   instruction: GraphVmInstruction,
   state: VmState,
@@ -269,23 +340,12 @@ async function executeInstruction(
       break;
     }
     case 'MATH': {
-      const left = instruction.left ? asNumber(getValue(state, instruction.left)) : asNumber(parseVariableOrLiteral(state, instruction.fallbackLeft));
-      const right = instruction.right ? asNumber(getValue(state, instruction.right)) : asNumber(parseVariableOrLiteral(state, instruction.fallbackRight));
-      const result =
-        instruction.operation === 'SUBTRACT'
-          ? left - right
-          : instruction.operation === 'MULTIPLY'
-            ? left * right
-            : instruction.operation === 'DIVIDE'
-              ? right === 0
-                ? 0
-                : left / right
-              : instruction.operation === 'MODULO'
-                ? right === 0
-                  ? 0
-                  : left % right
-                : left + right;
-      const value: GraphValue = { type: Number.isInteger(result) ? 'number' : 'floatingPoint', value: result };
+      const left = instruction.left ? numericPayload(getValue(state, instruction.left)) : numericPayload(parseVariableOrLiteral(state, instruction.fallbackLeft));
+      const right = instruction.right ? numericPayload(getValue(state, instruction.right)) : numericPayload(parseVariableOrLiteral(state, instruction.fallbackRight));
+      const result = applyNumericOperation(left, right, instruction.operation);
+      const value: GraphValue = Array.isArray(result)
+        ? { type: 'number', value: result }
+        : { type: Number.isInteger(result) ? 'number' : 'floatingPoint', value: result };
       setValue(state, instruction.output, value, pack.vm.valueByteLimit);
       trace(state, instruction, 'Calculated value', value);
       break;
@@ -309,8 +369,14 @@ async function executeInstruction(
           value = { type: 'dict', value: JSON.parse(asString(source) || '{}') };
           break;
         case 'NUMBER_TO_STRING':
+          value = { type: 'string', value: numberValuesToString(numericValues(source), instruction.ord ?? true) };
+          break;
         case 'DATA_TO_STRING':
-          value = { type: 'string', value: asString(source) };
+          {
+            const values = numericValues(source);
+            const allNumericAscii = values.length > 0 && values.every((entry) => entry >= 46 && entry <= 57);
+            value = { type: 'string', value: numberValuesToString(values, !allNumericAscii) };
+          }
           break;
         case 'STRING_TO_URL':
         default:

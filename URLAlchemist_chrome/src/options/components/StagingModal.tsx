@@ -27,6 +27,18 @@ function riskClass(risk: CompiledActionPackV2['risk']['highest']): string {
   return 'risk-badge-soft';
 }
 
+function riskLabel(risk: CompiledActionPackV2['risk']['highest']): string {
+  if (risk === 'high') {
+    return 'Strong warning';
+  }
+
+  if (risk === 'extended') {
+    return 'Extended access';
+  }
+
+  return 'Standard access';
+}
+
 function instructionLabel(instruction: CompiledActionPackV2['vm']['instructions'][number]): string {
   switch (instruction.op) {
     case 'SOURCE':
@@ -82,7 +94,7 @@ export function StagingModal({
             <p className="eyebrow">Staging Area</p>
             <h2 className="text-3xl font-semibold tracking-tight text-slate-900">Inspect Action Pack</h2>
             <p className="mt-2 max-w-2xl text-sm text-slate-600">
-              The pack is staged in memory only. Nothing is installed until you confirm after reviewing or testing.
+              The pack is staged in memory only. Do not trust an Action Pack you did not make yourself until you have reviewed what it reads, writes, and changes.
             </p>
           </div>
           <button className="ghost-button" type="button" onClick={onClose}>
@@ -94,7 +106,7 @@ export function StagingModal({
           <div className="mb-5 rounded-[1.5rem] border-2 border-rose-300 bg-rose-100 px-5 py-4 text-rose-900">
             <p className="text-lg font-bold">High-risk pack</p>
             <p className="mt-1 text-sm">
-              This Action Pack touches sensitive inputs or outputs such as clipboard, raw page content, full page text, file data, console-like data, or page mutation.
+              This Action Pack touches sensitive inputs or outputs such as clipboard, raw page content, full page text, file data, console-like data, or page mutation. Install only if you expect this behavior; for personal-use packs, this can be acceptable when you know exactly what the pack does.
             </p>
           </div>
         ) : pack.risk.highest === 'extended' ? (
@@ -115,7 +127,7 @@ export function StagingModal({
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <span className={`risk-badge ${riskClass(pack.risk.highest)}`}>{pack.risk.highest} risk</span>
+                <span className={`risk-badge ${riskClass(pack.risk.highest)}`}>{riskLabel(pack.risk.highest)}</span>
                 <span className="risk-badge risk-badge-soft">Schema {pack.schemaVersion}</span>
               </div>
             </div>

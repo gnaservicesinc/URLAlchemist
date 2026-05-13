@@ -25,6 +25,7 @@ import {
   exportWorkspaceBinary,
   importAnyArtifact,
 } from '../shared/v2/vault';
+import { createStarterVersionFile } from '../shared/v2/versionFile';
 import { StagingModal } from './components/StagingModal';
 import { WorkspaceEditor } from './components/WorkspaceEditor';
 import { useStoredExtensionState } from './hooks/useStoredExtensionState';
@@ -79,6 +80,10 @@ async function downloadBytes(bytes: Uint8Array, filename: string): Promise<void>
   }
 }
 
+async function downloadText(text: string, filename: string): Promise<void> {
+  await downloadBytes(new TextEncoder().encode(text), filename);
+}
+
 async function downloadLegacyPack(pack: ActionPack): Promise<void> {
   await downloadBytes(await exportActionPackBinary(pack), `action-packs/${slugify(pack.name) || 'legacy-pack'}.urlpack`);
 }
@@ -93,6 +98,18 @@ function riskBadgeClass(pack: CompiledActionPackV2): string {
   }
 
   return 'risk-badge-soft';
+}
+
+function riskBadgeLabel(pack: CompiledActionPackV2): string {
+  if (pack.risk.highest === 'high') {
+    return 'Strong warning';
+  }
+
+  if (pack.risk.highest === 'extended') {
+    return 'Extended access';
+  }
+
+  return 'Standard access';
 }
 
 function getPackImportValidationErrors(pack: CompiledActionPackV2 | null, installedPacks: CompiledActionPackV2[]): string[] {
@@ -111,6 +128,10 @@ function getPackImportValidationErrors(pack: CompiledActionPackV2 | null, instal
   }
 
   return errors;
+}
+
+function workspaceHasDataOut(workspace: WorkspaceFileV2): boolean {
+  return workspace.nodes.some((node) => node.type === 'DataFlowOut');
 }
 
 function shouldTrace(pack: CompiledActionPackV2): boolean {
@@ -135,7 +156,7 @@ function App() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const runtimeRef = useRef<GraphRuntime | null>(null);
   const legacyRuntimeRef = useRef<EngineRuntime | null>(null);
-  const compiledWorkspace = compileWorkspace(workspace);
+  const compiledWorkspace = compileWorkspace(workspace, { builderUuid: state.settings.builderUuid });
   const stagedValidationErrors = getPackImportValidationErrors(stagedPack, state.actionPacksV2);
 
   if (!runtimeRef.current) {
@@ -267,12 +288,17 @@ function App() {
   }
 
   async function saveWorkspace(): Promise<void> {
+    if (!workspaceHasDataOut(workspace)) {
+      setWorkspaceMessage('Add a Data Out block before saving this workspace.');
+      return;
+    }
+
     await applyState(upsertWorkspaceV2({ ...workspace, validationState: compiledWorkspace.validation }));
     setWorkspaceMessage(`Saved workspace "${workspace.metadata.name}".`);
   }
 
   async function buildActionPack(): Promise<void> {
-    const result = compileWorkspace(workspace);
+    const result = compileWorkspace(workspace, { builderUuid: state.settings.builderUuid });
     if (!result.ok || !result.pack) {
       setWorkspaceMessage('Fix workspace validation before building an Action Pack.');
       return;
@@ -285,6 +311,11 @@ function App() {
   }
 
   async function exportWorkspace(): Promise<void> {
+    if (!workspaceHasDataOut(workspace)) {
+      setWorkspaceMessage('Add a Data Out block before exporting this workspace.');
+      return;
+    }
+
     await downloadBytes(
       await exportWorkspaceBinary({ ...workspace, validationState: compiledWorkspace.validation }),
       `workspaces/${slugify(workspace.metadata.name) || 'workspace'}.workspace`,
@@ -292,7 +323,7 @@ function App() {
   }
 
   async function exportActionPack(): Promise<void> {
-    const result = compileWorkspace(workspace);
+    const result = compileWorkspace(workspace, { builderUuid: state.settings.builderUuid });
     if (!result.ok || !result.pack) {
       setWorkspaceMessage('Fix workspace validation before exporting an Action Pack.');
       return;
@@ -301,6 +332,26 @@ function App() {
     await downloadBytes(
       await exportCompiledActionPackV2Binary(result.pack),
       `action-packs/${slugify(result.pack.manifest.name) || 'action-pack'}.actionpack`,
+    );
+  }
+
+  async function exportActionPackVersionFile(): Promise<void> {
+    const result = compileWorkspace(workspace, { builderUuid: state.settings.builderUuid });
+    if (!result.ok || !result.pack) {
+      setWorkspaceMessage('Fix workspace validation before exporting a version file.');
+      return;
+    }
+
+    await downloadText(
+      createStarterVersionFile(result.pack),
+      `version-files/${slugify(result.pack.manifest.name) || 'action-pack'}.version`,
+    );
+  }
+
+  async function exportBuilderUuid(): Promise<void> {
+    await downloadText(
+      `URL_ALCHEMIST_BUILDER_UUID=${state.settings.builderUuid}\n`,
+      'url-alchemist-builder-uuid.txt',
     );
   }
 
@@ -337,7 +388,7 @@ function App() {
       }
 
       const convertedWorkspace = workspaceFromLegacyPack(artifact.pack);
-      const result = compileWorkspace(convertedWorkspace);
+      const result = compileWorkspace(convertedWorkspace, { builderUuid: state.settings.builderUuid });
       setWorkspace(result.workspace);
       await applyState(upsertWorkspaceV2(result.workspace));
       if (result.pack) {
@@ -431,7 +482,7 @@ function App() {
 
   async function previewLegacyPack(pack: ActionPack): Promise<void> {
     const convertedWorkspace = workspaceFromLegacyPack(pack);
-    const result = compileWorkspace(convertedWorkspace);
+    const result = compileWorkspace(convertedWorkspace, { builderUuid: state.settings.builderUuid });
     setWorkspace(result.workspace);
     if (result.pack) {
       setStagedPack(result.pack);
@@ -483,6 +534,14 @@ function App() {
                 </div>
                 <input checked={state.settings.advancedModeEnabled} className="h-5 w-5 accent-amber-600" type="checkbox" onChange={() => void toggleAdvancedMode()} />
               </label>
+
+              <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-4">
+                <p className="text-sm font-semibold text-slate-900">Local Builder UUID</p>
+                <p className="mt-1 break-all font-mono text-[11px] text-slate-500">{state.settings.builderUuid}</p>
+                <button className="ghost-button mt-3" type="button" onClick={() => void exportBuilderUuid()}>
+                  Save UUID
+                </button>
+              </div>
 
               <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-4">
                 <p className="text-sm font-semibold text-slate-900">Clipboard Permission</p>
@@ -556,7 +615,7 @@ function App() {
                       <span className={`risk-badge ${pack.manifest.enabled ? 'risk-badge-soft' : 'risk-badge-danger'}`}>
                         {pack.manifest.enabled ? 'Enabled' : 'Disabled'}
                       </span>
-                      <span className={`risk-badge ${riskBadgeClass(pack)}`}>{pack.risk.highest} risk</span>
+                      <span className={`risk-badge ${riskBadgeClass(pack)}`}>{riskBadgeLabel(pack)}</span>
                       {isGlobalScope(pack.manifest.trigger.scope_regex) ? <span className="risk-badge risk-badge-danger">Global scope</span> : null}
                       {shouldTrace(pack) ? <span className="risk-badge risk-badge-warn">Trace active</span> : null}
                     </div>
@@ -620,9 +679,11 @@ function App() {
       </section>
 
       <WorkspaceEditor
+        advancedModeEnabled={state.settings.advancedModeEnabled}
         workspace={workspace}
         onBuildActionPack={() => void buildActionPack()}
         onExportActionPack={() => void exportActionPack()}
+        onExportActionPackVersionFile={() => void exportActionPackVersionFile()}
         onExportWorkspace={() => void exportWorkspace()}
         onSaveWorkspace={() => void saveWorkspace()}
         onWorkspaceChange={(nextWorkspace) => {

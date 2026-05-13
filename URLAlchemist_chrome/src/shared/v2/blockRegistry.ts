@@ -1,4 +1,4 @@
-import type { BlockDefinition, BlockKind, GraphDataType, GraphPortDefinition, RiskLevel } from './types';
+import type { BlockDefinition, BlockKind, GraphDataType, GraphPortDefinition, RiskLevel, WorkspaceNodeV2 } from './types';
 import { BLOCK_TYPE_IDS } from './types';
 
 function port(
@@ -35,8 +35,8 @@ export const BLOCK_REGISTRY: Record<BlockKind, BlockDefinition> = {
       port('pageTitle', 'Title', 'string', { risk: 'safe' }),
       port('pageMetadata', 'Metadata', 'dict', { risk: 'safe' }),
     ],
-    flags: { ...defaultFlags, canDelete: false },
-    defaultSettings: { locked: true },
+    flags: defaultFlags,
+    defaultSettings: { locked: false },
     risk: 'safe',
   },
   DataFlowOut: {
@@ -46,7 +46,7 @@ export const BLOCK_REGISTRY: Record<BlockKind, BlockDefinition> = {
     category: 'flow',
     inputs: [port('url', 'URL', 'URL', { risk: 'safe' })],
     outputs: [],
-    flags: { ...defaultFlags, canDelete: false },
+    flags: defaultFlags,
     defaultSettings: { locked: true },
     risk: 'safe',
   },
@@ -134,6 +134,7 @@ export const BLOCK_REGISTRY: Record<BlockKind, BlockDefinition> = {
     flags: defaultFlags,
     defaultSettings: {
       convertMode: 'STRING_TO_URL',
+      convertOrd: true,
       rounding: 'ROUND',
     },
     risk: 'safe',
@@ -221,6 +222,61 @@ export function getPortDefinition(kind: BlockKind, direction: 'input' | 'output'
   return ports.find((portDefinition) => portDefinition.id === portId) ?? null;
 }
 
+function effectiveConvertPorts(
+  node: Pick<WorkspaceNodeV2, 'settings'>,
+  direction: 'input' | 'output',
+): GraphPortDefinition[] {
+  const mode = node.settings.convertMode ?? 'STRING_TO_URL';
+
+  switch (mode) {
+    case 'FLOAT_TO_NUMBER':
+      return direction === 'input'
+        ? [port('input', 'Input', 'floatingPoint', { required: true })]
+        : [port('result', 'Result', 'number')];
+    case 'DICT_TO_JSON':
+      return direction === 'input'
+        ? [port('input', 'Input', 'dict', { required: true })]
+        : [port('result', 'Result', 'JSON')];
+    case 'JSON_TO_DICT':
+      return direction === 'input'
+        ? [port('input', 'Input', 'JSON', { required: true })]
+        : [port('result', 'Result', 'dict')];
+    case 'NUMBER_TO_STRING':
+      return direction === 'input'
+        ? [port('input', 'Input', 'number', { required: true })]
+        : [port('result', 'Result', 'string')];
+    case 'DATA_TO_STRING':
+      return direction === 'input'
+        ? [port('input', 'Input', 'data', { required: true })]
+        : [port('result', 'Result', 'string')];
+    case 'STRING_TO_URL':
+    default:
+      return direction === 'input'
+        ? [port('input', 'Input', 'string', { required: true })]
+        : [port('result', 'Result', 'URL')];
+  }
+}
+
+export function getEffectivePortDefinitions(
+  node: Pick<WorkspaceNodeV2, 'type' | 'settings'>,
+  direction: 'input' | 'output',
+): GraphPortDefinition[] {
+  if (node.type === 'Convert') {
+    return effectiveConvertPorts(node, direction);
+  }
+
+  const definition = getBlockDefinition(node.type);
+  return direction === 'input' ? definition.inputs : definition.outputs;
+}
+
+export function getEffectivePortDefinition(
+  node: Pick<WorkspaceNodeV2, 'type' | 'settings'>,
+  direction: 'input' | 'output',
+  portId: string,
+): GraphPortDefinition | null {
+  return getEffectivePortDefinitions(node, direction).find((portDefinition) => portDefinition.id === portId) ?? null;
+}
+
 export function getRiskRank(risk: RiskLevel): number {
   switch (risk) {
     case 'high':
@@ -262,7 +318,7 @@ export function isTypeCompatible(source: GraphDataType, target: GraphDataType): 
   }
 
   if (source === 'string') {
-    return false;
+    return ['number', 'floatingPoint'].includes(target);
   }
 
   if (source === 'dict') {

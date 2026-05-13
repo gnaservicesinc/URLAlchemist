@@ -1,4 +1,13 @@
-import { memo, useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
+} from 'react';
+import { createPortal } from 'react-dom';
 import {
   Background,
   Controls,
@@ -20,17 +29,23 @@ import {
 import '@xyflow/react/dist/style.css';
 
 import { getHotkeyValidationError } from '../../shared/hotkeys';
-import { BLOCK_DEFINITIONS, getBlockDefinition, getPortDefinition } from '../../shared/v2/blockRegistry';
+import type { Activity } from '../../shared/types';
+import { BLOCK_DEFINITIONS, getBlockDefinition, getEffectivePortDefinitions } from '../../shared/v2/blockRegistry';
 import { compileWorkspace, getConnectionValidationError } from '../../shared/v2/compiler';
 import { createEdge, createWorkspaceNode } from '../../shared/v2/workspace';
-import type { BlockDefinition, BlockKind, WorkspaceBlockSettings, WorkspaceFileV2, WorkspaceNodeV2 } from '../../shared/v2/types';
+import type { BlockDefinition, BlockKind, GraphPortDefinition, WorkspaceBlockSettings, WorkspaceFileV2, WorkspaceNodeV2 } from '../../shared/v2/types';
+import { toActivityDraft, updateActivityDraft, type ActivityDraft } from '../drafts';
+import { buildRegexFromBuilder, validateEditorRegexPattern } from '../regexBuilder';
 import { HotkeyRecorder } from './HotkeyRecorder';
+import { RegexBuilderPanel } from './RegexBuilderPanel';
 
 interface WorkspaceEditorProps {
+  advancedModeEnabled: boolean;
   workspace: WorkspaceFileV2;
   onWorkspaceChange: (workspace: WorkspaceFileV2) => void;
   onBuildActionPack: () => void;
   onExportActionPack: () => void;
+  onExportActionPackVersionFile: () => void;
   onExportWorkspace: () => void;
   onSaveWorkspace: () => void;
 }
@@ -38,8 +53,13 @@ interface WorkspaceEditorProps {
 interface WorkspaceBlockData {
   [key: string]: unknown;
   definition: BlockDefinition;
+  inputs: GraphPortDefinition[];
   invalidInputs: string[];
   node: WorkspaceNodeV2;
+  outputs: GraphPortDefinition[];
+  onDeleteNode: (nodeId: string) => void;
+  onLockToggle: (nodeId: string) => void;
+  onOpenRegexBuilder: (nodeId: string) => void;
   onSettingsChange: (nodeId: string, settings: Partial<WorkspaceBlockSettings>) => void;
 }
 
@@ -59,6 +79,12 @@ const DATA_TYPE_COLORS: Record<string, string> = {
 
 function settingText(value: unknown): string {
   return value === undefined || value === null ? '' : String(value);
+}
+
+function handleStyle(color: string): CSSProperties {
+  return {
+    '--handle-color': color,
+  } as CSSProperties;
 }
 
 function updateNodeSettings(workspace: WorkspaceFileV2, nodeId: string, settings: Partial<WorkspaceBlockSettings>): WorkspaceFileV2 {
@@ -82,14 +108,23 @@ function updateNodeSettings(workspace: WorkspaceFileV2, nodeId: string, settings
   };
 }
 
-function renderBlockSettings(node: WorkspaceNodeV2, onSettingsChange: (settings: Partial<WorkspaceBlockSettings>) => void) {
+function renderBlockSettings(
+  node: WorkspaceNodeV2,
+  onSettingsChange: (settings: Partial<WorkspaceBlockSettings>) => void,
+  onOpenRegexBuilder: (() => void) | undefined,
+) {
   const inputClass = 'nodrag rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-800 outline-none focus:border-amber-400';
 
   switch (node.type) {
     case 'RegExpression':
       return (
         <div className="mt-3 grid gap-2">
-          <input className={inputClass} placeholder="Pattern" value={settingText(node.settings.pattern)} onChange={(event) => onSettingsChange({ pattern: event.target.value })} />
+          <div className="grid grid-cols-[1fr_auto] gap-2">
+            <input className={inputClass} placeholder="Pattern" value={settingText(node.settings.pattern)} onChange={(event) => onSettingsChange({ pattern: event.target.value, regexSourceMode: 'MANUAL', regexHelperInput: event.target.value })} />
+            <button className="nodrag rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:border-amber-300 hover:bg-amber-50" type="button" onClick={onOpenRegexBuilder}>
+              Builder
+            </button>
+          </div>
           <div className="grid grid-cols-2 gap-2">
             <select className={inputClass} value={node.settings.action ?? 'SUBSTITUTE'} onChange={(event) => onSettingsChange({ action: event.target.value as WorkspaceBlockSettings['action'] })}>
               <option value="SUBSTITUTE">Substitute</option>
@@ -149,6 +184,12 @@ function renderBlockSettings(node: WorkspaceNodeV2, onSettingsChange: (settings:
             <option value="NUMBER_TO_STRING">Number to String</option>
             <option value="DATA_TO_STRING">Data to String</option>
           </select>
+          {node.settings.convertMode === 'NUMBER_TO_STRING' ? (
+            <label className="nodrag flex items-center gap-2 text-[11px] text-slate-600">
+              <input checked={node.settings.convertOrd ?? true} type="checkbox" onChange={(event) => onSettingsChange({ convertOrd: event.target.checked })} />
+              ORD
+            </label>
+          ) : null}
         </div>
       );
     case 'Declarations':
@@ -188,19 +229,40 @@ function renderBlockSettings(node: WorkspaceNodeV2, onSettingsChange: (settings:
 }
 
 const WorkspaceBlockNode = memo(function WorkspaceBlockNode({ data, selected }: NodeProps<WorkspaceFlowNode>) {
-  const { definition, invalidInputs, node, onSettingsChange } = data;
-  const locked = !definition.flags.canDelete || node.settings.locked;
+  const { definition, inputs, invalidInputs, node, outputs, onDeleteNode, onLockToggle, onOpenRegexBuilder, onSettingsChange } = data;
+  const locked = Boolean(node.settings.locked);
 
   return (
     <div className={`min-w-56 rounded-xl border bg-white shadow-[0_14px_28px_rgba(15,23,42,0.12)] ${selected ? 'border-amber-500 ring-2 ring-amber-200' : 'border-slate-200'}`}>
       <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-4 py-3">
         <div>
-          <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-400">Type {definition.typeId}</div>
-          <div className="mt-1 text-sm font-semibold text-slate-900">{node.settings.label || definition.label}</div>
+          <div className="text-sm font-semibold text-slate-900">{node.settings.label || definition.label}</div>
         </div>
-        <span className={`rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${definition.risk === 'high' ? 'bg-rose-100 text-rose-700' : definition.risk === 'extended' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>
-          {locked ? 'Locked' : definition.risk}
-        </span>
+        <div className="flex items-center gap-1">
+          <button
+            className={`nodrag rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${locked ? 'bg-slate-100 text-slate-600 hover:bg-slate-200' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'}`}
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onLockToggle(node.id);
+            }}
+          >
+            {locked ? 'Locked' : 'Unlocked'}
+          </button>
+          <button
+            aria-label={`Delete ${node.settings.label || definition.label}`}
+            className="nodrag flex h-6 w-6 items-center justify-center rounded-full border border-slate-200 bg-white text-[11px] font-bold text-slate-500 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-35"
+            disabled={locked}
+            title={locked ? 'Unlock this block before deleting it.' : 'Delete block'}
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onDeleteNode(node.id);
+            }}
+          >
+            X
+          </button>
+        </div>
       </div>
 
       <div className="px-4 py-3">
@@ -211,29 +273,35 @@ const WorkspaceBlockNode = memo(function WorkspaceBlockNode({ data, selected }: 
           onChange={(event) => onSettingsChange(node.id, { label: event.target.value })}
         />
 
-        {renderBlockSettings(node, (settings) => onSettingsChange(node.id, settings))}
+        {renderBlockSettings(
+          node,
+          (settings) => onSettingsChange(node.id, settings),
+          node.type === 'RegExpression' ? () => onOpenRegexBuilder(node.id) : undefined,
+        )}
 
         <div className="mt-3 grid gap-2">
-          {definition.inputs.map((input) => (
+          {inputs.map((input) => (
             <div key={input.id} className="relative flex min-h-7 items-center rounded-lg bg-slate-50 px-2 py-1 text-xs text-slate-600">
               <Handle
+                className="workspace-port-handle workspace-port-handle-target"
                 id={input.id}
                 position={Position.Left}
-                style={{ background: invalidInputs.includes(input.id) ? '#dc2626' : DATA_TYPE_COLORS[input.dataType] }}
+                style={handleStyle(invalidInputs.includes(input.id) ? '#dc2626' : DATA_TYPE_COLORS[input.dataType])}
                 type="target"
               />
               <span className="ml-2">{input.label}</span>
               <span className="ml-auto font-mono text-[10px]">{input.dataType}</span>
             </div>
           ))}
-          {definition.outputs.map((output) => (
+          {outputs.map((output) => (
             <div key={output.id} className="relative flex min-h-7 items-center rounded-lg bg-slate-50 px-2 py-1 text-xs text-slate-600">
               <span>{output.label}</span>
               <span className="ml-auto mr-2 font-mono text-[10px]">{output.dataType}</span>
               <Handle
+                className="workspace-port-handle workspace-port-handle-source"
                 id={output.id}
                 position={Position.Right}
-                style={{ background: DATA_TYPE_COLORS[output.dataType] }}
+                style={handleStyle(DATA_TYPE_COLORS[output.dataType])}
                 type="source"
               />
             </div>
@@ -248,9 +316,52 @@ const nodeTypes = {
   workspaceBlock: WorkspaceBlockNode,
 };
 
-function WorkspaceFlow({ workspace, onWorkspaceChange }: Pick<WorkspaceEditorProps, 'workspace' | 'onWorkspaceChange'>) {
+function regexActivityFromNode(node: WorkspaceNodeV2): Activity {
+  return {
+    id: node.id,
+    order: 1,
+    action: node.settings.action ?? 'SUBSTITUTE',
+    pattern: node.settings.pattern ?? '',
+    match_mode: node.settings.matchMode ?? 'STANDARD',
+    nth_occurrence: node.settings.nthOccurrence ?? 1,
+    payload: node.settings.payload ?? '',
+    payload_vars: Boolean(node.settings.payloadVars),
+  };
+}
+
+function regexDraftFromNode(node: WorkspaceNodeV2): ActivityDraft {
+  const draft = toActivityDraft(regexActivityFromNode(node));
+  const regexBuilder = node.settings.regexBuilder ?? draft.regexBuilder;
+  const regexSourceMode = node.settings.regexSourceMode ?? draft.regexSourceMode;
+
+  return {
+    ...draft,
+    helperMode: 'REGEX',
+    helperInput: node.settings.regexHelperInput ?? draft.helperInput,
+    pattern: regexSourceMode === 'VISUAL' ? buildRegexFromBuilder(regexBuilder) : node.settings.pattern ?? draft.pattern,
+    regexBuilder,
+    regexSourceMode,
+  };
+}
+
+function regexSettingsFromDraft(draft: ActivityDraft): Partial<WorkspaceBlockSettings> {
+  return {
+    action: draft.action,
+    matchMode: draft.match_mode,
+    nthOccurrence: draft.nth_occurrence,
+    pattern: draft.pattern,
+    payload: draft.payload,
+    payloadVars: draft.payload_vars,
+    regexBuilder: draft.regexBuilder,
+    regexHelperInput: draft.helperInput,
+    regexSourceMode: draft.regexSourceMode,
+  };
+}
+
+function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange }: Pick<WorkspaceEditorProps, 'advancedModeEnabled' | 'workspace' | 'onWorkspaceChange'>) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; flowX: number; flowY: number } | null>(null);
   const [flowInstance, setFlowInstance] = useState<ReactFlowInstance | null>(null);
+  const [regexBuilderNodeId, setRegexBuilderNodeId] = useState<string | null>(null);
   const compileResult = useMemo(() => compileWorkspace(workspace), [workspace]);
   const invalidEdgeIds = useMemo(
     () => new Set(compileResult.validation.invalidEdgeIds),
@@ -264,10 +375,51 @@ function WorkspaceFlow({ workspace, onWorkspaceChange }: Pick<WorkspaceEditorPro
     [onWorkspaceChange, workspace],
   );
 
+  const handleLockToggle = useCallback(
+    (nodeId: string): void => {
+      const node = workspace.nodes.find((candidate) => candidate.id === nodeId);
+      if (!node) {
+        return;
+      }
+
+      onWorkspaceChange(updateNodeSettings(workspace, nodeId, { locked: !node.settings.locked }));
+    },
+    [onWorkspaceChange, workspace],
+  );
+
+  const handleDeleteNodes = useCallback(
+    (nodeIds: string[]): void => {
+      const removedIds = new Set(
+        nodeIds.filter((nodeId) => {
+          const node = workspace.nodes.find((candidate) => candidate.id === nodeId);
+          return node && getBlockDefinition(node.type).flags.canDelete && !node.settings.locked;
+        }),
+      );
+
+      if (removedIds.size === 0) {
+        return;
+      }
+
+      onWorkspaceChange({
+        ...workspace,
+        metadata: { ...workspace.metadata, updated_at: Date.now() },
+        nodes: workspace.nodes.filter((node) => !removedIds.has(node.id)),
+        edges: workspace.edges.filter((edge) => !removedIds.has(edge.source) && !removedIds.has(edge.target)),
+      });
+    },
+    [onWorkspaceChange, workspace],
+  );
+
+  const handleDeleteNode = useCallback((nodeId: string): void => {
+    handleDeleteNodes([nodeId]);
+  }, [handleDeleteNodes]);
+
   const workspaceNodes = useMemo<WorkspaceFlowNode[]>(
     () =>
       workspace.nodes.map((node) => {
         const definition = getBlockDefinition(node.type);
+        const inputs = getEffectivePortDefinitions(node, 'input');
+        const outputs = getEffectivePortDefinitions(node, 'output');
         const invalidInputs = workspace.edges
           .filter((edge) => edge.target === node.id && invalidEdgeIds.has(edge.id))
           .map((edge) => edge.targetHandle);
@@ -278,14 +430,20 @@ function WorkspaceFlow({ workspace, onWorkspaceChange }: Pick<WorkspaceEditorPro
           position: node.position,
           data: {
             definition,
+            inputs,
             invalidInputs,
             node,
+            outputs,
+            onDeleteNode: handleDeleteNode,
+            onLockToggle: handleLockToggle,
+            onOpenRegexBuilder: setRegexBuilderNodeId,
             onSettingsChange: handleSettingsChange,
           },
           deletable: definition.flags.canDelete && !node.settings.locked,
+          draggable: !node.settings.locked,
         };
       }),
-    [workspace, invalidEdgeIds],
+    [workspace, invalidEdgeIds, handleDeleteNode, handleLockToggle, handleSettingsChange],
   );
 
   const workspaceEdges = useMemo<Edge[]>(
@@ -317,50 +475,57 @@ function WorkspaceFlow({ workspace, onWorkspaceChange }: Pick<WorkspaceEditorPro
   }, [workspaceEdges]);
 
   const handleNodeChanges = useCallback((changes: NodeChange[]): void => {
+    const allowedChanges = changes.filter((change) => {
+      if (change.type !== 'remove') {
+        return true;
+      }
+
+      const node = workspace.nodes.find((candidate) => candidate.id === change.id);
+      return Boolean(node && getBlockDefinition(node.type).flags.canDelete && !node.settings.locked);
+    });
     const removedIds = new Set(
-      changes
+      allowedChanges
         .filter((change) => change.type === 'remove')
         .map((change) => change.id)
-        .filter((nodeId) => {
-          const node = workspace.nodes.find((candidate) => candidate.id === nodeId);
-          return node && getBlockDefinition(node.type).flags.canDelete && !node.settings.locked;
-        }),
     );
 
     if (removedIds.size === 0) {
-      setFlowNodes((currentNodes) => applyReactFlowNodeChanges(changes, currentNodes) as WorkspaceFlowNode[]);
+      setFlowNodes((currentNodes) => applyReactFlowNodeChanges(allowedChanges, currentNodes) as WorkspaceFlowNode[]);
       return;
     }
 
-    onWorkspaceChange({
-      ...workspace,
-      metadata: { ...workspace.metadata, updated_at: Date.now() },
-      nodes: workspace.nodes.filter((node) => !removedIds.has(node.id)),
-      edges: workspace.edges.filter((edge) => !removedIds.has(edge.source) && !removedIds.has(edge.target)),
+    handleDeleteNodes(Array.from(removedIds));
+  }, [handleDeleteNodes, workspace]);
+
+  const handleNodeDragStop = useCallback((_event: ReactMouseEvent, node: Node, draggedNodes: Node[]): void => {
+    const movedNodes = draggedNodes.length > 0 ? draggedNodes : [node];
+    const positions = new Map(movedNodes.map((candidate) => [candidate.id, candidate.position]));
+    let changed = false;
+    const nodes = workspace.nodes.map((candidate) => {
+      const position = positions.get(candidate.id);
+      if (!position || candidate.settings.locked) {
+        return candidate;
+      }
+
+      if (candidate.position.x === position.x && candidate.position.y === position.y) {
+        return candidate;
+      }
+
+      changed = true;
+      return {
+        ...candidate,
+        position,
+      };
     });
-  }, [onWorkspaceChange, workspace]);
 
-  const handleNodeDragStop = useCallback((_event: ReactMouseEvent, node: Node): void => {
-    const currentNode = workspace.nodes.find((candidate) => candidate.id === node.id);
-    if (!currentNode) {
-      return;
-    }
-
-    if (currentNode.position.x === node.position.x && currentNode.position.y === node.position.y) {
+    if (!changed) {
       return;
     }
 
     onWorkspaceChange({
       ...workspace,
       metadata: { ...workspace.metadata, updated_at: Date.now() },
-      nodes: workspace.nodes.map((candidate) =>
-        candidate.id === node.id
-          ? {
-              ...candidate,
-              position: node.position,
-            }
-          : candidate,
-      ),
+      nodes,
     });
   }, [onWorkspaceChange, workspace]);
 
@@ -423,8 +588,10 @@ function WorkspaceFlow({ workspace, onWorkspaceChange }: Pick<WorkspaceEditorPro
         colorMode="light"
         connectionLineStyle={{ stroke: '#c76a1a', strokeWidth: 2 }}
         defaultViewport={workspace.viewport}
+        deleteKeyCode={['Backspace', 'Delete']}
         edges={flowEdges}
         isValidConnection={canConnect}
+        multiSelectionKeyCode="Shift"
         nodeTypes={nodeTypes}
         nodes={flowNodes}
         onlyRenderVisibleElements
@@ -446,6 +613,8 @@ function WorkspaceFlow({ workspace, onWorkspaceChange }: Pick<WorkspaceEditorPro
           const flowPosition = flowInstance?.screenToFlowPosition({ x: event.clientX, y: event.clientY }) ?? { x: 360, y: 220 };
           setContextMenu({ x: event.clientX, y: event.clientY, flowX: flowPosition.x, flowY: flowPosition.y });
         }}
+        selectionKeyCode="Shift"
+        selectionOnDrag
         selectNodesOnDrag={false}
       >
         <Background color="#e2e8f0" gap={22} />
@@ -458,7 +627,7 @@ function WorkspaceFlow({ workspace, onWorkspaceChange }: Pick<WorkspaceEditorPro
           className="absolute z-20 grid max-h-96 w-64 gap-1 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-[0_20px_60px_rgba(15,23,42,0.22)]"
           style={{ left: contextMenu.x - 24, top: contextMenu.y - 128 }}
         >
-          {BLOCK_DEFINITIONS.filter((definition) => !['DataFlowIn', 'DataFlowOut'].includes(definition.kind)).map((definition) => (
+          {BLOCK_DEFINITIONS.map((definition) => (
             <button
               key={definition.kind}
               className="rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-amber-50"
@@ -470,20 +639,58 @@ function WorkspaceFlow({ workspace, onWorkspaceChange }: Pick<WorkspaceEditorPro
           ))}
         </div>
       ) : null}
+
+      {regexBuilderNodeId ? createPortal((() => {
+        const node = workspace.nodes.find((candidate) => candidate.id === regexBuilderNodeId && candidate.type === 'RegExpression');
+        if (!node) {
+          return null;
+        }
+
+        const draft = regexDraftFromNode(node);
+        return (
+          <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/55 px-4 py-10 backdrop-blur-md">
+            <div className="reveal-panel w-full max-w-5xl rounded-[1.75rem] border border-white/70 bg-[rgba(255,252,246,0.98)] p-5 shadow-[0_32px_90px_rgba(15,23,42,0.26)]">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <p className="eyebrow">Regex</p>
+                  <h3 className="mt-2 text-2xl font-semibold text-slate-900">Regex builder</h3>
+                </div>
+                <button className="ghost-button" type="button" onClick={() => setRegexBuilderNodeId(null)}>
+                  Close
+                </button>
+              </div>
+              <div className="mt-5">
+                <RegexBuilderPanel
+                  activity={draft}
+                  advancedModeEnabled={advancedModeEnabled}
+                  validationError={validateEditorRegexPattern(draft.pattern)}
+                  onUpdate={(updates) => {
+                    const nextDraft = updateActivityDraft(draft, updates);
+                    handleSettingsChange(node.id, regexSettingsFromDraft(nextDraft));
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        );
+      })(), document.body) : null}
     </div>
   );
 }
 
 export function WorkspaceEditor({
+  advancedModeEnabled,
   workspace,
   onWorkspaceChange,
   onBuildActionPack,
   onExportActionPack,
+  onExportActionPackVersionFile,
   onExportWorkspace,
   onSaveWorkspace,
 }: WorkspaceEditorProps) {
   const compileResult = useMemo(() => compileWorkspace(workspace), [workspace]);
   const hotkeyError = workspace.trigger.type === 'HOTKEY' ? getHotkeyValidationError(workspace.trigger.hotkey, []) : null;
+  const hasDataOut = workspace.nodes.some((node) => node.type === 'DataFlowOut');
 
   function updateWorkspace(updates: Partial<WorkspaceFileV2>): void {
     onWorkspaceChange({
@@ -512,14 +719,14 @@ export function WorkspaceEditor({
           <p className="eyebrow">Workspace</p>
           <h2 className="mt-2 text-2xl font-semibold text-slate-900">Node action builder</h2>
           <p className="mt-2 max-w-3xl text-sm text-slate-600">
-            Workspaces can be saved while invalid. Building a distributable Action Pack is blocked until every required connection and type check passes.
+            Workspaces can be saved while otherwise invalid, but at least one Data Out block is required. Building a distributable Action Pack is blocked until every required connection and type check passes.
           </p>
         </div>
         <div className="flex flex-wrap gap-3">
-          <button className="ghost-button" type="button" onClick={onSaveWorkspace}>
+          <button className="ghost-button" disabled={!hasDataOut} type="button" onClick={onSaveWorkspace}>
             Save Workspace
           </button>
-          <button className="ghost-button" type="button" onClick={onExportWorkspace}>
+          <button className="ghost-button" disabled={!hasDataOut} type="button" onClick={onExportWorkspace}>
             Export Workspace
           </button>
           <button className="secondary-button" disabled={!compileResult.ok} type="button" onClick={onBuildActionPack}>
@@ -527,6 +734,9 @@ export function WorkspaceEditor({
           </button>
           <button className="primary-button" disabled={!compileResult.ok} type="button" onClick={onExportActionPack}>
             Export .actionpack
+          </button>
+          <button className="ghost-button" disabled={!compileResult.ok} type="button" onClick={onExportActionPackVersionFile}>
+            Export Version File
           </button>
         </div>
       </div>
@@ -557,6 +767,22 @@ export function WorkspaceEditor({
           <span className="field-label">Scope Regex</span>
           <input className="field-input" placeholder="Leave blank to run globally" value={workspace.trigger.scope_regex ?? ''} onChange={(event) => updateWorkspace({ trigger: { ...workspace.trigger, scope_regex: event.target.value } })} />
         </label>
+        <label className="field-shell lg:col-span-2">
+          <span className="field-label">Version File URL</span>
+          <input className="field-input" placeholder="https://example.com/path/pack.version" value={workspace.metadata.versionFileUrl ?? ''} onChange={(event) => updateWorkspace({ metadata: { ...workspace.metadata, versionFileUrl: event.target.value } })} />
+        </label>
+        <label className="field-shell lg:col-span-2">
+          <span className="field-label">Download URL</span>
+          <input className="field-input" placeholder="https://example.com/path/pack.actionpack" value={workspace.metadata.downloadUrl ?? ''} onChange={(event) => updateWorkspace({ metadata: { ...workspace.metadata, downloadUrl: event.target.value } })} />
+        </label>
+        <label className="field-shell lg:col-span-2">
+          <span className="field-label">Signature URL</span>
+          <input className="field-input" placeholder="https://example.com/path/pack.version.asc" value={workspace.metadata.versionFileSignatureUrl ?? ''} onChange={(event) => updateWorkspace({ metadata: { ...workspace.metadata, versionFileSignatureUrl: event.target.value } })} />
+        </label>
+        <label className="field-shell lg:col-span-2">
+          <span className="field-label">Public Key Locator</span>
+          <input className="field-input" placeholder="author@example.com" value={workspace.metadata.publicKeyLocateValue ?? ''} onChange={(event) => updateWorkspace({ metadata: { ...workspace.metadata, publicKeyLocateValue: event.target.value } })} />
+        </label>
         {workspace.trigger.type === 'HOTKEY' ? (
           <div className="lg:col-span-2">
             <HotkeyRecorder
@@ -569,7 +795,7 @@ export function WorkspaceEditor({
       </div>
 
       <div className="mt-5 flex flex-wrap gap-2">
-        {BLOCK_DEFINITIONS.filter((definition) => !['DataFlowIn', 'DataFlowOut'].includes(definition.kind)).map((definition) => (
+        {BLOCK_DEFINITIONS.map((definition) => (
           <button key={definition.kind} className="ghost-button" type="button" onClick={() => addToolbarBlock(definition.kind)}>
             {definition.label}
           </button>
@@ -578,7 +804,7 @@ export function WorkspaceEditor({
 
       <div className="mt-5">
         <ReactFlowProvider>
-          <WorkspaceFlow workspace={workspace} onWorkspaceChange={onWorkspaceChange} />
+          <WorkspaceFlow advancedModeEnabled={advancedModeEnabled} workspace={workspace} onWorkspaceChange={onWorkspaceChange} />
         </ReactFlowProvider>
       </div>
 
@@ -594,13 +820,26 @@ export function WorkspaceEditor({
           ) : null}
         </div>
         <div className="rounded-[1.25rem] border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
-          <p className="font-semibold">Risk: {compileResult.validation.risk.highest.toUpperCase()}</p>
+          <p className="font-semibold">
+            {compileResult.validation.risk.highest === 'high'
+              ? 'Install warning: strong'
+              : compileResult.validation.risk.highest === 'extended'
+                ? 'Install notice: extended access'
+                : 'Install notice: standard'}
+          </p>
           {compileResult.validation.risk.reasons.length > 0 ? (
-            <ul className="mt-2 list-disc pl-5">
+            <div className="mt-2 space-y-2">
+              <p>
+                {compileResult.validation.risk.highest === 'high'
+                  ? 'Users will see a prominent warning and may be discouraged from installing this pack. That warning can be ignored for personal-use packs when you know exactly what the pack does.'
+                  : 'Users will be told that this pack touches data outside the safe core and should enable trace after installation.'}
+              </p>
+              <ul className="list-disc pl-5">
               {compileResult.validation.risk.reasons.map((reason) => (
                 <li key={reason}>{reason}</li>
               ))}
-            </ul>
+              </ul>
+            </div>
           ) : (
             <p className="mt-2">Safe core inputs and outputs only.</p>
           )}

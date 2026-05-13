@@ -52,6 +52,7 @@ export interface GlobalSettings {
   globalEnabled: boolean;
   allowLocalFiles: boolean;
   advancedModeEnabled: boolean;
+  builderUuid: string;
 }
 
 export interface StoredTraceEntry {

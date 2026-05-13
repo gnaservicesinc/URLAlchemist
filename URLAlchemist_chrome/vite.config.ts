@@ -1,11 +1,17 @@
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
 
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
 
+const packageJson = JSON.parse(readFileSync(fileURLToPath(new URL('./package.json', import.meta.url)), 'utf8')) as { version: string };
+
 export default defineConfig({
+  define: {
+    __URL_ALCHEMIST_VERSION__: JSON.stringify(packageJson.version),
+  },
   plugins: [react(), tailwindcss()],
   build: {
     outDir: 'dist',

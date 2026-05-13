@@ -104,4 +104,54 @@ body {
   .info-chip {
     @apply rounded-2xl border border-slate-200 bg-white/70 p-3;
   }
+
+  .workspace-port-handle {
+    width: 36px !important;
+    height: 36px !important;
+    border: 0 !important;
+    border-radius: 10px !important;
+    background: transparent !important;
+    cursor: crosshair;
+    opacity: 1 !important;
+    pointer-events: all;
+    z-index: 12;
+  }
+
+  .workspace-port-handle::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 12px;
+    height: 12px;
+    border-radius: 9999px;
+    background: var(--handle-color, #334155);
+    box-shadow:
+      0 0 0 3px #ffffff,
+      0 4px 10px rgba(15, 23, 42, 0.22);
+    transform: translate(-50%, -50%);
+    transition:
+      height 120ms ease,
+      width 120ms ease,
+      box-shadow 120ms ease;
+  }
+
+  .workspace-port-handle:hover::after,
+  .workspace-port-handle.connectingfrom::after,
+  .workspace-port-handle.connectingto::after {
+    width: 15px;
+    height: 15px;
+    box-shadow:
+      0 0 0 5px rgba(255, 255, 255, 0.96),
+      0 0 0 7px rgba(199, 106, 26, 0.26),
+      0 6px 14px rgba(15, 23, 42, 0.24);
+  }
+
+  .workspace-port-handle-source {
+    right: -30px !important;
+  }
+
+  .workspace-port-handle-target {
+    left: -30px !important;
+  }
 }

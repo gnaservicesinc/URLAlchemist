@@ -3,11 +3,13 @@ import { getHotkeyValidationError } from '../hotkeys';
 import { assertSafeRegexPattern } from '../regex/executeRegexJob';
 import {
   combineRisk,
+  getEffectivePortDefinition,
+  getEffectivePortDefinitions,
   getBlockDefinition,
-  getPortDefinition,
   getRiskRank,
   isTypeCompatible,
 } from './blockRegistry';
+import { URL_ALCHEMIST_VERSION } from './buildInfo';
 import type {
   BlockKind,
   CompiledActionPackV2,
@@ -27,6 +29,11 @@ const VM_STEP_BUDGET = 300;
 const VM_LOOP_BUDGET = 500;
 const VM_VALUE_BYTE_LIMIT = 256 * 1024;
 
+interface CompileOptions {
+  builderUuid?: string;
+  buildTimeUtc?: number;
+}
+
 function validateRegexPattern(pattern: string): string | null {
   if (!pattern.trim()) {
     return 'The generated pattern is empty.';
@@ -38,6 +45,33 @@ function validateRegexPattern(pattern: string): string | null {
   } catch (error) {
     return error instanceof Error ? error.message : 'The regex pattern is invalid.';
   }
+}
+
+function cleanUrl(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  try {
+    const url = new URL(trimmed);
+    if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.hash) {
+      return undefined;
+    }
+
+    return url.href;
+  } catch {
+    return undefined;
+  }
+}
+
+function cleanLocateValue(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed || trimmed.length > 254 || !/^[A-Za-z0-9._%+@:-]+$/.test(trimmed)) {
+    return undefined;
+  }
+
+  return trimmed;
 }
 
 function symbol(nodeId: string, portId: string): string {
@@ -58,7 +92,7 @@ function sourceType(workspace: WorkspaceFileV2, edge: WorkspaceEdgeV2): GraphDat
     return null;
   }
 
-  return getPortDefinition(sourceNode.type, 'output', edge.sourceHandle)?.dataType ?? null;
+  return getEffectivePortDefinition(sourceNode, 'output', edge.sourceHandle)?.dataType ?? null;
 }
 
 function targetType(workspace: WorkspaceFileV2, edge: WorkspaceEdgeV2): GraphDataType | null {
@@ -67,7 +101,7 @@ function targetType(workspace: WorkspaceFileV2, edge: WorkspaceEdgeV2): GraphDat
     return null;
   }
 
-  return getPortDefinition(targetNode.type, 'input', edge.targetHandle)?.dataType ?? null;
+  return getEffectivePortDefinition(targetNode, 'input', edge.targetHandle)?.dataType ?? null;
 }
 
 function connectedInput(edgesByTarget: Map<string, WorkspaceEdgeV2>, nodeId: string, inputId: string): string | undefined {
@@ -213,12 +247,7 @@ function validateWorkspace(workspace: WorkspaceFileV2): WorkspaceValidationState
     errors.push('Workspace name is required.');
   }
 
-  const dataInCount = workspace.nodes.filter((node) => node.type === 'DataFlowIn').length;
   const dataOutCount = workspace.nodes.filter((node) => node.type === 'DataFlowOut').length;
-  if (dataInCount < 1) {
-    errors.push('At least one Data In block is required.');
-  }
-
   if (dataOutCount < 1) {
     errors.push('At least one Data Out block is required.');
   }
@@ -239,8 +268,8 @@ function validateWorkspace(workspace: WorkspaceFileV2): WorkspaceValidationState
   workspace.edges.forEach((edge) => {
     const sourceNode = findNode(workspace, edge.source);
     const targetNode = findNode(workspace, edge.target);
-    const sourcePort = sourceNode ? getPortDefinition(sourceNode.type, 'output', edge.sourceHandle) : null;
-    const targetPort = targetNode ? getPortDefinition(targetNode.type, 'input', edge.targetHandle) : null;
+    const sourcePort = sourceNode ? getEffectivePortDefinition(sourceNode, 'output', edge.sourceHandle) : null;
+    const targetPort = targetNode ? getEffectivePortDefinition(targetNode, 'input', edge.targetHandle) : null;
 
     if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target) || !sourcePort || !targetPort) {
       invalidEdgeIds.push(edge.id);
@@ -282,7 +311,7 @@ function validateWorkspace(workspace: WorkspaceFileV2): WorkspaceValidationState
   const edgesByTarget = new Map(workspace.edges.map((edge) => [`${edge.target}:${edge.targetHandle}`, edge]));
   workspace.nodes.forEach((node) => {
     const definition = getBlockDefinition(node.type);
-    definition.inputs.forEach((input) => {
+    getEffectivePortDefinitions(node, 'input').forEach((input) => {
       if (input.required && !edgesByTarget.has(`${node.id}:${input.id}`)) {
         errors.push(`${node.settings.label || definition.label} requires ${input.label}.`);
       }
@@ -402,6 +431,7 @@ function instructionForNode(
         input: connectedInput(edgesByTarget, node.id, 'input'),
         output: symbol(node.id, 'result'),
         mode: node.settings.convertMode ?? 'STRING_TO_URL',
+        ord: node.settings.convertOrd ?? true,
         rounding: node.settings.rounding ?? 'ROUND',
       });
       break;
@@ -480,7 +510,7 @@ function buildSymbolTable(workspace: WorkspaceFileV2): Record<string, GraphDataT
   const symbolTable: Record<string, GraphDataType> = {};
   workspace.nodes.forEach((node) => {
     const definition = getBlockDefinition(node.type);
-    definition.outputs.forEach((output) => {
+    getEffectivePortDefinitions(node, 'output').forEach((output) => {
       symbolTable[symbol(node.id, output.id)] = output.dataType;
     });
   });
@@ -497,7 +527,7 @@ function requiredPermissionsForRisk(risk: CompiledRiskSummary): string[] {
   return Array.from(permissions);
 }
 
-export function compileWorkspace(workspace: WorkspaceFileV2): GraphCompileResult {
+export function compileWorkspace(workspace: WorkspaceFileV2, options: CompileOptions = {}): GraphCompileResult {
   const validation = validateWorkspace(workspace);
   const workspaceWithValidation: WorkspaceFileV2 = {
     ...workspace,
@@ -557,11 +587,20 @@ export function compileWorkspace(workspace: WorkspaceFileV2): GraphCompileResult
       metadata: {
         author: workspace.metadata.author,
         description: workspace.metadata.description,
+        versionFileUrl: cleanUrl(workspace.metadata.versionFileUrl),
+        versionFileSignatureUrl: cleanUrl(workspace.metadata.versionFileSignatureUrl),
+        downloadUrl: cleanUrl(workspace.metadata.downloadUrl),
+        publicKeyLocateValue: cleanLocateValue(workspace.metadata.publicKeyLocateValue),
         created_at: workspace.metadata.created_at,
       },
       trigger: workspace.trigger,
     },
     sourceWorkspaceId: workspace.metadata.id,
+    builder: {
+      urlAlchemistVersion: URL_ALCHEMIST_VERSION,
+      buildTimeUtc: options.buildTimeUtc ?? Math.floor(Date.now() / 1000),
+      builderUuid: options.builderUuid ?? crypto.randomUUID(),
+    },
     risk,
     requiredPermissions: requiredPermissionsForRisk(risk),
     vm: {

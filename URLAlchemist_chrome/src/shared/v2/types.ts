@@ -77,6 +77,10 @@ export interface WorkspaceMetadata {
   version: number;
   author?: string;
   description?: string;
+  versionFileUrl?: string;
+  versionFileSignatureUrl?: string;
+  downloadUrl?: string;
+  publicKeyLocateValue?: string;
   created_at: number;
   updated_at: number;
 }
@@ -85,6 +89,25 @@ export interface WorkspaceTrigger {
   type: TriggerType;
   hotkey?: string;
   scope_regex?: string;
+}
+
+export type WorkspaceRegexSourceMode = 'VISUAL' | 'MANUAL';
+export type WorkspaceRegexTokenMode = 'EXACT' | 'FLEXIBLE';
+export type WorkspaceRegexTokenPatternKind = 'AUTO' | 'NUMBER' | 'LETTERS' | 'WORD' | 'ANY_TEXT';
+
+export interface WorkspaceRegexBuilderToken {
+  id: string;
+  text: string;
+  mode: WorkspaceRegexTokenMode;
+  patternKind: WorkspaceRegexTokenPatternKind;
+}
+
+export interface WorkspaceRegexBuilderState {
+  sampleText: string;
+  selectionStart: number;
+  selectionEnd: number;
+  tokens: WorkspaceRegexBuilderToken[];
+  caseSensitive: boolean;
 }
 
 export interface WorkspaceBlockSettings {
@@ -98,6 +121,9 @@ export interface WorkspaceBlockSettings {
   nthOccurrence?: number;
   payload?: string;
   payloadVars?: boolean;
+  regexBuilder?: WorkspaceRegexBuilderState;
+  regexSourceMode?: WorkspaceRegexSourceMode;
+  regexHelperInput?: string;
   operator?: 'LT' | 'LTE' | 'EQ' | 'GT' | 'GTE';
   compareValue?: string;
   booleanOutput?: boolean;
@@ -109,6 +135,7 @@ export interface WorkspaceBlockSettings {
     | 'JSON_TO_DICT'
     | 'NUMBER_TO_STRING'
     | 'DATA_TO_STRING';
+  convertOrd?: boolean;
   rounding?: 'FLOOR' | 'CEIL' | 'ROUND';
   variableName?: string;
   literalValue?: string;
@@ -179,9 +206,19 @@ export interface CompiledManifestV2 {
   metadata: {
     author?: string;
     description?: string;
+    versionFileUrl?: string;
+    versionFileSignatureUrl?: string;
+    downloadUrl?: string;
+    publicKeyLocateValue?: string;
     created_at: number;
   };
   trigger: WorkspaceTrigger;
+}
+
+export interface CompiledBuilderMetadataV2 {
+  urlAlchemistVersion: string;
+  buildTimeUtc: number;
+  builderUuid: string;
 }
 
 export type GraphVmInstruction =
@@ -231,6 +268,7 @@ export type GraphVmInstruction =
       output: string;
       mode: NonNullable<WorkspaceBlockSettings['convertMode']>;
       rounding?: WorkspaceBlockSettings['rounding'];
+      ord?: boolean;
     }
   | {
       op: 'DECLARE';
@@ -289,6 +327,7 @@ export interface CompiledActionPackV2 {
   schemaVersion: typeof ACTION_PACK_SCHEMA_VERSION;
   manifest: CompiledManifestV2;
   sourceWorkspaceId?: string;
+  builder: CompiledBuilderMetadataV2;
   risk: CompiledRiskSummary;
   requiredPermissions: string[];
   vm: GraphVmProgram;
@@ -307,4 +346,3 @@ export type ImportedV2Artifact =
   | { kind: 'workspace'; workspace: WorkspaceFileV2; checksumHex: string; schemaVersion: number }
   | { kind: 'action-pack'; pack: CompiledActionPackV2; checksumHex: string; schemaVersion: number }
   | { kind: 'legacy-urlpack'; pack: ActionPack; checksumHex: string; schemaVersion: number };
-

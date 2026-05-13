@@ -39,7 +39,7 @@ const METADATA_KEYS = ['author', 'description', 'created_at'];
 const TRIGGER_KEYS = ['type', 'hotkey', 'scope_regex'];
 const CONDITION_KEYS = ['type', 'value', 'target'];
 const STORED_STATE_KEYS = ['settings', 'packs', 'actionPacksV2', 'workspacesV2', 'traceEntries'];
-const SETTINGS_KEYS = ['globalEnabled', 'allowLocalFiles', 'advancedModeEnabled'];
+const SETTINGS_KEYS = ['globalEnabled', 'allowLocalFiles', 'advancedModeEnabled', 'builderUuid'];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -280,6 +280,10 @@ export function validateStoredState(candidate: unknown): ValidationResult<Stored
     return { ok: false, errors: ['Stored settings values must be booleans'] };
   }
 
+  if (candidate.settings.builderUuid !== undefined && typeof candidate.settings.builderUuid !== 'string') {
+    return { ok: false, errors: ['Stored builder UUID must be a string'] };
+  }
+
   if (candidate.packs !== undefined && !Array.isArray(candidate.packs)) {
     return { ok: false, errors: ['Stored packs must be an array'] };
   }
@@ -351,6 +355,7 @@ export function validateStoredState(candidate: unknown): ValidationResult<Stored
         globalEnabled: candidate.settings.globalEnabled,
         allowLocalFiles: candidate.settings.allowLocalFiles,
         advancedModeEnabled: candidate.settings.advancedModeEnabled,
+        builderUuid: candidate.settings.builderUuid || crypto.randomUUID(),
       },
       packs,
       actionPacksV2,

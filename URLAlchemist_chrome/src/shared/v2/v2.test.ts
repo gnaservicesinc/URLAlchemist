@@ -111,6 +111,47 @@ describe('v2 workspace compiler and VM', () => {
     expect(compiled.pack!.risk.usesHighRiskOutput).toBe(true);
   });
 
+  it('allows strings into number slots and requires explicit conversion back to string', async () => {
+    const workspace = createDefaultWorkspace();
+    const dataIn = workspace.nodes.find((node) => node.type === 'DataFlowIn')!;
+    const math = createWorkspaceNode('Math', { x: 260, y: 120 }, {
+      mathOperation: 'ADD',
+      compareValue: '-32',
+    });
+    const convert = createWorkspaceNode('Convert', { x: 520, y: 120 }, {
+      convertMode: 'NUMBER_TO_STRING',
+      convertOrd: false,
+    });
+    const extendedOut = createWorkspaceNode('ExtendedDataOut', { x: 780, y: 120 });
+    let writtenValue = '';
+    const compiled = compileWorkspace({
+      ...workspace,
+      nodes: [...workspace.nodes, math, convert, extendedOut],
+      edges: [
+        createEdge(dataIn.id, 'selectedText', math.id, 'left'),
+        createEdge(math.id, 'result', convert.id, 'input'),
+        createEdge(convert.id, 'result', extendedOut.id, 'pageText'),
+      ],
+    });
+
+    expect(compiled.ok).toBe(true);
+
+    await executeCompiledActionPackV2(
+      'https://example.com/',
+      compiled.pack!,
+      {
+        ...runtime,
+        readSource: async (source) => (source === 'selectedText' ? { type: 'string', value: 'abc' } : undefined),
+        writeDestination: async (_destination, value) => {
+          writtenValue = String(value.value);
+        },
+      },
+      DEFAULT_SETTINGS,
+    );
+
+    expect(writtenValue).toBe('ABC\0');
+  });
+
   it('converts a v1 pack into a buildable v2 workspace', () => {
     const workspace = workspaceFromLegacyPack(createLegacyPack());
     const compiled = compileWorkspace(workspace);
@@ -129,4 +170,3 @@ describe('v2 workspace compiler and VM', () => {
     expect(packArtifact.kind).toBe('action-pack');
   });
 });
-

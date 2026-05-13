@@ -14,4 +14,5 @@ export const DEFAULT_SETTINGS: GlobalSettings = {
   globalEnabled: true,
   allowLocalFiles: false,
   advancedModeEnabled: false,
+  builderUuid: crypto.randomUUID(),
 };
