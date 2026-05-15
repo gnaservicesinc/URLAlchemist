@@ -48,5 +48,37 @@ export function createSandboxGraphRuntime(runtime: GraphRuntime): GraphRuntime {
 
       return { type: request.outputDataType, value: '' } as GraphValue;
     },
+    resolveAsset: async (request) => ({
+      source: 'remote',
+      kind: request.kind,
+      mimeType: `${request.kind}/*`,
+      url: request.url,
+      sizeBytes: 0,
+      cacheKey: request.url,
+    }),
+    requestUserInteraction: async (request) => ({
+      type: 'dict',
+      value: {
+        ok: { type: 'bool', value: 1 },
+        cancelled: { type: 'bool', value: 0 },
+        value: request.kind === 'PROMPT_NUMBER' ? { type: 'number', value: 1 } : { type: 'string', value: 'sandbox' },
+        source: { type: 'string', value: 'sandbox' },
+      },
+    }),
+    displayOverlay: async (request) => ({
+      type: 'dict',
+      value: {
+        ok: { type: 'bool', value: 1 },
+        completed: { type: 'bool', value: request.type === 'video' || request.type === 'sound' ? 1 : 0 },
+        cancelled: { type: 'bool', value: 0 },
+        stoppedAtSeconds: { type: 'number', value: 0 },
+        durationSeconds: { type: 'number', value: 0 },
+        watchedPercent: { type: 'number', value: request.type === 'video' ? 100 : 0 },
+        reason: { type: 'string', value: 'sandbox' },
+      },
+    }),
+    mutatePageText: async () => {
+      // Staged imports must not mutate page state before confirmation.
+    },
   };
 }

@@ -12,6 +12,7 @@ const HELP_DOCUMENTS: HelpDocument[] = [
   { path: 'help/action-packs.html', title: 'Action Packs', summary: 'Compile, import, export, pair, and manage Action Packs.' },
   { path: 'help/security.html', title: 'Security', summary: 'Transparency, sandboxing, tracing, hardening, and audits.' },
   { path: 'help/regex-builder.html', title: 'Regex Builder', summary: 'Use the visual regex helper and advanced manual mode.' },
+  { path: 'help/games.html', title: 'Games', summary: 'Use the Arcade Game block and review keyboard or mouse capture.' },
 ];
 
 function getHelpUrl(path: string): string {

@@ -8,6 +8,7 @@
       "name": "Clean Campaign Links",
       "slug": "clean-campaign-links",
       "description": "Removes common campaign tracking parameters and tidies query separators.",
+      "category": "URL cleanup",
       "trigger": "INPUT_DATA",
       "risk": "safe",
       "features": [
@@ -23,6 +24,7 @@
       "name": "Keep Stable Query",
       "slug": "keep-stable-query",
       "description": "Keeps a stable id query value and removes noisy parameters after it.",
+      "category": "URL cleanup",
       "trigger": "CONTEXT_MENU",
       "risk": "safe",
       "features": [
@@ -38,6 +40,7 @@
       "name": "GitHub PR Files Shortcut",
       "slug": "github-pr-files-shortcut",
       "description": "Turns a GitHub pull request URL into the files view.",
+      "category": "URL cleanup",
       "trigger": "CONTEXT_MENU",
       "risk": "safe",
       "features": [
@@ -53,6 +56,7 @@
       "name": "Search Selected Text",
       "slug": "search-selected-text",
       "description": "Opens a search URL for the current selection with a hotkey.",
+      "category": "Search",
       "trigger": "HOTKEY",
       "risk": "safe",
       "features": [
@@ -68,6 +72,7 @@
       "name": "Clipboard Search Launcher",
       "slug": "clipboard-search-launcher",
       "description": "Opens a search URL for the current clipboard contents.",
+      "category": "Search",
       "trigger": "HOTKEY",
       "risk": "high",
       "features": [
@@ -83,6 +88,7 @@
       "name": "Remember Current Page",
       "slug": "remember-current-page",
       "description": "Stores the current URL in session storage while leaving navigation unchanged.",
+      "category": "Storage",
       "trigger": "CONTEXT_MENU",
       "risk": "extended",
       "features": [
@@ -98,6 +104,7 @@
       "name": "Research Note Snapshot",
       "slug": "research-note-snapshot",
       "description": "Copies a small JSON note containing the current URL and page title.",
+      "category": "Page tools",
       "trigger": "CONTEXT_MENU",
       "risk": "high",
       "features": [
@@ -113,6 +120,7 @@
       "name": "Uppercase Selection Clipboard",
       "slug": "uppercase-selection-clipboard",
       "description": "Copies a simple uppercase ASCII transform of the selected text.",
+      "category": "Page tools",
       "trigger": "CONTEXT_MENU",
       "risk": "high",
       "features": [
@@ -128,6 +136,7 @@
       "name": "Remote Text Fetch Preview",
       "slug": "remote-text-fetch-preview",
       "description": "Fetches a text file from a fixed HTTPS endpoint and writes it to the page-text output while leaving navigation unchanged.",
+      "category": "Remote data",
       "trigger": "CONTEXT_MENU",
       "risk": "high",
       "features": [
@@ -143,6 +152,7 @@
       "name": "Remote POST Snapshot",
       "slug": "remote-post-snapshot",
       "description": "Builds a small dictionary from the current page and sends it to a fixed HTTPS endpoint.",
+      "category": "Remote data",
       "trigger": "CONTEXT_MENU",
       "risk": "high",
       "features": [
@@ -152,6 +162,73 @@
       ],
       "workspacePath": "bundled-actionpacks/workspaces/remote-post-snapshot.workspace",
       "actionPackPath": "bundled-actionpacks/action-packs/remote-post-snapshot.actionpack"
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200011",
+      "name": "Clean Words",
+      "slug": "clean-words",
+      "description": "Fetches a remote bad-words list, masks matching page text, and shows a review message before leaving navigation unchanged.",
+      "category": "Page tools",
+      "trigger": "CONTEXT_MENU",
+      "risk": "high",
+      "features": [
+        "Remote word list",
+        "Page text mutation",
+        "Overlay message"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/clean-words.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/clean-words.actionpack"
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200012",
+      "name": "Screen Time",
+      "slug": "screen-time",
+      "description": "Prompts for a daily limit, records timing data, shows media feedback, and redirects to a chosen break page.",
+      "category": "Storage",
+      "trigger": "CONTEXT_MENU",
+      "risk": "high",
+      "features": [
+        "System time",
+        "Prompts",
+        "SaveLoad",
+        "Image and sound overlays"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/screen-time.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/screen-time.actionpack"
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200013",
+      "name": "Playback Resume",
+      "slug": "playback-resume",
+      "description": "Prompts for a direct video file or URL, plays a direct-access video, and stores playback result details for later runs.",
+      "category": "Media",
+      "trigger": "HOTKEY",
+      "risk": "high",
+      "features": [
+        "File or URL prompt",
+        "Direct video fetch",
+        "Playback result dictionary",
+        "SaveLoad"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/playback-resume.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/playback-resume.actionpack"
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200014",
+      "name": "Space Defender Overlay",
+      "slug": "space-defender-overlay",
+      "description": "Launches a built-in arcade overlay from a hotkey and captures game controls only while the overlay is open.",
+      "category": "Games",
+      "trigger": "HOTKEY",
+      "risk": "extended",
+      "features": [
+        "Hotkey launch",
+        "Keyboard capture",
+        "Mouse capture",
+        "Built-in game block"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/space-defender-overlay.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/space-defender-overlay.actionpack"
     }
   ]
 }

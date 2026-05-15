@@ -21,6 +21,8 @@ import type {
   GraphVmInstruction,
   GraphVmSafetyPolicy,
   RiskLevel,
+  AssetFetchKind,
+  UserInteractionKind,
   WorkspaceInputSource,
   WorkspaceEdgeV2,
   WorkspaceFileV2,
@@ -41,6 +43,7 @@ import {
 const VM_STEP_BUDGET = 300;
 const VM_LOOP_BUDGET = 500;
 const VM_VALUE_BYTE_LIMIT = 256 * 1024;
+const ASSET_MAX_BYTES = 512 * 1024;
 const WORKSPACE_INPUT_SOURCE_IDS = new Set<WorkspaceInputSource>([
   'url',
   'linkUrl',
@@ -134,6 +137,32 @@ function targetType(workspace: WorkspaceFileV2, edge: WorkspaceEdgeV2): GraphDat
 function connectedInput(edgesByTarget: Map<string, WorkspaceEdgeV2>, nodeId: string, inputId: string): string | undefined {
   const edge = edgesByTarget.get(`${nodeId}:${inputId}`);
   return edge ? symbol(edge.source, edge.sourceHandle) : undefined;
+}
+
+function assetKindForNode(type: BlockKind): AssetFetchKind {
+  if (type === 'GetVideo') {
+    return 'video';
+  }
+
+  if (type === 'GetAudio') {
+    return 'audio';
+  }
+
+  return 'image';
+}
+
+function interactionKindForNode(type: BlockKind): UserInteractionKind {
+  switch (type) {
+    case 'PromptNumber':
+      return 'PROMPT_NUMBER';
+    case 'Confirm':
+      return 'CONFIRM';
+    case 'PickFileOrUrl':
+      return 'PICK_FILE_OR_URL';
+    case 'PromptText':
+    default:
+      return 'PROMPT_TEXT';
+  }
 }
 
 function collectReachableNodes(workspace: WorkspaceFileV2): Set<string> {
@@ -388,9 +417,9 @@ function validateWorkspace(workspace: WorkspaceFileV2): WorkspaceValidationState
       }
     }
 
-    if (node.type === 'FetchData' || node.type === 'HttpRequest') {
-      addRisk(risk, 'high', 'Remote data access is high risk.', 'input');
-      const fallbackUrl = node.settings.remoteUrl?.trim() ?? '';
+    if (node.type === 'FetchData' || node.type === 'HttpRequest' || node.type === 'GetImage' || node.type === 'GetVideo' || node.type === 'GetAudio') {
+      addRisk(risk, 'high', node.type === 'FetchData' || node.type === 'HttpRequest' ? 'Remote data access is high risk.' : 'Remote media access is high risk.', 'input');
+      const fallbackUrl = (node.type === 'FetchData' || node.type === 'HttpRequest' ? node.settings.remoteUrl : node.settings.assetUrl)?.trim() ?? '';
       if (!connectedInput(edgesByTarget, node.id, 'url') && !fallbackUrl) {
         errors.push(`${node.settings.label || definition.label}: remote URL is required unless the URL input is connected.`);
       }
@@ -416,6 +445,34 @@ function validateWorkspace(workspace: WorkspaceFileV2): WorkspaceValidationState
       if (node.type === 'HttpRequest' && !['GET', 'POST'].includes(node.settings.remoteMethod ?? 'GET')) {
         errors.push(`${node.settings.label || definition.label}: method must be GET or POST.`);
       }
+    }
+
+    if (node.type === 'SystemData' && !['NOW_MS', 'EPOCH_SECONDS', 'ISO_DATE', 'TIMEZONE_OFFSET_MINUTES', 'LOCALE_DATE', 'LOCALE_TIME'].includes(node.settings.systemDataMode ?? 'NOW_MS')) {
+      errors.push(`${node.settings.label || definition.label}: system data mode is invalid.`);
+    }
+
+    if (node.type === 'PromptText' || node.type === 'PromptNumber' || node.type === 'Confirm') {
+      addRisk(risk, 'extended', 'User interaction is extended risk.', 'input');
+    }
+
+    if (node.type === 'PickFileOrUrl') {
+      addRisk(risk, 'high', 'File selection or user-provided URL is high risk.', 'input');
+    }
+
+    if (node.type === 'ShowMessage' || node.type === 'ShowImage' || node.type === 'ShowVideo' || node.type === 'PlaySound' || node.type === 'ArcadeGame') {
+      addRisk(risk, 'extended', node.type === 'ArcadeGame' ? 'Game overlay can capture keyboard or mouse while it is open.' : 'Page overlay display is extended risk.', 'output');
+      if (!['OVERLAY', 'REPLACE_PAGE', 'NEW_TAB'].includes(node.settings.displayMode ?? 'OVERLAY')) {
+        errors.push(`${node.settings.label || definition.label}: display mode is invalid.`);
+      }
+
+      const timeoutMs = node.settings.displayTimeoutMs;
+      if (timeoutMs !== undefined && (Math.trunc(timeoutMs) < 0 || Math.trunc(timeoutMs) > 3_600_000)) {
+        errors.push(`${node.settings.label || definition.label}: timeout must be between 0ms and 3600000ms.`);
+      }
+    }
+
+    if (node.type === 'ArcadeGame' && (node.settings.gamePreset ?? 'SPACE_DEFENDER') !== 'SPACE_DEFENDER') {
+      errors.push(`${node.settings.label || definition.label}: game preset is invalid.`);
     }
 
     if (node.type === 'Loop') {
@@ -515,6 +572,97 @@ function instructionForNode(
         outputDataType: node.settings.remoteDataType ?? 'data',
         timeoutMs: Math.max(500, Math.min(30_000, Math.trunc(node.settings.remoteTimeoutMs ?? DEFAULT_REMOTE_TIMEOUT_MS))),
         maxBytes: Math.max(1_024, Math.min(512 * 1024, Math.trunc(node.settings.remoteMaxBytes ?? DEFAULT_REMOTE_MAX_BYTES))),
+      });
+      break;
+    case 'SystemData':
+      instructions.push({
+        op: 'SYSTEM_DATA',
+        nodeId: node.id,
+        output: symbol(node.id, 'result'),
+        mode: node.settings.systemDataMode ?? 'NOW_MS',
+      });
+      break;
+    case 'PromptText':
+    case 'PromptNumber':
+    case 'Confirm':
+    case 'PickFileOrUrl':
+      instructions.push({
+        op: 'USER_INTERACTION',
+        nodeId: node.id,
+        output: symbol(node.id, 'result'),
+        interaction: interactionKindForNode(node.type),
+        message: node.settings.promptMessage ?? getBlockDefinition(node.type).label,
+        placeholder: node.settings.promptPlaceholder,
+        defaultValue: node.settings.promptDefaultValue,
+        minValue: node.settings.minValue,
+        maxValue: node.settings.maxValue,
+      });
+      break;
+    case 'GetImage':
+    case 'GetVideo':
+    case 'GetAudio':
+      instructions.push({
+        op: 'GET_ASSET',
+        nodeId: node.id,
+        url: connectedInput(edgesByTarget, node.id, 'url'),
+        output: symbol(node.id, 'result'),
+        fallbackUrl: node.settings.assetUrl ?? '',
+        kind: node.settings.assetKind ?? assetKindForNode(node.type),
+        embedded: node.settings.assetDataBase64
+          ? {
+              source: 'embedded',
+              kind: node.settings.assetKind ?? assetKindForNode(node.type),
+              mimeType: node.settings.assetMimeType ?? '',
+              name: node.settings.assetName,
+              dataBase64: node.settings.assetDataBase64,
+              compression: node.settings.assetCompression ?? 'gzip',
+            }
+          : undefined,
+        timeoutMs: Math.max(500, Math.min(30_000, Math.trunc(node.settings.remoteTimeoutMs ?? DEFAULT_REMOTE_TIMEOUT_MS))),
+        maxBytes: Math.max(1_024, Math.min(ASSET_MAX_BYTES, Math.trunc(node.settings.remoteMaxBytes ?? ASSET_MAX_BYTES))),
+      });
+      break;
+    case 'ShowMessage':
+      instructions.push({
+        op: 'DISPLAY',
+        nodeId: node.id,
+        input: connectedInput(edgesByTarget, node.id, 'message'),
+        output: symbol(node.id, 'result'),
+        displayType: 'message',
+        message: node.settings.promptMessage ?? '',
+        mode: node.settings.displayMode ?? 'OVERLAY',
+        timeoutMs: node.settings.displayTimeoutMs,
+      });
+      break;
+    case 'ShowImage':
+    case 'ShowVideo':
+    case 'PlaySound':
+      instructions.push({
+        op: 'DISPLAY',
+        nodeId: node.id,
+        asset: connectedInput(edgesByTarget, node.id, 'asset'),
+        input: connectedInput(edgesByTarget, node.id, 'caption'),
+        output: symbol(node.id, 'result'),
+        displayType: node.type === 'ShowVideo' ? 'video' : node.type === 'PlaySound' ? 'sound' : 'image',
+        message: node.settings.promptMessage ?? '',
+        mode: node.settings.displayMode ?? 'OVERLAY',
+        stopMode: node.type === 'ShowImage' ? node.settings.imageStopMode ?? 'CLOSE_BUTTON' : undefined,
+        timeoutMs: node.settings.displayTimeoutMs,
+      });
+      break;
+    case 'ArcadeGame':
+      instructions.push({
+        op: 'DISPLAY',
+        nodeId: node.id,
+        input: connectedInput(edgesByTarget, node.id, 'title'),
+        output: symbol(node.id, 'result'),
+        displayType: 'arcade-game',
+        message: node.settings.promptMessage ?? 'Space Defender',
+        mode: 'OVERLAY',
+        timeoutMs: node.settings.displayTimeoutMs,
+        gamePreset: node.settings.gamePreset ?? 'SPACE_DEFENDER',
+        captureKeyboard: node.settings.captureKeyboard ?? true,
+        captureMouse: node.settings.captureMouse ?? true,
       });
       break;
     case 'Logical':
@@ -726,7 +874,7 @@ function buildSafetyPolicy(instructions: GraphVmInstruction[]): GraphVmSafetyPol
         };
       }
 
-      if (instruction.op === 'FETCH_GET' || instruction.op === 'HTTP_REQUEST') {
+      if (instruction.op === 'FETCH_GET' || instruction.op === 'HTTP_REQUEST' || instruction.op === 'GET_ASSET') {
         return {
           nodeId: instruction.nodeId,
           op: instruction.op,
@@ -825,6 +973,37 @@ export function compileWorkspace(workspace: WorkspaceFileV2, options: CompileOpt
         'high',
         host ? `Remote host ${new URL(host).host} may receive or provide data.` : 'Dynamic remote host may receive or provide data.',
         'input',
+      );
+    }
+
+    if (instruction.op === 'GET_ASSET') {
+      addRisk(risk, 'high', 'Remote or embedded media access is high risk.', 'input');
+      const host = instruction.fallbackUrl ? cleanUrl(instruction.fallbackUrl) : undefined;
+      addRisk(
+        risk,
+        'high',
+        host ? `Remote media host ${new URL(host).host} may provide displayable content.` : 'Dynamic remote media host may provide displayable content.',
+        'input',
+      );
+    }
+
+    if (instruction.op === 'USER_INTERACTION') {
+      addRisk(
+        risk,
+        instruction.interaction === 'PICK_FILE_OR_URL' ? 'high' : 'extended',
+        instruction.interaction === 'PICK_FILE_OR_URL' ? 'File selection or user-provided URL is high risk.' : 'User interaction is extended risk.',
+        'input',
+      );
+    }
+
+    if (instruction.op === 'DISPLAY') {
+      addRisk(
+        risk,
+        'extended',
+        instruction.displayType === 'arcade-game'
+          ? 'Game overlay can capture keyboard or mouse while it is open.'
+          : 'Page overlay display is extended risk.',
+        'output',
       );
     }
   });

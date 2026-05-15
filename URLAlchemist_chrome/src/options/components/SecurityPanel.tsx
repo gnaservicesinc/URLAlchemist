@@ -3,6 +3,7 @@ import { useMemo, useRef, useState, type ChangeEvent, type DragEvent } from 'rea
 import { formatTimestamp } from '../../shared/helpers';
 import type { GlobalSettings, StoredTraceEntry } from '../../shared/types';
 import { compileWorkspace } from '../../shared/v2/compiler';
+import { explainInstruction, explainRiskReason, summarizePackBehavior } from '../../shared/v2/explain';
 import type { CompiledActionPackV2, GraphVmInstruction, WorkspaceFileV2 } from '../../shared/v2/types';
 import { importAnyArtifact } from '../../shared/v2/vault';
 
@@ -22,6 +23,7 @@ interface AuditReport {
   kind: string;
   permissions: string[];
   riskReasons: string[];
+  summary: string;
   title: string;
   trigger: string;
   valid: boolean;
@@ -52,6 +54,7 @@ async function auditBytes(bytes: Uint8Array): Promise<AuditReport> {
       kind: 'Workspace',
       permissions: compiled.pack?.requiredPermissions ?? [],
       riskReasons: compiled.validation.risk.reasons,
+      summary: compiled.pack ? summarizePackBehavior(compiled.pack) : 'This workspace has validation errors and cannot be installed yet.',
       title: artifact.workspace.metadata.name,
       trigger: artifact.workspace.trigger.type,
       valid: compiled.validation.valid,
@@ -66,6 +69,7 @@ async function auditBytes(bytes: Uint8Array): Promise<AuditReport> {
       kind: 'Action Pack',
       permissions: artifact.pack.requiredPermissions,
       riskReasons: artifact.pack.risk.reasons,
+      summary: summarizePackBehavior(artifact.pack),
       title: artifact.pack.manifest.name,
       trigger: artifact.pack.triggerPlan.type,
       valid: true,
@@ -79,6 +83,7 @@ async function auditBytes(bytes: Uint8Array): Promise<AuditReport> {
     kind: 'Legacy URL pack',
     permissions: [],
     riskReasons: [],
+    summary: 'Legacy URL packs must be converted before this audit view can explain them.',
     title: artifact.pack.name,
     trigger: artifact.pack.trigger.type,
     valid: false,
@@ -294,6 +299,7 @@ export function SecurityPanel({
           <div className="mt-5 grid gap-4">
             <div className={`rounded-[1.25rem] border px-5 py-4 ${auditReport.valid ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-800'}`}>
               <p className="font-semibold">{auditReport.kind}: {auditReport.title}</p>
+              <p className="mt-1 text-sm">{auditReport.summary}</p>
               <p className="mt-1 text-sm">Trigger: {auditReport.trigger} · {auditReport.instructions.length} instructions</p>
               <p className="mt-1 text-sm">Permissions: {auditReport.permissions.length > 0 ? auditReport.permissions.join(', ') : 'none'}</p>
             </div>
@@ -309,16 +315,20 @@ export function SecurityPanel({
                 <p className="font-semibold">Risk summary</p>
                 <ul className="mt-2 list-disc pl-5">
                   {auditReport.riskReasons.map((reason) => (
-                    <li key={reason}>{reason}</li>
+                    <li key={reason}>{explainRiskReason(reason)}</li>
                   ))}
                 </ul>
               </div>
             ) : null}
             <div className="rounded-[1.25rem] border border-slate-200 bg-white/75 px-5 py-4">
-              <p className="text-sm font-semibold text-slate-900">Instructions</p>
-              <div className="mt-3 max-h-72 overflow-auto rounded-2xl bg-slate-950 p-4 text-xs text-slate-100">
-                <pre>{JSON.stringify(auditReport.instructions, null, 2)}</pre>
-              </div>
+              <p className="text-sm font-semibold text-slate-900">What it does</p>
+              <ol className="mt-3 grid gap-2 text-sm text-slate-700">
+                {auditReport.instructions.map((instruction, index) => (
+                  <li key={`${instruction.nodeId}:${index}`} className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
+                    <span className="font-semibold text-slate-900">Step {index + 1}:</span> {explainInstruction(instruction)}
+                  </li>
+                ))}
+              </ol>
             </div>
           </div>
         ) : null}

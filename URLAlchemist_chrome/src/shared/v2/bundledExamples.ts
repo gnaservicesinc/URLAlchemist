@@ -14,6 +14,7 @@ export interface BundledActionPackExample {
   name: string;
   slug: string;
   description: string;
+  category: 'URL cleanup' | 'Search' | 'Storage' | 'Remote data' | 'Page tools' | 'Media' | 'Games';
   trigger: string;
   risk: 'safe' | 'extended' | 'high';
   features: string[];
@@ -27,6 +28,7 @@ export const BUNDLED_ACTION_PACK_EXAMPLES: BundledActionPackExample[] = [
     name: 'Clean Campaign Links',
     slug: 'clean-campaign-links',
     description: 'Removes common campaign tracking parameters and tidies query separators.',
+    category: 'URL cleanup',
     trigger: 'INPUT_DATA',
     risk: 'safe',
     features: ['Input-data trigger', 'Regex cleanup', 'Safe URL output'],
@@ -38,6 +40,7 @@ export const BUNDLED_ACTION_PACK_EXAMPLES: BundledActionPackExample[] = [
     name: 'Keep Stable Query',
     slug: 'keep-stable-query',
     description: 'Keeps a stable id query value and removes noisy parameters after it.',
+    category: 'URL cleanup',
     trigger: 'CONTEXT_MENU',
     risk: 'safe',
     features: ['After-pattern trimming', 'Context menu run', 'Stable share URLs'],
@@ -49,6 +52,7 @@ export const BUNDLED_ACTION_PACK_EXAMPLES: BundledActionPackExample[] = [
     name: 'GitHub PR Files Shortcut',
     slug: 'github-pr-files-shortcut',
     description: 'Turns a GitHub pull request URL into the files view.',
+    category: 'URL cleanup',
     trigger: 'CONTEXT_MENU',
     risk: 'safe',
     features: ['Before-pattern append', 'GitHub scope', 'Link URL friendly'],
@@ -60,6 +64,7 @@ export const BUNDLED_ACTION_PACK_EXAMPLES: BundledActionPackExample[] = [
     name: 'Search Selected Text',
     slug: 'search-selected-text',
     description: 'Opens a search URL for the current selection with a hotkey.',
+    category: 'Search',
     trigger: 'HOTKEY',
     risk: 'safe',
     features: ['Selected text input', 'Hotkey trigger', 'String to URL conversion'],
@@ -71,6 +76,7 @@ export const BUNDLED_ACTION_PACK_EXAMPLES: BundledActionPackExample[] = [
     name: 'Clipboard Search Launcher',
     slug: 'clipboard-search-launcher',
     description: 'Opens a search URL for the current clipboard contents.',
+    category: 'Search',
     trigger: 'HOTKEY',
     risk: 'high',
     features: ['Clipboard input', 'High-risk staging warning', 'String to URL conversion'],
@@ -82,6 +88,7 @@ export const BUNDLED_ACTION_PACK_EXAMPLES: BundledActionPackExample[] = [
     name: 'Remember Current Page',
     slug: 'remember-current-page',
     description: 'Stores the current URL in session storage while leaving navigation unchanged.',
+    category: 'Storage',
     trigger: 'CONTEXT_MENU',
     risk: 'extended',
     features: ['Session SaveLoad', 'No redirect', 'Context menu utility'],
@@ -93,6 +100,7 @@ export const BUNDLED_ACTION_PACK_EXAMPLES: BundledActionPackExample[] = [
     name: 'Research Note Snapshot',
     slug: 'research-note-snapshot',
     description: 'Copies a small JSON note containing the current URL and page title.',
+    category: 'Page tools',
     trigger: 'CONTEXT_MENU',
     risk: 'high',
     features: ['Dictionary building', 'JSON conversion', 'Clipboard output'],
@@ -104,6 +112,7 @@ export const BUNDLED_ACTION_PACK_EXAMPLES: BundledActionPackExample[] = [
     name: 'Uppercase Selection Clipboard',
     slug: 'uppercase-selection-clipboard',
     description: 'Copies a simple uppercase ASCII transform of the selected text.',
+    category: 'Page tools',
     trigger: 'CONTEXT_MENU',
     risk: 'high',
     features: ['Declarations', 'Logic and loop blocks', 'Math conversion to clipboard'],
@@ -115,6 +124,7 @@ export const BUNDLED_ACTION_PACK_EXAMPLES: BundledActionPackExample[] = [
     name: 'Remote Text Fetch Preview',
     slug: 'remote-text-fetch-preview',
     description: 'Fetches a text file from a fixed HTTPS endpoint and writes it to the page-text output while leaving navigation unchanged.',
+    category: 'Remote data',
     trigger: 'CONTEXT_MENU',
     risk: 'high',
     features: ['Remote GET warning', 'Typed string output', 'No redirect'],
@@ -126,11 +136,60 @@ export const BUNDLED_ACTION_PACK_EXAMPLES: BundledActionPackExample[] = [
     name: 'Remote POST Snapshot',
     slug: 'remote-post-snapshot',
     description: 'Builds a small dictionary from the current page and sends it to a fixed HTTPS endpoint.',
+    category: 'Remote data',
     trigger: 'CONTEXT_MENU',
     risk: 'high',
     features: ['Remote POST warning', 'Dictionary body', 'No redirect'],
     workspacePath: 'bundled-actionpacks/workspaces/remote-post-snapshot.workspace',
     actionPackPath: 'bundled-actionpacks/action-packs/remote-post-snapshot.actionpack',
+  },
+  {
+    id: '0f6b6d50-9d44-4a86-9d0f-80a9e8200011',
+    name: 'Clean Words',
+    slug: 'clean-words',
+    description: 'Fetches a remote bad-words list, masks matching page text, and shows a review message before leaving navigation unchanged.',
+    category: 'Page tools',
+    trigger: 'CONTEXT_MENU',
+    risk: 'high',
+    features: ['Remote word list', 'Page text mutation', 'Overlay message'],
+    workspacePath: 'bundled-actionpacks/workspaces/clean-words.workspace',
+    actionPackPath: 'bundled-actionpacks/action-packs/clean-words.actionpack',
+  },
+  {
+    id: '0f6b6d50-9d44-4a86-9d0f-80a9e8200012',
+    name: 'Screen Time',
+    slug: 'screen-time',
+    description: 'Prompts for a daily limit, records timing data, shows media feedback, and redirects to a chosen break page.',
+    category: 'Storage',
+    trigger: 'CONTEXT_MENU',
+    risk: 'high',
+    features: ['System time', 'Prompts', 'SaveLoad', 'Image and sound overlays'],
+    workspacePath: 'bundled-actionpacks/workspaces/screen-time.workspace',
+    actionPackPath: 'bundled-actionpacks/action-packs/screen-time.actionpack',
+  },
+  {
+    id: '0f6b6d50-9d44-4a86-9d0f-80a9e8200013',
+    name: 'Playback Resume',
+    slug: 'playback-resume',
+    description: 'Prompts for a direct video file or URL, plays a direct-access video, and stores playback result details for later runs.',
+    category: 'Media',
+    trigger: 'HOTKEY',
+    risk: 'high',
+    features: ['File or URL prompt', 'Direct video fetch', 'Playback result dictionary', 'SaveLoad'],
+    workspacePath: 'bundled-actionpacks/workspaces/playback-resume.workspace',
+    actionPackPath: 'bundled-actionpacks/action-packs/playback-resume.actionpack',
+  },
+  {
+    id: '0f6b6d50-9d44-4a86-9d0f-80a9e8200014',
+    name: 'Space Defender Overlay',
+    slug: 'space-defender-overlay',
+    description: 'Launches a built-in arcade overlay from a hotkey and captures game controls only while the overlay is open.',
+    category: 'Games',
+    trigger: 'HOTKEY',
+    risk: 'extended',
+    features: ['Hotkey launch', 'Keyboard capture', 'Mouse capture', 'Built-in game block'],
+    workspacePath: 'bundled-actionpacks/workspaces/space-defender-overlay.workspace',
+    actionPackPath: 'bundled-actionpacks/action-packs/space-defender-overlay.actionpack',
   },
 ];
 
@@ -590,6 +649,250 @@ function remotePostSnapshot(): WorkspaceFileV2 {
   );
 }
 
+function cleanWords(): WorkspaceFileV2 {
+  const slug = 'clean-words';
+  const input = node(slug, 'input', 'DataFlowIn', { x: 0, y: 180 }, { locked: true });
+  const extendedInput = node(slug, 'extended-input', 'ExtendedDataIn', { x: 0, y: 20 });
+  const fetchList = node(slug, 'fetch-list', 'FetchData', { x: 300, y: 20 }, {
+    label: 'Fetch bad words',
+    remoteUrl: 'https://www.cs.cmu.edu/~biglou/resources/bad-words.txt',
+    remoteDataType: 'string',
+    remoteTimeoutMs: 5000,
+    remoteMaxBytes: 131072,
+  });
+  const maskText = node(slug, 'mask-text', 'RegExpression', { x: 620, y: 170 }, {
+    label: 'Mask page words',
+    pattern: '\\b([A-Za-z])(?:fuck|shit|damn|crap|bitch|bastard)\\b',
+    action: 'SUBSTITUTE',
+    matchMode: 'STANDARD',
+    payload: '$1###',
+    payloadVars: true,
+  });
+  const message = node(slug, 'message', 'ShowMessage', { x: 940, y: 20 }, {
+    promptMessage: 'Clean Words scanned this page and masked matching terms after the first letter.',
+    displayMode: 'OVERLAY',
+  });
+  const storeFetch = node(slug, 'store-fetch', 'SaveLoad', { x: 940, y: 170 }, {
+    label: 'Remember source list',
+    literalValue: 'clean-words:last-list',
+  });
+  const extendedOutput = node(slug, 'extended-output', 'ExtendedDataOut', { x: 1260, y: 100 });
+  const output = node(slug, 'output', 'DataFlowOut', { x: 1260, y: 280 }, { locked: true });
+
+  return baseWorkspace(
+    getExample(slug),
+    [input, extendedInput, fetchList, maskText, message, storeFetch, extendedOutput, output],
+    [
+      edge(extendedInput, 'pageText', maskText, 'input'),
+      edge(fetchList, 'result', storeFetch, 'value'),
+      edge(storeFetch, 'result', extendedOutput, 'fileBlob'),
+      edge(maskText, 'result', extendedOutput, 'pageText'),
+      edge(message, 'result', extendedOutput, 'domMutation'),
+      edge(input, 'url', output, 'url'),
+    ],
+    {
+      type: 'CONTEXT_MENU',
+      hotkey: 'Ctrl+Shift+U',
+      inputSources: ['pageText'],
+      sourceFilters: [{ source: 'url', pattern: '^https?://' }],
+    },
+  );
+}
+
+function screenTime(): WorkspaceFileV2 {
+  const slug = 'screen-time';
+  const input = node(slug, 'input', 'DataFlowIn', { x: 0, y: 260 }, { locked: true });
+  const now = node(slug, 'now', 'SystemData', { x: 0, y: 20 }, {
+    label: 'Current time',
+    systemDataMode: 'NOW_MS',
+  });
+  const promptLimit = node(slug, 'prompt-limit', 'PromptNumber', { x: 280, y: 20 }, {
+    promptMessage: 'Daily max minutes for this site',
+    promptDefaultValue: '30',
+    minValue: 1,
+    maxValue: 1440,
+  });
+  const confirmBreak = node(slug, 'confirm-break', 'Confirm', { x: 280, y: 180 }, {
+    promptMessage: 'Screen time is up. Take a break?',
+  });
+  const image = node(slug, 'image', 'GetImage', { x: 560, y: 20 }, {
+    assetUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3f/OOjs_UI_icon_clock.svg/240px-OOjs_UI_icon_clock.svg.png',
+    assetMimeType: 'image/png',
+    remoteTimeoutMs: 5000,
+    remoteMaxBytes: 131072,
+  });
+  const showImage = node(slug, 'show-image', 'ShowImage', { x: 840, y: 20 }, {
+    imageStopMode: 'TIMEOUT',
+    displayTimeoutMs: 3000,
+  });
+  const audio = node(slug, 'audio', 'GetAudio', { x: 560, y: 180 }, {
+    assetUrl: 'https://upload.wikimedia.org/wikipedia/commons/c/c8/Example.ogg',
+    assetMimeType: 'audio/ogg',
+    remoteTimeoutMs: 5000,
+    remoteMaxBytes: 524288,
+  });
+  const playSound = node(slug, 'play-sound', 'PlaySound', { x: 840, y: 180 });
+  const message = node(slug, 'message', 'ShowMessage', { x: 840, y: 340 }, {
+    promptMessage: 'Screen time limit reached. Redirecting to your break page.',
+  });
+  const stats = node(slug, 'stats', 'DataStructure', { x: 1120, y: 80 }, {
+    variableName: 'screenTimeStats',
+    dictKey: 'lastRunMs',
+  });
+  const stats2 = node(slug, 'stats2', 'DataStructure', { x: 1120, y: 220 }, {
+    variableName: 'screenTimeStats',
+    dictKey: 'limitPrompt',
+  });
+  const stats3 = node(slug, 'stats3', 'DataStructure', { x: 1120, y: 320 }, {
+    variableName: 'screenTimeStats',
+    dictKey: 'imageResult',
+  });
+  const stats4 = node(slug, 'stats4', 'DataStructure', { x: 1120, y: 420 }, {
+    variableName: 'screenTimeStats',
+    dictKey: 'soundResult',
+  });
+  const stats5 = node(slug, 'stats5', 'DataStructure', { x: 1120, y: 520 }, {
+    variableName: 'screenTimeStats',
+    dictKey: 'confirmed',
+  });
+  const stats6 = node(slug, 'stats6', 'DataStructure', { x: 1120, y: 620 }, {
+    variableName: 'screenTimeStats',
+    dictKey: 'messageResult',
+  });
+  const save = node(slug, 'save', 'SaveLoad', { x: 1400, y: 160 }, {
+    literalValue: 'screen-time:stats',
+  });
+  const redirect = node(slug, 'redirect', 'RegExpression', { x: 1120, y: 380 }, {
+    pattern: '^.*$',
+    action: 'SUBSTITUTE',
+    matchMode: 'STANDARD',
+    payload: 'https://chatgpt.com/',
+  });
+  const extendedOutput = node(slug, 'extended-output', 'ExtendedDataOut', { x: 1680, y: 140 });
+  const output = node(slug, 'output', 'DataFlowOut', { x: 1680, y: 360 }, { locked: true });
+
+  return baseWorkspace(
+    getExample(slug),
+    [input, now, promptLimit, confirmBreak, image, showImage, audio, playSound, message, stats, stats2, stats3, stats4, stats5, stats6, save, redirect, extendedOutput, output],
+    [
+      edge(image, 'result', showImage, 'asset'),
+      edge(audio, 'result', playSound, 'asset'),
+      edge(now, 'result', stats, 'value'),
+      edge(promptLimit, 'result', stats2, 'value'),
+      edge(stats, 'result', stats2, 'dict'),
+      edge(showImage, 'result', stats3, 'value'),
+      edge(stats2, 'result', stats3, 'dict'),
+      edge(playSound, 'result', stats4, 'value'),
+      edge(stats3, 'result', stats4, 'dict'),
+      edge(confirmBreak, 'result', stats5, 'value'),
+      edge(stats4, 'result', stats5, 'dict'),
+      edge(message, 'result', stats6, 'value'),
+      edge(stats5, 'result', stats6, 'dict'),
+      edge(stats6, 'result', save, 'value'),
+      edge(save, 'result', extendedOutput, 'fileBlob'),
+      edge(input, 'url', redirect, 'input'),
+      edge(redirect, 'result', output, 'url'),
+    ],
+    {
+      type: 'CONTEXT_MENU',
+      hotkey: 'Ctrl+Shift+U',
+      inputSources: ['url'],
+      sourceFilters: [{ source: 'url', pattern: '^https?://' }],
+    },
+  );
+}
+
+function playbackResume(): WorkspaceFileV2 {
+  const slug = 'playback-resume';
+  const input = node(slug, 'input', 'DataFlowIn', { x: 0, y: 240 }, { locked: true });
+  const pick = node(slug, 'pick', 'PickFileOrUrl', { x: 0, y: 20 }, {
+    promptMessage: 'Choose a direct video file or enter a direct video URL',
+  });
+  const labelPrompt = node(slug, 'label-prompt', 'PromptText', { x: 0, y: 120 }, {
+    promptMessage: 'Playback label',
+    promptDefaultValue: 'Direct video',
+  });
+  const getVideo = node(slug, 'get-video', 'GetVideo', { x: 300, y: 120 }, {
+    assetUrl: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
+    assetMimeType: 'video/mp4',
+    remoteTimeoutMs: 5000,
+    remoteMaxBytes: 524288,
+  });
+  const showVideo = node(slug, 'show-video', 'ShowVideo', { x: 620, y: 120 });
+  const playbackDict = node(slug, 'playback-dict', 'DataStructure', { x: 940, y: 80 }, {
+    variableName: 'playbackResume',
+    dictKey: 'lastResult',
+  });
+  const pickedDict = node(slug, 'picked-dict', 'DataStructure', { x: 940, y: 240 }, {
+    variableName: 'playbackResume',
+    dictKey: 'pickedSource',
+  });
+  const labelDict = node(slug, 'label-dict', 'DataStructure', { x: 940, y: 380 }, {
+    variableName: 'playbackResume',
+    dictKey: 'label',
+  });
+  const save = node(slug, 'save', 'SaveLoad', { x: 1220, y: 160 }, {
+    literalValue: 'playback-resume:last-video',
+  });
+  const extendedOutput = node(slug, 'extended-output', 'ExtendedDataOut', { x: 1500, y: 120 });
+  const output = node(slug, 'output', 'DataFlowOut', { x: 1500, y: 300 }, { locked: true });
+
+  return baseWorkspace(
+    getExample(slug),
+    [input, pick, labelPrompt, getVideo, showVideo, playbackDict, pickedDict, labelDict, save, extendedOutput, output],
+    [
+      edge(getVideo, 'result', showVideo, 'asset'),
+      edge(showVideo, 'result', playbackDict, 'value'),
+      edge(pick, 'result', pickedDict, 'value'),
+      edge(playbackDict, 'result', pickedDict, 'dict'),
+      edge(labelPrompt, 'result', labelDict, 'value'),
+      edge(pickedDict, 'result', labelDict, 'dict'),
+      edge(labelDict, 'result', save, 'value'),
+      edge(save, 'result', extendedOutput, 'fileBlob'),
+      edge(input, 'url', output, 'url'),
+    ],
+    {
+      type: 'HOTKEY',
+      hotkey: 'Ctrl+Shift+V',
+      inputSources: ['url'],
+      sourceFilters: [{ source: 'url', pattern: '^https?://' }],
+    },
+  );
+}
+
+function spaceDefenderOverlay(): WorkspaceFileV2 {
+  const slug = 'space-defender-overlay';
+  const input = node(slug, 'input', 'DataFlowIn', { x: 0, y: 160 }, { locked: true });
+  const game = node(slug, 'game', 'ArcadeGame', { x: 300, y: 40 }, {
+    label: 'Launch Space Defender',
+    gamePreset: 'SPACE_DEFENDER',
+    promptMessage: 'Space Defender',
+    displayTimeoutMs: 180000,
+    captureKeyboard: true,
+    captureMouse: true,
+  });
+  const save = node(slug, 'save', 'SaveLoad', { x: 620, y: 40 }, {
+    label: 'Save last score',
+    literalValue: 'space-defender:last-result',
+  });
+  const output = node(slug, 'output', 'DataFlowOut', { x: 620, y: 220 }, { locked: true });
+
+  return baseWorkspace(
+    getExample(slug),
+    [input, game, save, output],
+    [
+      edge(game, 'result', save, 'value'),
+      edge(input, 'url', output, 'url'),
+    ],
+    {
+      type: 'HOTKEY',
+      hotkey: 'Ctrl+Shift+G',
+      inputSources: ['url'],
+      sourceFilters: [{ source: 'url', pattern: '^https?://' }],
+    },
+  );
+}
+
 export function createBundledExampleWorkspaces(): WorkspaceFileV2[] {
   return [
     cleanCampaignLinks(),
@@ -602,6 +905,10 @@ export function createBundledExampleWorkspaces(): WorkspaceFileV2[] {
     uppercaseSelectionClipboard(),
     remoteTextFetchPreview(),
     remotePostSnapshot(),
+    cleanWords(),
+    screenTime(),
+    playbackResume(),
+    spaceDefenderOverlay(),
   ];
 }
 

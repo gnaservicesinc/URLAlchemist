@@ -1,9 +1,9 @@
 import type { ActionPack, ActionType, MatchMode, WorkspaceTriggerType } from '../types';
 
-export const WORKSPACE_SCHEMA_VERSION = 3;
-export const LEGACY_WORKSPACE_SCHEMA_VERSION = 2;
-export const ACTION_PACK_SCHEMA_VERSION = 3;
-export const LEGACY_ACTION_PACK_SCHEMA_VERSION = 2;
+export const WORKSPACE_SCHEMA_VERSION = 4;
+export const LEGACY_WORKSPACE_SCHEMA_VERSION = 3;
+export const ACTION_PACK_SCHEMA_VERSION = 4;
+export const LEGACY_ACTION_PACK_SCHEMA_VERSION = 3;
 export const INPUT_TRIGGER_HISTORY_LIMIT = 25;
 export const INPUT_TRIGGER_BURST_LIMIT = 10;
 export const INPUT_TRIGGER_BURST_WINDOW_MS = 1_000;
@@ -21,7 +21,24 @@ export type GraphDataType =
   | 'JSON'
   | 'data'
   | 'dict'
+  | 'asset'
   | 'Any';
+
+export type AssetKind = 'image' | 'video' | 'audio' | 'unknown';
+export type AssetSource = 'remote' | 'embedded' | 'picked-file';
+
+export interface AssetRef {
+  source: AssetSource;
+  kind: AssetKind;
+  mimeType: string;
+  url?: string;
+  name?: string;
+  sha256?: string;
+  sizeBytes?: number;
+  compression?: 'gzip' | 'none';
+  dataBase64?: string;
+  cacheKey?: string;
+}
 
 export type GraphValue =
   | { type: 'bool'; value: 0 | 1 }
@@ -32,6 +49,7 @@ export type GraphValue =
   | { type: 'JSON'; value: string }
   | { type: 'data'; value: unknown }
   | { type: 'dict'; value: Record<string, GraphValue> }
+  | { type: 'asset'; value: AssetRef }
   | { type: 'Any'; value: unknown };
 
 export const BLOCK_TYPE_IDS = {
@@ -49,6 +67,19 @@ export const BLOCK_TYPE_IDS = {
   ExtendedDataOut: 11,
   FetchData: 12,
   HttpRequest: 13,
+  SystemData: 14,
+  PromptText: 15,
+  PromptNumber: 16,
+  Confirm: 17,
+  PickFileOrUrl: 18,
+  ShowMessage: 19,
+  ShowImage: 20,
+  ShowVideo: 21,
+  PlaySound: 22,
+  GetImage: 23,
+  GetVideo: 24,
+  GetAudio: 25,
+  ArcadeGame: 26,
 } as const;
 
 export type BlockKind = keyof typeof BLOCK_TYPE_IDS;
@@ -74,7 +105,7 @@ export interface BlockDefinition {
   kind: BlockKind;
   typeId: BlockTypeId;
   label: string;
-  category: 'flow' | 'logic' | 'regex' | 'math' | 'storage' | 'convert' | 'data';
+  category: 'flow' | 'logic' | 'regex' | 'math' | 'storage' | 'convert' | 'data' | 'interaction' | 'media';
   inputs: GraphPortDefinition[];
   outputs: GraphPortDefinition[];
   flags: BlockFlags;
@@ -164,6 +195,13 @@ export interface WorkspaceRegexBuilderState {
   caseSensitive: boolean;
 }
 
+export type SystemDataMode = 'NOW_MS' | 'EPOCH_SECONDS' | 'ISO_DATE' | 'TIMEZONE_OFFSET_MINUTES' | 'LOCALE_DATE' | 'LOCALE_TIME';
+export type UserInteractionKind = 'PROMPT_TEXT' | 'PROMPT_NUMBER' | 'CONFIRM' | 'PICK_FILE_OR_URL';
+export type DisplayMode = 'OVERLAY' | 'REPLACE_PAGE' | 'NEW_TAB';
+export type ShowImageStopMode = 'CLOSE_BUTTON' | 'CLICK' | 'TIMEOUT' | 'CONFIRM';
+export type AssetFetchKind = 'image' | 'video' | 'audio';
+export type ArcadeGamePreset = 'SPACE_DEFENDER';
+
 export interface WorkspaceBlockSettings {
   label?: string;
   locked?: boolean;
@@ -179,6 +217,25 @@ export interface WorkspaceBlockSettings {
   remoteMethod?: 'GET' | 'POST';
   remoteTimeoutMs?: number;
   remoteMaxBytes?: number;
+  assetUrl?: string;
+  assetKind?: AssetFetchKind;
+  assetMimeType?: string;
+  assetName?: string;
+  assetDataBase64?: string;
+  assetCompression?: 'gzip' | 'none';
+  systemDataMode?: SystemDataMode;
+  promptMessage?: string;
+  promptPlaceholder?: string;
+  promptDefaultValue?: string;
+  minValue?: number;
+  maxValue?: number;
+  displayMode?: DisplayMode;
+  imageStopMode?: ShowImageStopMode;
+  displayTimeoutMs?: number;
+  requireUserGesture?: boolean;
+  gamePreset?: ArcadeGamePreset;
+  captureKeyboard?: boolean;
+  captureMouse?: boolean;
   payloadVars?: boolean;
   regexBuilder?: WorkspaceRegexBuilderState;
   regexSourceMode?: WorkspaceRegexSourceMode;
@@ -244,6 +301,7 @@ export interface WorkspaceFileV2 {
   trigger: WorkspaceTrigger;
   nodes: WorkspaceNodeV2[];
   edges: WorkspaceEdgeV2[];
+  assets?: AssetRef[];
   viewport: WorkspaceViewport;
   validationState?: WorkspaceValidationState;
 }
@@ -339,6 +397,49 @@ export type GraphVmInstruction =
       outputDataType: GraphDataType;
       timeoutMs: number;
       maxBytes: number;
+    }
+  | {
+      op: 'SYSTEM_DATA';
+      nodeId: string;
+      output: string;
+      mode: SystemDataMode;
+    }
+  | {
+      op: 'USER_INTERACTION';
+      nodeId: string;
+      output: string;
+      interaction: UserInteractionKind;
+      message: string;
+      placeholder?: string;
+      defaultValue?: string;
+      minValue?: number;
+      maxValue?: number;
+    }
+  | {
+      op: 'GET_ASSET';
+      nodeId: string;
+      url?: string;
+      output: string;
+      fallbackUrl: string;
+      kind: AssetFetchKind;
+      embedded?: AssetRef;
+      timeoutMs: number;
+      maxBytes: number;
+    }
+  | {
+      op: 'DISPLAY';
+      nodeId: string;
+      input?: string;
+      asset?: string;
+      output?: string;
+      displayType: 'message' | 'image' | 'video' | 'sound' | 'arcade-game';
+      message: string;
+      mode: DisplayMode;
+      stopMode?: ShowImageStopMode;
+      timeoutMs?: number;
+      gamePreset?: ArcadeGamePreset;
+      captureKeyboard?: boolean;
+      captureMouse?: boolean;
     }
   | {
       op: 'COMPARE';

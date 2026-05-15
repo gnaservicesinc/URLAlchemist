@@ -3,7 +3,7 @@ import { effectiveVmInstructionLimit } from '../hardening';
 import type { EngineIssue, GlobalSettings } from '../types';
 import type { EngineRuntime } from '../engine/runtime';
 import { validateRemoteUrl } from './remoteUrl';
-import type { CompiledActionPackV2, GraphValue, GraphVmInstruction } from './types';
+import type { AssetRef, CompiledActionPackV2, GraphValue, GraphVmInstruction } from './types';
 
 export interface RemoteRequest {
   url: string;
@@ -14,12 +14,44 @@ export interface RemoteRequest {
   maxBytes: number;
 }
 
+export interface AssetRequest {
+  url: string;
+  kind: AssetRef['kind'];
+  timeoutMs: number;
+  maxBytes: number;
+}
+
+export interface UserInteractionRequest {
+  kind: Extract<GraphVmInstruction, { op: 'USER_INTERACTION' }>['interaction'];
+  message: string;
+  placeholder?: string;
+  defaultValue?: string;
+  minValue?: number;
+  maxValue?: number;
+}
+
+export interface DisplayRequest {
+  type: Extract<GraphVmInstruction, { op: 'DISPLAY' }>['displayType'];
+  message: string;
+  mode: Extract<GraphVmInstruction, { op: 'DISPLAY' }>['mode'];
+  stopMode?: Extract<GraphVmInstruction, { op: 'DISPLAY' }>['stopMode'];
+  timeoutMs?: number;
+  asset?: AssetRef;
+  gamePreset?: Extract<GraphVmInstruction, { op: 'DISPLAY' }>['gamePreset'];
+  captureKeyboard?: boolean;
+  captureMouse?: boolean;
+}
+
 export interface GraphRuntime extends EngineRuntime {
   readSource?: (source: string) => Promise<GraphValue | undefined>;
   writeDestination?: (destination: string, value: GraphValue) => Promise<void>;
   loadSessionValue?: (key: string) => Promise<GraphValue | undefined>;
   saveSessionValue?: (key: string, value: GraphValue) => Promise<void>;
   fetchRemote?: (request: RemoteRequest) => Promise<GraphValue>;
+  resolveAsset?: (request: AssetRequest) => Promise<AssetRef>;
+  requestUserInteraction?: (request: UserInteractionRequest) => Promise<GraphValue>;
+  displayOverlay?: (request: DisplayRequest) => Promise<GraphValue>;
+  mutatePageText?: (value: GraphValue) => Promise<void>;
 }
 
 export interface GraphExecutionResult {
@@ -97,6 +129,10 @@ function bytes(value: GraphValue): number {
 }
 
 function graphValueFromUnknown(value: unknown, preferredType: GraphValue['type'] = 'Any'): GraphValue {
+  if (preferredType === 'asset') {
+    return { type: 'asset', value: value as AssetRef };
+  }
+
   if (typeof value === 'boolean') {
     return { type: 'bool', value: value ? 1 : 0 };
   }
@@ -122,6 +158,20 @@ function graphValueFromUnknown(value: unknown, preferredType: GraphValue['type']
   }
 
   return { type: preferredType, value } as GraphValue;
+}
+
+function dictValue(entries: Record<string, GraphValue | string | number | boolean | null | undefined>): GraphValue {
+  return {
+    type: 'dict',
+    value: Object.fromEntries(
+      Object.entries(entries).map(([key, value]) => [
+        key,
+        value && typeof value === 'object' && 'type' in value
+          ? value as GraphValue
+          : graphValueFromUnknown(value),
+      ]),
+    ),
+  };
 }
 
 function plainValue(value: GraphValue | undefined): unknown {
@@ -234,6 +284,78 @@ async function defaultFetchRemote(request: RemoteRequest): Promise<GraphValue> {
   } finally {
     globalThis.clearTimeout(timeout);
   }
+}
+
+async function defaultResolveAsset(request: AssetRequest): Promise<AssetRef> {
+  const controller = new AbortController();
+  const timeout = globalThis.setTimeout(() => controller.abort(), request.timeoutMs);
+  const requestUrl = validateRemoteUrl(request.url);
+
+  try {
+    const response = await fetch(requestUrl, {
+      method: 'GET',
+      redirect: 'error',
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Remote asset request failed with HTTP ${response.status}`);
+    }
+
+    const bytes = await readResponseBytes(response, request.maxBytes);
+    return {
+      source: 'remote',
+      kind: request.kind,
+      mimeType: response.headers.get('content-type')?.split(';')[0]?.trim() || `${request.kind}/*`,
+      url: requestUrl,
+      sizeBytes: bytes.byteLength,
+      cacheKey: requestUrl,
+    };
+  } finally {
+    globalThis.clearTimeout(timeout);
+  }
+}
+
+function systemData(mode: Extract<GraphVmInstruction, { op: 'SYSTEM_DATA' }>['mode']): GraphValue {
+  const now = new Date();
+  switch (mode) {
+    case 'EPOCH_SECONDS':
+      return { type: 'number', value: Math.floor(now.getTime() / 1000) };
+    case 'ISO_DATE':
+      return { type: 'string', value: now.toISOString() };
+    case 'TIMEZONE_OFFSET_MINUTES':
+      return { type: 'number', value: now.getTimezoneOffset() };
+    case 'LOCALE_DATE':
+      return { type: 'string', value: now.toLocaleDateString() };
+    case 'LOCALE_TIME':
+      return { type: 'string', value: now.toLocaleTimeString() };
+    case 'NOW_MS':
+    default:
+      return { type: 'number', value: now.getTime() };
+  }
+}
+
+async function defaultUserInteraction(request: UserInteractionRequest): Promise<GraphValue> {
+  return dictValue({
+    ok: false,
+    cancelled: true,
+    value: null,
+    source: 'unavailable',
+    error: `User interaction "${request.kind}" is unavailable in this runtime`,
+  });
+}
+
+async function defaultDisplay(request: DisplayRequest): Promise<GraphValue> {
+  return dictValue({
+    ok: false,
+    completed: false,
+    cancelled: true,
+    stoppedAtSeconds: 0,
+    durationSeconds: 0,
+    watchedPercent: 0,
+    reason: 'unavailable',
+    error: `Display "${request.type}" is unavailable in this runtime`,
+  });
 }
 
 function asString(value: GraphValue | undefined): string {
@@ -480,6 +602,63 @@ async function executeInstruction(
       trace(state, instruction, `${instruction.method} remote data`, value);
       break;
     }
+    case 'SYSTEM_DATA': {
+      const value = systemData(instruction.mode);
+      setValue(state, instruction.output, value, pack.vm.valueByteLimit);
+      trace(state, instruction, `Read ${instruction.mode}`, value);
+      break;
+    }
+    case 'USER_INTERACTION': {
+      const message = instruction.message || 'URL Alchemist needs input';
+      const value = await (runtime.requestUserInteraction ?? defaultUserInteraction)({
+        kind: instruction.interaction,
+        message,
+        placeholder: instruction.placeholder,
+        defaultValue: instruction.defaultValue,
+        minValue: instruction.minValue,
+        maxValue: instruction.maxValue,
+      });
+      setValue(state, instruction.output, value, pack.vm.valueByteLimit);
+      trace(state, instruction, 'User interaction completed', value);
+      break;
+    }
+    case 'GET_ASSET': {
+      const requestUrl = instruction.url ? asString(getValue(state, instruction.url)) : instruction.fallbackUrl;
+      const value: GraphValue = instruction.embedded
+        ? { type: 'asset', value: instruction.embedded }
+        : {
+            type: 'asset',
+            value: await (runtime.resolveAsset ?? defaultResolveAsset)({
+              url: validateRemoteUrl(requestUrl),
+              kind: instruction.kind,
+              timeoutMs: instruction.timeoutMs,
+              maxBytes: instruction.maxBytes,
+            }),
+          };
+      setValue(state, instruction.output, value, pack.vm.valueByteLimit);
+      trace(state, instruction, instruction.embedded ? 'Loaded embedded asset' : 'Resolved remote asset', value);
+      break;
+    }
+    case 'DISPLAY': {
+      const message = instruction.input ? asString(getValue(state, instruction.input)) : instruction.message;
+      const assetValue = instruction.asset ? getValue(state, instruction.asset) : undefined;
+      const value = await (runtime.displayOverlay ?? defaultDisplay)({
+        type: instruction.displayType,
+        message,
+        mode: instruction.mode,
+        stopMode: instruction.stopMode,
+        timeoutMs: instruction.timeoutMs,
+        asset: assetValue?.type === 'asset' ? assetValue.value : undefined,
+        gamePreset: instruction.gamePreset,
+        captureKeyboard: instruction.captureKeyboard,
+        captureMouse: instruction.captureMouse,
+      });
+      if (instruction.output) {
+        setValue(state, instruction.output, value, pack.vm.valueByteLimit);
+      }
+      trace(state, instruction, 'Display completed', value);
+      break;
+    }
     case 'COMPARE': {
       const left = asNumber(getValue(state, instruction.input));
       const right = asNumber(parseVariableOrLiteral(state, instruction.compareValue));
@@ -621,6 +800,9 @@ async function executeInstruction(
       state.outputs.set(instruction.destination, value);
       if (instruction.destination !== 'url') {
         await runtime.writeDestination?.(instruction.destination, value);
+        if (instruction.destination === 'pageText') {
+          await runtime.mutatePageText?.(value);
+        }
       }
       trace(state, instruction, `Wrote ${instruction.destination}`, value);
       break;

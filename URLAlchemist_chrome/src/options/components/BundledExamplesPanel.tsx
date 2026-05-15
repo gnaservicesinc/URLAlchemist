@@ -1,4 +1,5 @@
 import type { BundledActionPackExample } from '../../shared/v2/bundledExamples';
+import { useMemo, useState } from 'react';
 
 interface BundledExamplesPanelProps {
   examples: BundledActionPackExample[];
@@ -47,6 +48,24 @@ export function BundledExamplesPanel({
   onInstallActionPack,
   onOpenWorkspace,
 }: BundledExamplesPanelProps) {
+  const [query, setQuery] = useState('');
+  const [category, setCategory] = useState<string>('All');
+  const categories = useMemo(() => ['All', ...Array.from(new Set(examples.map((example) => example.category))).sort()], [examples]);
+  const visibleExamples = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    return examples.filter((example) => {
+      const matchesCategory = category === 'All' || example.category === category;
+      const matchesQuery = !normalized || [
+        example.name,
+        example.description,
+        example.trigger,
+        example.category,
+        ...example.features,
+      ].join(' ').toLowerCase().includes(normalized);
+      return matchesCategory && matchesQuery;
+    });
+  }, [category, examples, query]);
+
   return (
     <section className="panel-shell reveal-panel">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -59,8 +78,29 @@ export function BundledExamplesPanel({
         </div>
       </div>
 
+      <div className="mt-6 grid gap-3">
+        <input
+          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-800 outline-none focus:border-amber-400"
+          placeholder="Search examples"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        <div className="flex flex-wrap gap-2">
+          {categories.map((entry) => (
+            <button
+              key={entry}
+              className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${category === entry ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-white text-slate-600 hover:border-amber-300 hover:bg-amber-50'}`}
+              type="button"
+              onClick={() => setCategory(entry)}
+            >
+              {entry}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="mt-6 grid gap-4 md:grid-cols-2">
-        {examples.map((example) => {
+        {visibleExamples.map((example) => {
           const installed = installedPackIds.has(example.id);
           const savedWorkspace = savedWorkspaceIds.has(example.id);
 
@@ -69,7 +109,7 @@ export function BundledExamplesPanel({
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h3 className="text-lg font-semibold text-slate-900">{example.name}</h3>
-                  <p className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-500">{example.trigger}</p>
+                  <p className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-500">{example.category} / {example.trigger}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <span className={`risk-badge ${riskClass(example.risk)}`}>{riskLabel(example.risk)}</span>

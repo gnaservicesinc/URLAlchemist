@@ -1,6 +1,7 @@
 import { ACTION_TYPES, MATCH_MODES, WORKSPACE_TRIGGER_TYPES } from '../types';
 import { assertSafeRegexPattern } from '../regex/executeRegexJob';
 import { BLOCK_REGISTRY, getRiskRank } from './blockRegistry';
+import { validateRemoteUrl } from './remoteUrl';
 import type {
   CompiledActionPackV2,
   CompiledTriggerPlan,
@@ -23,7 +24,7 @@ import {
   MIN_INTERVAL_TRIGGER_MS,
 } from './types';
 
-const GRAPH_DATA_TYPES = ['bool', 'number', 'floatingPoint', 'string', 'URL', 'JSON', 'data', 'dict', 'Any'] as const;
+const GRAPH_DATA_TYPES = ['bool', 'number', 'floatingPoint', 'string', 'URL', 'JSON', 'data', 'dict', 'asset', 'Any'] as const;
 const RISK_LEVELS = ['safe', 'extended', 'high'] as const;
 const COMPARE_OPERATORS = ['LT', 'LTE', 'EQ', 'GT', 'GTE'] as const;
 const MATH_OPERATIONS = ['ADD', 'SUBTRACT', 'MULTIPLY', 'DIVIDE', 'MODULO'] as const;
@@ -38,6 +39,15 @@ const CONVERT_MODES = [
 const ROUNDING_MODES = ['FLOOR', 'CEIL', 'ROUND'] as const;
 const SAVELOAD_MODES = ['SAVE', 'EXISTS', 'GET'] as const;
 const REMOTE_METHODS = ['GET', 'POST'] as const;
+const SYSTEM_DATA_MODES = ['NOW_MS', 'EPOCH_SECONDS', 'ISO_DATE', 'TIMEZONE_OFFSET_MINUTES', 'LOCALE_DATE', 'LOCALE_TIME'] as const;
+const USER_INTERACTIONS = ['PROMPT_TEXT', 'PROMPT_NUMBER', 'CONFIRM', 'PICK_FILE_OR_URL'] as const;
+const DISPLAY_TYPES = ['message', 'image', 'video', 'sound', 'arcade-game'] as const;
+const DISPLAY_MODES = ['OVERLAY', 'REPLACE_PAGE', 'NEW_TAB'] as const;
+const SHOW_IMAGE_STOP_MODES = ['CLOSE_BUTTON', 'CLICK', 'TIMEOUT', 'CONFIRM'] as const;
+const GAME_PRESETS = ['SPACE_DEFENDER'] as const;
+const ASSET_KINDS = ['image', 'video', 'audio', 'unknown'] as const;
+const ASSET_SOURCES = ['remote', 'embedded', 'picked-file'] as const;
+const ASSET_COMPRESSION = ['gzip', 'none'] as const;
 const WORKSPACE_INPUT_SOURCES = [
   'url',
   'linkUrl',
@@ -220,11 +230,87 @@ function validateGraphValue(value: unknown, prefix: string, errors: string[], de
         validateGraphValue(entry, `${prefix}.${key}`, errors, depth + 1);
       });
       return true;
+    case 'asset':
+      return validateAssetRef(value.value, `${prefix}.value`, errors);
     case 'data':
     case 'Any':
     default:
       return true;
   }
+}
+
+function validateAssetRef(value: unknown, prefix: string, errors: string[]): boolean {
+  if (!isRecord(value) || !hasNoDangerousKeys(value)) {
+    addError(errors, prefix, 'asset must be a plain object');
+    return false;
+  }
+
+  if (!hasExactKeys(value, ['source', 'kind', 'mimeType'], ['url', 'name', 'sha256', 'sizeBytes', 'compression', 'dataBase64', 'cacheKey'])) {
+    addError(errors, prefix, 'asset has invalid keys');
+    return false;
+  }
+
+  let ok = true;
+  if (!isEnumValue(ASSET_SOURCES, value.source)) {
+    addError(errors, prefix, 'asset source is invalid');
+    ok = false;
+  }
+
+  if (!isEnumValue(ASSET_KINDS, value.kind)) {
+    addError(errors, prefix, 'asset kind is invalid');
+    ok = false;
+  }
+
+  if (!isString(value.mimeType) || value.mimeType.length > 128 || !/^[a-z0-9.+-]+\/[a-z0-9.+*-]+$/i.test(value.mimeType)) {
+    addError(errors, prefix, 'asset MIME type is invalid');
+    ok = false;
+  }
+
+  if (value.url !== undefined) {
+    if (!isString(value.url)) {
+      addError(errors, prefix, 'asset URL must be a string');
+      ok = false;
+    } else {
+      try {
+        validateRemoteUrl(value.url);
+      } catch (error) {
+        addError(errors, prefix, error instanceof Error ? error.message : 'asset URL is invalid');
+        ok = false;
+      }
+    }
+  }
+
+  if (value.name !== undefined && (!isString(value.name) || value.name.length > 180)) {
+    addError(errors, prefix, 'asset name is invalid');
+    ok = false;
+  }
+
+  if (value.sha256 !== undefined && (!isString(value.sha256) || !/^[a-f0-9]{64}$/i.test(value.sha256))) {
+    addError(errors, prefix, 'asset sha256 is invalid');
+    ok = false;
+  }
+
+  if (value.sizeBytes !== undefined && (!isNonNegativeInteger(value.sizeBytes) || value.sizeBytes > 512 * 1024)) {
+    addError(errors, prefix, 'asset size must be between 0 and 524288 bytes');
+    ok = false;
+  }
+
+  if (value.compression !== undefined && !isEnumValue(ASSET_COMPRESSION, value.compression)) {
+    addError(errors, prefix, 'asset compression is invalid');
+    ok = false;
+  }
+
+  if (value.dataBase64 !== undefined && (!isString(value.dataBase64) || value.dataBase64.length > 1024 * 1024)) {
+    addError(errors, prefix, 'asset data is too large');
+    ok = false;
+  }
+
+  if (value.cacheKey !== undefined && (!isString(value.cacheKey) || value.cacheKey.length > 512)) {
+    addError(errors, prefix, 'asset cache key is invalid');
+    ok = false;
+  }
+
+  return ok;
 }
 
 function validateSymbolTable(value: unknown, errors: string[]): Record<string, GraphDataType> | null {
@@ -575,6 +661,148 @@ function validateInstruction(
       }
 
       addRisk(derivedRisk, 'high', 'Remote request access is high risk.', 'input');
+      return instruction as GraphVmInstruction;
+    }
+    case 'SYSTEM_DATA': {
+      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'mode'])) {
+        addError(errors, prefix, 'SYSTEM_DATA instruction has invalid keys');
+        return null;
+      }
+
+      assertReference(errors, symbolTable, instruction.output, `${prefix}.output`, true);
+      if (!isEnumValue(SYSTEM_DATA_MODES, instruction.mode)) {
+        addError(errors, prefix, 'mode is invalid');
+      }
+
+      return instruction as GraphVmInstruction;
+    }
+    case 'USER_INTERACTION': {
+      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'interaction', 'message'], ['placeholder', 'defaultValue', 'minValue', 'maxValue'])) {
+        addError(errors, prefix, 'USER_INTERACTION instruction has invalid keys');
+        return null;
+      }
+
+      assertReference(errors, symbolTable, instruction.output, `${prefix}.output`, true);
+      if (!isEnumValue(USER_INTERACTIONS, instruction.interaction)) {
+        addError(errors, prefix, 'interaction is invalid');
+      }
+
+      if (!isString(instruction.message) || instruction.message.length > 2000) {
+        addError(errors, prefix, 'message must be a string of 2000 characters or less');
+      }
+
+      if (!isOptionalString(instruction.placeholder) || !isOptionalString(instruction.defaultValue)) {
+        addError(errors, prefix, 'placeholder/defaultValue must be strings when provided');
+      }
+
+      if (instruction.minValue !== undefined && !isFiniteNumber(instruction.minValue)) {
+        addError(errors, prefix, 'minValue must be finite when provided');
+      }
+
+      if (instruction.maxValue !== undefined && !isFiniteNumber(instruction.maxValue)) {
+        addError(errors, prefix, 'maxValue must be finite when provided');
+      }
+
+      addRisk(
+        derivedRisk,
+        instruction.interaction === 'PICK_FILE_OR_URL' ? 'high' : 'extended',
+        instruction.interaction === 'PICK_FILE_OR_URL' ? 'File selection or user-provided URL is high risk.' : 'User interaction is extended risk.',
+        'input',
+      );
+      return instruction as GraphVmInstruction;
+    }
+    case 'GET_ASSET': {
+      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'fallbackUrl', 'kind', 'timeoutMs', 'maxBytes'], ['url', 'embedded'])) {
+        addError(errors, prefix, 'GET_ASSET instruction has invalid keys');
+        return null;
+      }
+
+      assertReference(errors, symbolTable, instruction.url, `${prefix}.url`);
+      assertReference(errors, symbolTable, instruction.output, `${prefix}.output`, true);
+
+      if (!isEnumValue(ASSET_KINDS, instruction.kind) || instruction.kind === 'unknown') {
+        addError(errors, prefix, 'kind must be image, video, or audio');
+      }
+
+      if (!isString(instruction.fallbackUrl)) {
+        addError(errors, prefix, 'fallbackUrl must be a string');
+      } else if (instruction.fallbackUrl.trim()) {
+        try {
+          validateRemoteUrl(instruction.fallbackUrl);
+        } catch (error) {
+          addError(errors, prefix, error instanceof Error ? error.message : 'fallbackUrl is invalid');
+        }
+      }
+
+      if (instruction.embedded !== undefined) {
+        validateAssetRef(instruction.embedded, `${prefix}.embedded`, errors);
+      }
+
+      if (!instruction.url && !String(instruction.fallbackUrl ?? '').trim() && instruction.embedded === undefined) {
+        addError(errors, prefix, 'GET_ASSET requires a URL reference, fallbackUrl, or embedded asset');
+      }
+
+      if (!isPositiveInteger(instruction.timeoutMs) || instruction.timeoutMs < 500 || instruction.timeoutMs > 30_000) {
+        addError(errors, prefix, 'timeoutMs must be between 500 and 30000');
+      }
+
+      if (!isPositiveInteger(instruction.maxBytes) || instruction.maxBytes < 1024 || instruction.maxBytes > 512 * 1024) {
+        addError(errors, prefix, 'maxBytes must be between 1024 and 524288');
+      }
+
+      addRisk(derivedRisk, 'high', 'Remote or embedded media access is high risk.', 'input');
+      return instruction as GraphVmInstruction;
+    }
+    case 'DISPLAY': {
+      if (!hasExactKeys(instruction, ['op', 'nodeId', 'displayType', 'message', 'mode'], ['input', 'asset', 'output', 'stopMode', 'timeoutMs', 'gamePreset', 'captureKeyboard', 'captureMouse'])) {
+        addError(errors, prefix, 'DISPLAY instruction has invalid keys');
+        return null;
+      }
+
+      assertReference(errors, symbolTable, instruction.input, `${prefix}.input`);
+      assertReference(errors, symbolTable, instruction.asset, `${prefix}.asset`);
+      assertReference(errors, symbolTable, instruction.output, `${prefix}.output`);
+
+      if (!isEnumValue(DISPLAY_TYPES, instruction.displayType)) {
+        addError(errors, prefix, 'displayType is invalid');
+      }
+
+      if (!isString(instruction.message) || instruction.message.length > 2000) {
+        addError(errors, prefix, 'message must be a string of 2000 characters or less');
+      }
+
+      if (!isEnumValue(DISPLAY_MODES, instruction.mode)) {
+        addError(errors, prefix, 'mode is invalid');
+      }
+
+      if (instruction.stopMode !== undefined && !isEnumValue(SHOW_IMAGE_STOP_MODES, instruction.stopMode)) {
+        addError(errors, prefix, 'stopMode is invalid');
+      }
+
+      if (instruction.timeoutMs !== undefined && (!isNonNegativeInteger(instruction.timeoutMs) || instruction.timeoutMs > 3_600_000)) {
+        addError(errors, prefix, 'timeoutMs must be between 0 and 3600000');
+      }
+
+      if (instruction.gamePreset !== undefined && !isEnumValue(GAME_PRESETS, instruction.gamePreset)) {
+        addError(errors, prefix, 'gamePreset is invalid');
+      }
+
+      if (instruction.captureKeyboard !== undefined && !isBoolean(instruction.captureKeyboard)) {
+        addError(errors, prefix, 'captureKeyboard must be boolean when provided');
+      }
+
+      if (instruction.captureMouse !== undefined && !isBoolean(instruction.captureMouse)) {
+        addError(errors, prefix, 'captureMouse must be boolean when provided');
+      }
+
+      addRisk(
+        derivedRisk,
+        'extended',
+        instruction.displayType === 'arcade-game'
+          ? 'Game overlay can capture keyboard or mouse while it is open.'
+          : 'Page overlay display is extended risk.',
+        'output',
+      );
       return instruction as GraphVmInstruction;
     }
     case 'COMPARE': {
@@ -1017,13 +1245,13 @@ function defaultSafetyForCandidate(candidate: Record<string, unknown>): GraphVmS
       .map((instruction) => ({
         nodeId: isString(instruction.nodeId) ? instruction.nodeId : 'unknown',
         op: isString(instruction.op) ? instruction.op as GraphVmInstruction['op'] : 'SOURCE',
-        requiresWatchdog: instruction.op === 'REGEX_TRANSFORM' || instruction.op === 'FETCH_GET' || instruction.op === 'HTTP_REQUEST',
+        requiresWatchdog: instruction.op === 'REGEX_TRANSFORM' || instruction.op === 'FETCH_GET' || instruction.op === 'HTTP_REQUEST' || instruction.op === 'GET_ASSET',
         maxRuntimeMs: instruction.op === 'REGEX_TRANSFORM'
           ? 50
-          : instruction.op === 'FETCH_GET' || instruction.op === 'HTTP_REQUEST'
+          : instruction.op === 'FETCH_GET' || instruction.op === 'HTTP_REQUEST' || instruction.op === 'GET_ASSET'
             ? isPositiveInteger(instruction.timeoutMs) ? instruction.timeoutMs : DEFAULT_REMOTE_TIMEOUT_MS
             : undefined,
-        maxBytes: instruction.op === 'FETCH_GET' || instruction.op === 'HTTP_REQUEST'
+        maxBytes: instruction.op === 'FETCH_GET' || instruction.op === 'HTTP_REQUEST' || instruction.op === 'GET_ASSET'
           ? isPositiveInteger(instruction.maxBytes) ? instruction.maxBytes : DEFAULT_REMOTE_MAX_BYTES
           : undefined,
       })),

@@ -15,11 +15,14 @@
 <h1>Security</h1>
 <p>URL Alchemist treats imported Action Packs as untrusted bytecode. Validation recomputes risk and permission metadata from the compiled instructions instead of trusting wrapper claims.</p>
 <h2>Tracing</h2>
-<p>Tracing records local execution steps and issues for selected installed Action Packs. Use it when testing extended or high-risk packs.</p>
+<p>Tracing records local execution steps and issues for selected installed Action Packs. The Security tab explains audited files in plain language so you can see what a pack reads, writes, changes, or sends before enabling it.</p>
 <h2>Hardening</h2>
 <p>Hardening settings can reduce VM instruction count, redirect recursion, and regex timeout limits. They cannot loosen the built-in default safety budgets.</p>
 <p class="warning">Clipboard, raw page, remote request, and page mutation behavior should be reviewed carefully before installing a pack.</p>
+<p class="warning">Keyboard or mouse capture is allowed only through overlay blocks that URL Alchemist owns. Review these packs carefully and close the overlay to stop capture.</p>
 <h2>File Audit</h2>
-<p>The Security tab can inspect an uninstalled workspace or Action Pack and report validation, permissions, risk reasons, trigger plan, and VM instructions without saving it.</p>
+<p>The Security tab can inspect an uninstalled workspace or Action Pack and report validation, permissions, risk reasons, trigger plan, and plain-language steps without saving it.</p>
+<h2>Sandbox Model</h2>
+<p>Action Packs are treated as untrusted bytecode. They do not use <code>eval</code> or imported scripts. Every behavior must map to a known block, and validation recomputes permissions and risk from the compiled instructions.</p>
 </body>
 </html>

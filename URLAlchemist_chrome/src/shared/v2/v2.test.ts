@@ -151,6 +151,50 @@ describe('v2 workspace compiler and VM', () => {
     expect(result.finalUrl).toBe('https://example.com/?keep=1');
   });
 
+  it('compiles and executes the built-in arcade game overlay block', async () => {
+    const workspace = createDefaultWorkspace();
+    const dataIn = workspace.nodes.find((node) => node.type === 'DataFlowIn')!;
+    const dataOut = workspace.nodes.find((node) => node.type === 'DataFlowOut')!;
+    const game = createWorkspaceNode('ArcadeGame', { x: 260, y: 80 }, {
+      gamePreset: 'SPACE_DEFENDER',
+      captureKeyboard: true,
+      captureMouse: true,
+    });
+    const save = createWorkspaceNode('SaveLoad', { x: 520, y: 80 }, {
+      literalValue: 'space-defender:test-result',
+    });
+    const extendedOut = createWorkspaceNode('ExtendedDataOut', { x: 780, y: 80 });
+    const compiled = compileWorkspace({
+      ...workspace,
+      nodes: [...workspace.nodes, game, save, extendedOut],
+      edges: [
+        createEdge(game.id, 'result', save.id, 'value'),
+        createEdge(save.id, 'result', extendedOut.id, 'fileBlob'),
+        createEdge(dataIn.id, 'url', dataOut.id, 'url'),
+      ],
+    });
+
+    expect(compiled.ok).toBe(true);
+    expect(compiled.pack!.risk.reasons).toContain('Game overlay can capture keyboard or mouse while it is open.');
+    expect(compiled.pack!.vm.instructions).toContainEqual(expect.objectContaining({
+      op: 'DISPLAY',
+      displayType: 'arcade-game',
+      gamePreset: 'SPACE_DEFENDER',
+    }));
+
+    const result = await executeCompiledActionPackV2(
+      'https://example.com/',
+      compiled.pack!,
+      {
+        ...runtime,
+        displayOverlay: async () => ({ type: 'dict', value: { score: { type: 'number', value: 10 } } }),
+      },
+      DEFAULT_SETTINGS,
+    );
+
+    expect(result.trace.some((entry) => entry.op === 'DISPLAY' && entry.message === 'Display completed')).toBe(true);
+  });
+
   it('classifies clipboard access as high risk', () => {
     const workspace = createDefaultWorkspace();
     const extendedIn = createWorkspaceNode('ExtendedDataIn', { x: 180, y: 360 });
@@ -218,11 +262,123 @@ describe('v2 workspace compiler and VM', () => {
     expect(compiled.pack!.vm.instructions.some((instruction) => instruction.op === 'REGEX_TRANSFORM')).toBe(true);
   });
 
+  it('executes SystemData and page text mutation outputs', async () => {
+    const workspace = createDefaultWorkspace();
+    const system = createWorkspaceNode('SystemData', { x: 220, y: 80 }, { systemDataMode: 'ISO_DATE' });
+    const extendedOut = createWorkspaceNode('ExtendedDataOut', { x: 520, y: 80 });
+    let mutated = '';
+    const compiled = compileWorkspace({
+      ...workspace,
+      nodes: [...workspace.nodes, system, extendedOut],
+      edges: [
+        createEdge(system.id, 'result', extendedOut.id, 'pageText'),
+      ],
+    });
+
+    expect(compiled.ok).toBe(true);
+    await executeCompiledActionPackV2('https://example.com/', compiled.pack!, {
+      ...runtime,
+      writeDestination: async () => {},
+      mutatePageText: async (value) => {
+        mutated = String(value.value);
+      },
+    }, DEFAULT_SETTINGS);
+
+    expect(mutated).toMatch(/T/);
+  });
+
+  it('returns cancellation dictionaries from interaction blocks', async () => {
+    const workspace = createDefaultWorkspace();
+    const prompt = createWorkspaceNode('PromptText', { x: 220, y: 80 }, { promptMessage: 'Name?' });
+    const extendedOut = createWorkspaceNode('ExtendedDataOut', { x: 520, y: 80 });
+    let written: unknown;
+    const compiled = compileWorkspace({
+      ...workspace,
+      nodes: [...workspace.nodes, prompt, extendedOut],
+      edges: [
+        createEdge(prompt.id, 'result', extendedOut.id, 'fileBlob'),
+      ],
+    });
+
+    expect(compiled.ok).toBe(true);
+    await executeCompiledActionPackV2('https://example.com/', compiled.pack!, {
+      ...runtime,
+      requestUserInteraction: async () => ({
+        type: 'dict',
+        value: {
+          ok: { type: 'bool', value: 0 },
+          cancelled: { type: 'bool', value: 1 },
+          value: { type: 'Any', value: null },
+          source: { type: 'string', value: 'test' },
+        },
+      }),
+      writeDestination: async (_destination, value) => {
+        written = value.value;
+      },
+    }, DEFAULT_SETTINGS);
+
+    expect((written as Record<string, { value: unknown }>).cancelled.value).toBe(1);
+  });
+
+  it('returns playback details from ShowVideo and validates asset bounds', async () => {
+    const workspace = createDefaultWorkspace();
+    const video = createWorkspaceNode('GetVideo', { x: 220, y: 80 }, {
+      assetUrl: 'https://example.com/video.mp4',
+      remoteMaxBytes: 524288,
+    });
+    const show = createWorkspaceNode('ShowVideo', { x: 520, y: 80 });
+    const extendedOut = createWorkspaceNode('ExtendedDataOut', { x: 820, y: 80 });
+    let written: unknown;
+    const compiled = compileWorkspace({
+      ...workspace,
+      nodes: [...workspace.nodes, video, show, extendedOut],
+      edges: [
+        createEdge(video.id, 'result', show.id, 'asset'),
+        createEdge(show.id, 'result', extendedOut.id, 'fileBlob'),
+      ],
+    });
+
+    expect(compiled.ok).toBe(true);
+    expect(validateCompiledActionPackV2({
+      ...compiled.pack!,
+      vm: {
+        ...compiled.pack!.vm,
+        instructions: compiled.pack!.vm.instructions.map((instruction) => instruction.op === 'GET_ASSET' ? { ...instruction, maxBytes: 9999999 } : instruction),
+      },
+    }).ok).toBe(false);
+
+    await executeCompiledActionPackV2('https://example.com/', compiled.pack!, {
+      ...runtime,
+      resolveAsset: async (request) => ({
+        source: 'remote',
+        kind: request.kind,
+        mimeType: 'video/mp4',
+        url: request.url,
+        sizeBytes: 12,
+      }),
+      displayOverlay: async () => ({
+        type: 'dict',
+        value: {
+          completed: { type: 'bool', value: 0 },
+          stoppedAtSeconds: { type: 'number', value: 42 },
+          durationSeconds: { type: 'number', value: 100 },
+          watchedPercent: { type: 'number', value: 42 },
+          reason: { type: 'string', value: 'closed' },
+        },
+      }),
+      writeDestination: async (_destination, value) => {
+        written = value.value;
+      },
+    }, DEFAULT_SETTINGS);
+
+    expect((written as Record<string, { value: unknown }>).stoppedAtSeconds.value).toBe(42);
+  });
+
   it('migrates legacy compiled ALWAYS packs into input-data trigger plans', () => {
     const pack = createBasicCompiledPack();
     const legacy = {
       ...pack,
-      schemaVersion: 2,
+      schemaVersion: 3,
       manifest: {
         ...pack.manifest,
         trigger: {
@@ -248,7 +404,7 @@ describe('v2 workspace compiler and VM', () => {
 
     expect(validation.ok).toBe(true);
     if (validation.ok) {
-      expect(validation.pack.schemaVersion).toBe(3);
+      expect(validation.pack.schemaVersion).toBe(ACTION_PACK_SCHEMA_VERSION);
       expect(validation.pack.triggerPlan.type).toBe('INPUT_DATA');
       expect(validation.pack.triggerPlan.sourceFilters[0]).toEqual({ source: 'url', pattern: '^https://example\\.com' });
       expect(validation.pack.vm.safety.abortOnFailure).toBe(true);
@@ -759,8 +915,8 @@ describe('v2 workspace compiler and VM', () => {
     const usedActions = new Set<string>();
     const usedMatchModes = new Set<string>();
 
-    expect(workspaces).toHaveLength(10);
-    expect(packs).toHaveLength(10);
+    expect(workspaces.length).toBeGreaterThanOrEqual(13);
+    expect(packs).toHaveLength(workspaces.length);
 
     workspaces.forEach((workspace) => {
       const compiled = compileWorkspace(workspace);

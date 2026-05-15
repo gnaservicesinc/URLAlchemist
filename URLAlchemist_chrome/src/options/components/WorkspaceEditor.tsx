@@ -125,6 +125,7 @@ function renderBlockSettings(
   onOpenRegexBuilder: (() => void) | undefined,
 ) {
   const inputClass = 'nodrag rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-800 outline-none focus:border-amber-400';
+  const labelClass = 'nodrag grid gap-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500';
 
   switch (node.type) {
     case 'RegExpression': {
@@ -246,8 +247,16 @@ function renderBlockSettings(
             <option value="JSON">JSON</option>
             <option value="dict">Dict</option>
           </select>
-          <input className={inputClass} min={500} max={30000} type="number" value={node.settings.remoteTimeoutMs ?? 5000} onChange={(event) => onSettingsChange({ remoteTimeoutMs: Number.parseInt(event.target.value || '5000', 10) })} />
-          <input className={inputClass} min={1024} max={524288} type="number" value={node.settings.remoteMaxBytes ?? 131072} onChange={(event) => onSettingsChange({ remoteMaxBytes: Number.parseInt(event.target.value || '131072', 10) })} />
+          <label className={labelClass}>
+            Timeout (ms)
+            <input className={inputClass} min={500} max={30000} type="number" value={node.settings.remoteTimeoutMs ?? 5000} onChange={(event) => onSettingsChange({ remoteTimeoutMs: Number.parseInt(event.target.value || '5000', 10) })} />
+            <span className="normal-case tracking-normal text-slate-400">500-30000 ms</span>
+          </label>
+          <label className={labelClass}>
+            Max response bytes
+            <input className={inputClass} min={1024} max={524288} type="number" value={node.settings.remoteMaxBytes ?? 131072} onChange={(event) => onSettingsChange({ remoteMaxBytes: Number.parseInt(event.target.value || '131072', 10) })} />
+            <span className="normal-case tracking-normal text-slate-400">1024-524288 bytes</span>
+          </label>
         </div>
       );
     case 'HttpRequest':
@@ -264,8 +273,120 @@ function renderBlockSettings(
             <option value="JSON">JSON</option>
             <option value="dict">Dict</option>
           </select>
-          <input className={inputClass} min={500} max={30000} type="number" value={node.settings.remoteTimeoutMs ?? 5000} onChange={(event) => onSettingsChange({ remoteTimeoutMs: Number.parseInt(event.target.value || '5000', 10) })} />
-          <input className={inputClass} min={1024} max={524288} type="number" value={node.settings.remoteMaxBytes ?? 131072} onChange={(event) => onSettingsChange({ remoteMaxBytes: Number.parseInt(event.target.value || '131072', 10) })} />
+          <label className={labelClass}>
+            Timeout (ms)
+            <input className={inputClass} min={500} max={30000} type="number" value={node.settings.remoteTimeoutMs ?? 5000} onChange={(event) => onSettingsChange({ remoteTimeoutMs: Number.parseInt(event.target.value || '5000', 10) })} />
+            <span className="normal-case tracking-normal text-slate-400">500-30000 ms</span>
+          </label>
+          <label className={labelClass}>
+            Max response bytes
+            <input className={inputClass} min={1024} max={524288} type="number" value={node.settings.remoteMaxBytes ?? 131072} onChange={(event) => onSettingsChange({ remoteMaxBytes: Number.parseInt(event.target.value || '131072', 10) })} />
+            <span className="normal-case tracking-normal text-slate-400">1024-524288 bytes</span>
+          </label>
+        </div>
+      );
+    case 'SystemData':
+      return (
+        <div className="mt-3 grid gap-2">
+          <select className={inputClass} value={node.settings.systemDataMode ?? 'NOW_MS'} onChange={(event) => onSettingsChange({ systemDataMode: event.target.value as WorkspaceBlockSettings['systemDataMode'] })}>
+            <option value="NOW_MS">Now ms</option>
+            <option value="EPOCH_SECONDS">Epoch seconds</option>
+            <option value="ISO_DATE">ISO date</option>
+            <option value="TIMEZONE_OFFSET_MINUTES">Timezone offset minutes</option>
+            <option value="LOCALE_DATE">Locale date</option>
+            <option value="LOCALE_TIME">Locale time</option>
+          </select>
+        </div>
+      );
+    case 'PromptText':
+    case 'PromptNumber':
+    case 'Confirm':
+    case 'PickFileOrUrl':
+      return (
+        <div className="mt-3 grid gap-2">
+          <input className={inputClass} placeholder="Prompt message" value={settingText(node.settings.promptMessage)} onChange={(event) => onSettingsChange({ promptMessage: event.target.value })} />
+          {node.type === 'PromptText' || node.type === 'PromptNumber' ? (
+            <>
+              <input className={inputClass} placeholder="Default value" value={settingText(node.settings.promptDefaultValue)} onChange={(event) => onSettingsChange({ promptDefaultValue: event.target.value })} />
+              <input className={inputClass} placeholder="Placeholder" value={settingText(node.settings.promptPlaceholder)} onChange={(event) => onSettingsChange({ promptPlaceholder: event.target.value })} />
+            </>
+          ) : null}
+          {node.type === 'PromptNumber' ? (
+            <div className="grid grid-cols-2 gap-2">
+              <input className={inputClass} placeholder="Min" type="number" value={node.settings.minValue ?? ''} onChange={(event) => onSettingsChange({ minValue: event.target.value ? Number(event.target.value) : undefined })} />
+              <input className={inputClass} placeholder="Max" type="number" value={node.settings.maxValue ?? ''} onChange={(event) => onSettingsChange({ maxValue: event.target.value ? Number(event.target.value) : undefined })} />
+            </div>
+          ) : null}
+        </div>
+      );
+    case 'ShowMessage':
+      return (
+        <div className="mt-3 grid gap-2">
+          <textarea className={`${inputClass} min-h-14`} disabled={connectedInputs.has('message')} placeholder={connectedInputs.has('message') ? 'Connected message input' : 'Message'} value={connectedInputs.has('message') ? '' : settingText(node.settings.promptMessage)} onChange={(event) => onSettingsChange({ promptMessage: event.target.value })} />
+          <select className={inputClass} value={node.settings.displayMode ?? 'OVERLAY'} onChange={(event) => onSettingsChange({ displayMode: event.target.value as WorkspaceBlockSettings['displayMode'] })}>
+            <option value="OVERLAY">Page overlay</option>
+            <option value="REPLACE_PAGE">Replace page</option>
+            <option value="NEW_TAB">New tab</option>
+          </select>
+          <input className={inputClass} min={0} max={3600000} placeholder="Timeout ms" type="number" value={node.settings.displayTimeoutMs ?? ''} onChange={(event) => onSettingsChange({ displayTimeoutMs: event.target.value ? Number(event.target.value) : undefined })} />
+        </div>
+      );
+    case 'ShowImage':
+      return (
+        <div className="mt-3 grid gap-2">
+          <select className={inputClass} value={node.settings.imageStopMode ?? 'CLOSE_BUTTON'} onChange={(event) => onSettingsChange({ imageStopMode: event.target.value as WorkspaceBlockSettings['imageStopMode'] })}>
+            <option value="CLOSE_BUTTON">Close button</option>
+            <option value="CLICK">Click image</option>
+            <option value="TIMEOUT">Timeout</option>
+            <option value="CONFIRM">Require confirmation</option>
+          </select>
+          <input className={inputClass} min={0} max={3600000} placeholder="Timeout ms" type="number" value={node.settings.displayTimeoutMs ?? 5000} onChange={(event) => onSettingsChange({ displayTimeoutMs: Number(event.target.value || '0') })} />
+        </div>
+      );
+    case 'ShowVideo':
+    case 'PlaySound':
+      return (
+        <div className="mt-3 grid gap-2">
+          <select className={inputClass} value={node.settings.displayMode ?? 'OVERLAY'} onChange={(event) => onSettingsChange({ displayMode: event.target.value as WorkspaceBlockSettings['displayMode'] })}>
+            <option value="OVERLAY">Page overlay</option>
+            <option value="REPLACE_PAGE">Replace page</option>
+            <option value="NEW_TAB">New tab</option>
+          </select>
+        </div>
+      );
+    case 'ArcadeGame':
+      return (
+        <div className="mt-3 grid gap-2">
+          <select className={inputClass} value={node.settings.gamePreset ?? 'SPACE_DEFENDER'} onChange={(event) => onSettingsChange({ gamePreset: event.target.value as WorkspaceBlockSettings['gamePreset'] })}>
+            <option value="SPACE_DEFENDER">Space Defender</option>
+          </select>
+          <input className={inputClass} disabled={connectedInputs.has('title')} placeholder={connectedInputs.has('title') ? 'Connected title input' : 'Game title'} value={connectedInputs.has('title') ? '' : settingText(node.settings.promptMessage)} onChange={(event) => onSettingsChange({ promptMessage: event.target.value })} />
+          <input className={inputClass} min={10000} max={3600000} placeholder="Timeout ms" type="number" value={node.settings.displayTimeoutMs ?? 180000} onChange={(event) => onSettingsChange({ displayTimeoutMs: Number(event.target.value || '180000') })} />
+          <label className="nodrag flex items-center gap-2 text-[11px] text-slate-600">
+            <input checked={node.settings.captureKeyboard ?? true} type="checkbox" onChange={(event) => onSettingsChange({ captureKeyboard: event.target.checked })} />
+            Capture keyboard while overlay is open
+          </label>
+          <label className="nodrag flex items-center gap-2 text-[11px] text-slate-600">
+            <input checked={node.settings.captureMouse ?? true} type="checkbox" onChange={(event) => onSettingsChange({ captureMouse: event.target.checked })} />
+            Capture mouse while overlay is open
+          </label>
+        </div>
+      );
+    case 'GetImage':
+    case 'GetVideo':
+    case 'GetAudio':
+      return (
+        <div className="mt-3 grid gap-2">
+          <input className={inputClass} disabled={connectedInputs.has('url')} placeholder={`https://example.com/file.${node.type === 'GetVideo' ? 'mp4' : node.type === 'GetAudio' ? 'mp3' : 'png'}`} value={connectedInputs.has('url') ? '' : settingText(node.settings.assetUrl)} onChange={(event) => onSettingsChange({ assetUrl: event.target.value })} />
+          <input className={inputClass} placeholder="MIME type" value={settingText(node.settings.assetMimeType)} onChange={(event) => onSettingsChange({ assetMimeType: event.target.value })} />
+          <label className={labelClass}>
+            Timeout (ms)
+            <input className={inputClass} min={500} max={30000} type="number" value={node.settings.remoteTimeoutMs ?? 5000} onChange={(event) => onSettingsChange({ remoteTimeoutMs: Number.parseInt(event.target.value || '5000', 10) })} />
+          </label>
+          <label className={labelClass}>
+            Max response bytes
+            <input className={inputClass} min={1024} max={524288} type="number" value={node.settings.remoteMaxBytes ?? 524288} onChange={(event) => onSettingsChange({ remoteMaxBytes: Number.parseInt(event.target.value || '524288', 10) })} />
+          </label>
         </div>
       );
     default:

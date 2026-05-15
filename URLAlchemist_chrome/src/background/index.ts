@@ -2,16 +2,25 @@ import { CONTEXT_MENU_RUN_ID } from '../shared/constants';
 import { packMatchesScope, simulateActionPack, triggerMatches } from '../shared/engine/engine';
 import { effectiveRedirectDepthLimit, effectiveRegexTimeoutMs } from '../shared/hardening';
 import { normalizeHotkeyValue } from '../shared/hotkeys';
-import { isHotkeyTriggerMessage, type RuntimeSourceContext } from '../shared/messages';
+import {
+  CONTENT_DISPLAY_MESSAGE,
+  CONTENT_INTERACTION_MESSAGE,
+  CONTENT_MUTATE_TEXT_MESSAGE,
+  CONTENT_READ_SOURCE_MESSAGE,
+  isHotkeyTriggerMessage,
+  type ContentGraphResponse,
+  type RuntimeSourceContext,
+} from '../shared/messages';
 import { appendTraceEntry, loadStoredState } from '../shared/storage';
 import type { ActionPack, EngineIssue, GlobalSettings, TriggerType, WorkspaceTriggerType } from '../shared/types';
-import type { CompiledActionPackV2, WorkspaceInputSource } from '../shared/v2/types';
-import { executeCompiledActionPackV2, type GraphRuntime } from '../shared/v2/vm';
+import type { AssetRef, CompiledActionPackV2, GraphValue, WorkspaceInputSource } from '../shared/v2/types';
+import { executeCompiledActionPackV2, type AssetRequest, type DisplayRequest, type GraphRuntime, type UserInteractionRequest } from '../shared/v2/vm';
 import { createOffscreenRegexExecutor, readClipboardFromOffscreen, writeClipboardFromOffscreen } from './offscreenBridge';
 
 const redirectTrail = new Map<string, { url: string; depth: number; expiresAt: number }>();
 const fallbackTriggerHistory = new Map<string, number[]>();
 const INTERVAL_ALARM_PREFIX = 'url-alchemist-interval:';
+const remoteAssetCache = new Map<string, AssetRef>();
 const baseRuntime: GraphRuntime = {
   regex: createOffscreenRegexExecutor(),
   readClipboard: readClipboardFromOffscreen,
@@ -23,6 +32,97 @@ const baseRuntime: GraphRuntime = {
     await chrome.storage.local.set({ [`url-alchemist-session:${key}`]: value });
   },
 };
+
+async function sendContentGraphMessage(tabId: number | undefined, message: object): Promise<GraphValue> {
+  if (tabId === undefined || tabId < 0) {
+    throw new Error('No active tab is available for page interaction');
+  }
+
+  const response = await chrome.tabs.sendMessage(tabId, message) as ContentGraphResponse | undefined;
+  if (!response) {
+    throw new Error('The page did not respond to the interaction request');
+  }
+
+  if (!response.ok) {
+    throw new Error(response.error);
+  }
+
+  return response.data;
+}
+
+async function resolveRemoteAsset(request: AssetRequest): Promise<AssetRef> {
+  const cached = remoteAssetCache.get(request.url);
+  if (cached) {
+    return cached;
+  }
+
+  const controller = new AbortController();
+  const timeout = globalThis.setTimeout(() => controller.abort(), request.timeoutMs);
+  try {
+    const response = await fetch(request.url, {
+      method: 'GET',
+      redirect: 'error',
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`Remote asset request failed with HTTP ${response.status}`);
+    }
+
+    const contentLength = Number(response.headers.get('content-length') ?? '0');
+    if (contentLength > request.maxBytes) {
+      throw new Error('Remote asset exceeded the configured byte limit');
+    }
+
+    const asset: AssetRef = {
+      source: 'remote',
+      kind: request.kind,
+      mimeType: response.headers.get('content-type')?.split(';')[0]?.trim() || `${request.kind}/*`,
+      url: request.url,
+      sizeBytes: contentLength || undefined,
+      cacheKey: request.url,
+    };
+    if (remoteAssetCache.size > 50) {
+      remoteAssetCache.clear();
+    }
+    remoteAssetCache.set(request.url, asset);
+    return asset;
+  } finally {
+    globalThis.clearTimeout(timeout);
+  }
+}
+
+async function displayWithFallback(tabId: number | undefined, request: DisplayRequest): Promise<GraphValue> {
+  try {
+    return await sendContentGraphMessage(tabId, {
+      type: CONTENT_DISPLAY_MESSAGE,
+      requestId: crypto.randomUUID(),
+      request,
+    });
+  } catch (error) {
+    const fallbackUrl = request.asset?.url;
+    if (fallbackUrl && (request.mode === 'NEW_TAB' || request.mode === 'REPLACE_PAGE')) {
+      if (request.mode === 'REPLACE_PAGE' && tabId !== undefined) {
+        await chrome.tabs.update(tabId, { url: fallbackUrl });
+      } else {
+        await chrome.tabs.create({ url: fallbackUrl });
+      }
+      return {
+        type: 'dict',
+        value: {
+          ok: { type: 'bool', value: 1 },
+          completed: { type: 'bool', value: 0 },
+          cancelled: { type: 'bool', value: 0 },
+          stoppedAtSeconds: { type: 'number', value: 0 },
+          durationSeconds: { type: 'number', value: 0 },
+          watchedPercent: { type: 'number', value: 0 },
+          reason: { type: 'string', value: 'fallback-page' },
+        },
+      };
+    }
+
+    throw error;
+  }
+}
 
 function createRunRuntime(context: RuntimeSourceContext = {}, settings?: GlobalSettings): GraphRuntime {
   return {
@@ -45,12 +145,34 @@ function createRunRuntime(context: RuntimeSourceContext = {}, settings?: GlobalS
         return { type: 'string', value: context.pageTitle ?? '' };
       }
 
+      if (['pageText', 'rawHtml', 'pageLinks', 'pageMetadata'].includes(source)) {
+        return sendContentGraphMessage(context.tabId, {
+          type: CONTENT_READ_SOURCE_MESSAGE,
+          requestId: crypto.randomUUID(),
+          source,
+        });
+      }
+
       return undefined;
     },
     writeDestination: async (destination, value) => {
       if (destination === 'clipboard') {
         await writeClipboardFromOffscreen(typeof value.value === 'string' ? value.value : JSON.stringify(value.value));
       }
+    },
+    resolveAsset: resolveRemoteAsset,
+    requestUserInteraction: async (request: UserInteractionRequest) => sendContentGraphMessage(context.tabId, {
+      type: CONTENT_INTERACTION_MESSAGE,
+      requestId: crypto.randomUUID(),
+      request,
+    }),
+    displayOverlay: async (request: DisplayRequest) => displayWithFallback(context.tabId, request),
+    mutatePageText: async (value) => {
+      await sendContentGraphMessage(context.tabId, {
+        type: CONTENT_MUTATE_TEXT_MESSAGE,
+        requestId: crypto.randomUUID(),
+        value,
+      });
     },
   };
 }
@@ -237,6 +359,7 @@ async function runIntervalPack(packId: string): Promise<void> {
   }
 
   await applyPacksToTab(tab.id, tab.url, 'INTERVAL', undefined, {
+    tabId: tab.id,
     pageTitle: tab.title,
   }, ['url'], packId);
 }
@@ -255,7 +378,7 @@ async function applyPacksToTab(
     return;
   }
 
-  const runtime = createRunRuntime(context, state.settings);
+  const runtime = createRunRuntime({ ...context, tabId }, state.settings);
   const redirectDepthLimit = effectiveRedirectDepthLimit(state.settings);
   let currentUrl = inputUrl;
   let urlChanged = false;
@@ -383,7 +506,7 @@ chrome.webNavigation.onBeforeNavigate.addListener((details) => {
     return;
   }
 
-  void applyPacksToTab(details.tabId, details.url, 'INPUT_DATA', undefined, {}, ['url']);
+  void applyPacksToTab(details.tabId, details.url, 'INPUT_DATA', undefined, { tabId: details.tabId }, ['url']);
 });
 
 chrome.alarms?.onAlarm.addListener((alarm) => {
@@ -415,6 +538,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   void applyPacksToTab(tabId, url, 'HOTKEY', hotkey, {
+    tabId,
     pageTitle: message.pageTitle ?? sender.tab?.title,
     selectedText: message.selectedText,
   })
@@ -444,6 +568,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   }
 
   void applyPacksToTab(tab.id, targetUrl, 'CONTEXT_MENU', undefined, {
+    tabId: tab.id,
     linkUrl: info.linkUrl,
     pageTitle: tab.title,
     selectedText: info.selectionText,

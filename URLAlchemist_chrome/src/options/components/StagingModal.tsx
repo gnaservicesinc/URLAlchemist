@@ -1,4 +1,5 @@
 import type { CompiledActionPackV2 } from '../../shared/v2/types';
+import { explainInstruction, explainRiskReason, summarizePackBehavior } from '../../shared/v2/explain';
 
 interface StagingModalProps {
   checksumHex?: string;
@@ -40,37 +41,10 @@ function riskLabel(risk: CompiledActionPackV2['risk']['highest']): string {
 }
 
 function instructionLabel(instruction: CompiledActionPackV2['vm']['instructions'][number]): string {
-  switch (instruction.op) {
-    case 'SOURCE':
-      return `Reads ${instruction.source}`;
-    case 'OUTPUT':
-      return `Writes ${instruction.destination}`;
-    case 'REGEX_TRANSFORM':
-      return `${instruction.action} with "${instruction.pattern}"`;
-    case 'FETCH_GET':
-      return instruction.fallbackUrl ? `Fetches ${instruction.fallbackUrl}` : 'Fetches from a dynamic remote URL';
-    case 'HTTP_REQUEST':
-      return instruction.fallbackUrl ? `${instruction.method} to ${instruction.fallbackUrl}` : `${instruction.method} to a dynamic remote URL`;
-    case 'COMPARE':
-      return `Compares input ${instruction.operator} ${instruction.compareValue}`;
-    case 'MATH':
-      return `Runs ${instruction.operation.toLowerCase()}`;
-    case 'CONVERT':
-      return `Converts ${instruction.mode.toLowerCase()}`;
-    case 'DECLARE':
-      return `Declares ${instruction.name}`;
-    case 'SAVELOAD':
-      return `${instruction.mode.toLowerCase()} session value`;
-    case 'DICT_SET':
-      return 'Adds or updates a dictionary key';
-    case 'LOOP':
-      return `Loops up to ${instruction.loopLimit} times`;
-    default:
-      return 'Instruction';
-  }
+  return explainInstruction(instruction);
 }
 
-function remoteInstructionHost(instruction: Extract<CompiledActionPackV2['vm']['instructions'][number], { op: 'FETCH_GET' | 'HTTP_REQUEST' }>): string {
+function remoteInstructionHost(instruction: Extract<CompiledActionPackV2['vm']['instructions'][number], { op: 'FETCH_GET' | 'HTTP_REQUEST' | 'GET_ASSET' }>): string {
   if (!instruction.fallbackUrl) {
     return 'Dynamic remote host';
   }
@@ -101,7 +75,7 @@ export function StagingModal({
   }
 
   const confirmUnlocked = (hasSandboxRun || reviewAcknowledged) && validationErrors.length === 0;
-  const remoteInstructions = pack.vm.instructions.filter((instruction) => instruction.op === 'FETCH_GET' || instruction.op === 'HTTP_REQUEST');
+  const remoteInstructions = pack.vm.instructions.filter((instruction) => instruction.op === 'FETCH_GET' || instruction.op === 'HTTP_REQUEST' || instruction.op === 'GET_ASSET');
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/55 px-4 py-10 backdrop-blur-md">
@@ -111,7 +85,7 @@ export function StagingModal({
             <p className="eyebrow">Staging Area</p>
             <h2 className="text-3xl font-semibold tracking-tight text-slate-900">Inspect Action Pack</h2>
             <p className="mt-2 max-w-2xl text-sm text-slate-600">
-              The pack is staged in memory only. Do not trust an Action Pack you did not make yourself until you have reviewed what it reads, writes, and changes.
+              The pack is staged in memory only. Review the plain-language steps before installing it.
             </p>
           </div>
           <button className="ghost-button" type="button" onClick={onClose}>
@@ -121,10 +95,10 @@ export function StagingModal({
 
         {pack.risk.highest === 'high' ? (
           <div className="mb-5 rounded-[1.5rem] border-2 border-rose-300 bg-rose-100 px-5 py-4 text-rose-900">
-            <p className="text-lg font-bold">High-risk pack</p>
-            <p className="mt-1 text-sm">
-              This Action Pack touches sensitive inputs or outputs such as clipboard, raw page content, full page text, file data, console-like data, or page mutation. Install only if you expect this behavior; for personal-use packs, this can be acceptable when you know exactly what the pack does.
-            </p>
+              <p className="text-lg font-bold">High-risk pack</p>
+              <p className="mt-1 text-sm">
+                {summarizePackBehavior(pack)}
+              </p>
           </div>
         ) : pack.risk.highest === 'extended' ? (
           <div className="mb-5 rounded-[1.5rem] border border-amber-300 bg-amber-100 px-5 py-4 text-amber-950">
@@ -189,7 +163,7 @@ export function StagingModal({
                 <p className="font-semibold">Risk reasons</p>
                 <ul className="mt-2 list-disc pl-5">
                   {pack.risk.reasons.map((reason) => (
-                    <li key={reason}>{reason}</li>
+                    <li key={reason}>{explainRiskReason(reason)}</li>
                   ))}
                 </ul>
               </div>
@@ -260,7 +234,7 @@ export function StagingModal({
         </div>
 
         <section className="panel-shell mt-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-700">Visual Decompiler</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-700">What This Pack Does</p>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             {pack.vm.instructions.map((instruction, index) => (
               <article key={`${instruction.nodeId}-${index}`} className="rounded-2xl border border-slate-200 bg-white/85 p-4">
