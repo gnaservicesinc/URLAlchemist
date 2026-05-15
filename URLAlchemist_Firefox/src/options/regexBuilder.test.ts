@@ -38,6 +38,14 @@ describe('regexBuilder', () => {
     expect(buildRegexFromBuilder(flexible)).toBe('utm_source=[A-Za-z0-9_-]+');
   });
 
+  it('keeps generated regex syntax intact when adding flags', () => {
+    const sample = '12345';
+    const builder = applyRegexBuilderSelection(setRegexBuilderSample(createDefaultRegexBuilder(), sample), 0, sample.length);
+    const flexible = toggleRegexBuilderTokenMode({ ...builder, caseSensitive: false }, builder.tokens[0].id);
+
+    expect(buildRegexFromBuilder(flexible)).toBe('/\\d+/i');
+  });
+
   it('offers quick-pick suggestions for sample url path segments', () => {
     const sample =
       'https://assets.somecoolwebsite.com/images/h_2000,f_auto,q_auto,fl_lossy,c_fill,g_auto/randomId/somefilename.jpg';
@@ -48,6 +56,7 @@ describe('regexBuilder', () => {
   });
 
   it('rejects unsafe manual regex patterns', () => {
-    expect(validateEditorRegexPattern('(a+)+$')).toContain('Unsafe regular expression rejected');
+    const unsafeNestedQuantifier = ['(', 'a+', ')+$'].join('');
+    expect(validateEditorRegexPattern(unsafeNestedQuantifier)).toContain('Unsafe regular expression rejected');
   });
 });

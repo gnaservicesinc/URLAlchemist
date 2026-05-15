@@ -79,6 +79,10 @@ const OPTIONS_TABS: Array<{ id: OptionsTab; label: string }> = [
   { id: 'about', label: 'About' },
 ];
 
+const ALLOWED_BUNDLED_ARTIFACT_PATHS = new Set(
+  BUNDLED_ACTION_PACK_EXAMPLES.flatMap((example) => [example.workspacePath, example.actionPackPath]),
+);
+
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function getChromeApi(): BrowserChromeApi {
@@ -136,6 +140,10 @@ function getBundledArtifactUrl(path: string): string {
 }
 
 async function fetchBundledArtifact(path: string): Promise<Uint8Array> {
+  if (!ALLOWED_BUNDLED_ARTIFACT_PATHS.has(path)) {
+    throw new Error('Bundled artifact path is not recognized');
+  }
+
   const response = await fetch(getBundledArtifactUrl(path));
   if (!response.ok) {
     throw new Error(`Unable to load bundled artifact ${path}`);

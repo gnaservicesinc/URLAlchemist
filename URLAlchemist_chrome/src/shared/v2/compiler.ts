@@ -1,6 +1,7 @@
 import { GLOBAL_SCOPE_PATTERNS, REGEX_TIMEOUT_MS } from '../constants';
 import { getHotkeyValidationError } from '../hotkeys';
 import { assertSafeRegexPattern } from '../regex/executeRegexJob';
+import { validateRemoteUrl } from './remoteUrl';
 import {
   combineRisk,
   getEffectivePortDefinition,
@@ -396,12 +397,9 @@ function validateWorkspace(workspace: WorkspaceFileV2): WorkspaceValidationState
 
       if (fallbackUrl) {
         try {
-          const parsed = new URL(fallbackUrl);
-          if (parsed.protocol !== 'https:' || parsed.username || parsed.password) {
-            errors.push(`${node.settings.label || definition.label}: remote URL must be an HTTPS URL without credentials.`);
-          }
-        } catch {
-          errors.push(`${node.settings.label || definition.label}: remote URL must be a valid absolute URL.`);
+          validateRemoteUrl(fallbackUrl);
+        } catch (error) {
+          errors.push(`${node.settings.label || definition.label}: ${error instanceof Error ? error.message : 'remote URL is invalid'}.`);
         }
       }
 

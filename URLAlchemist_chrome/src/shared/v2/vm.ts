@@ -2,6 +2,7 @@ import { ALLOWED_NAVIGATION_PROTOCOLS } from '../constants';
 import { effectiveVmInstructionLimit } from '../hardening';
 import type { EngineIssue, GlobalSettings } from '../types';
 import type { EngineRuntime } from '../engine/runtime';
+import { validateRemoteUrl } from './remoteUrl';
 import type { CompiledActionPackV2, GraphValue, GraphVmInstruction } from './types';
 
 export interface RemoteRequest {
@@ -137,60 +138,6 @@ function plainValue(value: GraphValue | undefined): unknown {
   return value.value;
 }
 
-function isPrivateOrLocalHost(hostname: string): boolean {
-  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, '');
-  if (!normalized || normalized === 'localhost' || normalized.endsWith('.local')) {
-    return true;
-  }
-
-  if (normalized === '::1' || normalized.startsWith('fe80:') || normalized.startsWith('fc') || normalized.startsWith('fd')) {
-    return true;
-  }
-
-  const ipv4 = normalized.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (!ipv4) {
-    return false;
-  }
-
-  const octets = ipv4.slice(1).map((entry) => Number.parseInt(entry, 10));
-  if (octets.some((entry) => entry < 0 || entry > 255)) {
-    return true;
-  }
-
-  const [first, second] = octets;
-  return (
-    first === 0 ||
-    first === 10 ||
-    first === 127 ||
-    (first === 169 && second === 254) ||
-    (first === 172 && second >= 16 && second <= 31) ||
-    (first === 192 && second === 168)
-  );
-}
-
-function validateRemoteUrl(rawUrl: string): string {
-  let parsed: URL;
-  try {
-    parsed = new URL(rawUrl);
-  } catch {
-    throw new Error('Remote data URL must be a valid absolute URL');
-  }
-
-  if (parsed.protocol !== 'https:') {
-    throw new Error('Remote data blocks only allow HTTPS URLs');
-  }
-
-  if (parsed.username || parsed.password) {
-    throw new Error('Remote data URLs cannot include credentials');
-  }
-
-  if (isPrivateOrLocalHost(parsed.hostname)) {
-    throw new Error('Remote data blocks cannot access local or private network hosts');
-  }
-
-  return parsed.toString();
-}
-
 function coerceRemoteValue(raw: unknown, outputDataType: GraphValue['type']): GraphValue {
   switch (outputDataType) {
     case 'string':
@@ -261,9 +208,10 @@ async function readResponseBytes(response: Response, maxBytes: number): Promise<
 async function defaultFetchRemote(request: RemoteRequest): Promise<GraphValue> {
   const controller = new AbortController();
   const timeout = globalThis.setTimeout(() => controller.abort(), request.timeoutMs);
+  const requestUrl = validateRemoteUrl(request.url);
 
   try {
-    const response = await fetch(request.url, {
+    const response = await fetch(requestUrl, {
       method: request.method,
       redirect: 'error',
       signal: controller.signal,

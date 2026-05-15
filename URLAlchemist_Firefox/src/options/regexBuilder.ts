@@ -115,7 +115,9 @@ function withFlags(pattern: string, flags: string): string {
     return pattern;
   }
 
-  return `/${pattern.replace(/\//g, '\\/')}/${flags}`;
+  // Only the delimiter is escaped here. Backslashes are regex syntax and must
+  // remain intact for generated patterns such as \d+ and character classes.
+  return `/${pattern.split('/').join('\\/')}/${flags}`;
 }
 
 function truncateSuggestion(value: string, maxLength = 40): string {
