@@ -105,6 +105,59 @@ body {
     @apply rounded-2xl border border-slate-200 bg-white/70 p-3;
   }
 
+  .help-document {
+    @apply mx-auto max-w-3xl px-6 py-8 text-base leading-7 text-slate-700 sm:px-8 sm:py-10;
+  }
+
+  .help-document > :first-child {
+    @apply mt-0;
+  }
+
+  .help-document h1 {
+    @apply text-3xl font-semibold text-slate-950;
+  }
+
+  .help-document h2 {
+    @apply mt-10 border-b border-slate-200 pb-2 text-2xl font-semibold text-slate-800;
+  }
+
+  .help-document h3 {
+    @apply mt-7 text-lg font-semibold text-slate-700;
+  }
+
+  .help-document p {
+    @apply mt-3;
+  }
+
+  .help-document ul,
+  .help-document ol {
+    @apply mt-4 space-y-2 pl-6;
+  }
+
+  .help-document ul {
+    @apply list-disc;
+  }
+
+  .help-document ol {
+    @apply list-decimal;
+  }
+
+  .help-document code {
+    @apply rounded bg-slate-100 px-1.5 py-0.5 text-sm text-slate-900;
+  }
+
+  .help-document pre {
+    @apply mt-4 overflow-x-auto rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm;
+  }
+
+  .help-document .note {
+    @apply mt-4 rounded-xl border-l-4 border-amber-400 bg-amber-50 px-4 py-3 text-amber-900;
+  }
+
+  .help-document .warning {
+    @apply mt-4 rounded-xl border-l-4 border-rose-500 bg-rose-50 px-4 py-3 text-rose-900;
+  }
+
   .workspace-port-handle {
     width: 36px !important;
     height: 36px !important;

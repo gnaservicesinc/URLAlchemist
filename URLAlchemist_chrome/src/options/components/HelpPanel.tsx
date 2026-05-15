@@ -19,6 +19,20 @@ function getHelpUrl(path: string): string {
   return chromeApi?.runtime?.getURL ? chromeApi.runtime.getURL(path) : `/${path}`;
 }
 
+function extractHelpBody(content: string): string {
+  const document = new DOMParser().parseFromString(content, 'text/html');
+  document.querySelectorAll('script, iframe, object, embed').forEach((node) => node.remove());
+  document.querySelectorAll('*').forEach((node) => {
+    [...node.attributes].forEach((attribute) => {
+      if (attribute.name.toLowerCase().startsWith('on')) {
+        node.removeAttribute(attribute.name);
+      }
+    });
+  });
+
+  return document.body.innerHTML.trim() || content;
+}
+
 export function HelpPanel() {
   const [activePath, setActivePath] = useState(HELP_DOCUMENTS[0].path);
   const [html, setHtml] = useState('');
@@ -47,7 +61,7 @@ export function HelpPanel() {
       })
       .then((content) => {
         if (!cancelled) {
-          setHtml(content);
+          setHtml(extractHelpBody(content));
         }
       })
       .catch((fetchError) => {
@@ -94,16 +108,11 @@ export function HelpPanel() {
           </div>
         </aside>
 
-        <article className="min-h-[640px] overflow-hidden rounded-[1.25rem] border border-slate-200 bg-white shadow-[0_12px_28px_rgba(15,23,42,0.07)]">
+        <article className="min-h-[640px] max-h-[760px] overflow-y-auto rounded-[1.25rem] border border-slate-200 bg-white shadow-[0_12px_28px_rgba(15,23,42,0.07)]">
           {error ? (
             <p className="p-6 text-sm text-rose-700">{error}</p>
           ) : (
-            <iframe
-              className="h-[760px] w-full bg-white"
-              sandbox=""
-              srcDoc={html}
-              title="URL Alchemist help document"
-            />
+            <div className="help-document" dangerouslySetInnerHTML={{ __html: html }} />
           )}
         </article>
       </div>
