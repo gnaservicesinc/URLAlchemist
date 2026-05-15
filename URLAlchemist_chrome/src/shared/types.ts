@@ -57,6 +57,10 @@ export interface GlobalSettings {
   allowLocalFiles: boolean;
   advancedModeEnabled: boolean;
   syncEnabled: boolean;
+  uiScale: number;
+  hardeningMaxInstructions: number;
+  hardeningMaxRecursion: number;
+  hardeningRegexTimeoutMs: number;
   builderUuid: string;
 }
 

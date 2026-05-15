@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>URL Alchemist Help</title>
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; line-height: 1.7; max-width: 720px; margin: 0 auto; padding: 40px 24px; color: #1e293b; background: #fff; }
+  h1 { font-size: 2rem; color: #0f172a; margin-top: 0; }
+  h2 { font-size: 1.4rem; color: #334155; margin-top: 2rem; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; }
+  h3 { font-size: 1.15rem; color: #475569; margin-top: 1.5rem; }
+  p { margin: 0.75rem 0; }
+  code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+  pre { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; overflow-x: auto; }
+  ul, ol { padding-left: 24px; }
+  li { margin: 4px 0; }
+  strong { color: #0f172a; }
+  .note { background: #fef9c3; border-left: 4px solid #eab308; padding: 12px 16px; border-radius: 6px; margin: 16px 0; }
+  .warning { background: #fee2e2; border-left: 4px solid #ef4444; padding: 12px 16px; border-radius: 6px; margin: 16px 0; }
+</style>
+</head>
+<body>
+
+<h1>URL Alchemist &mdash; Overview</h1>
+
+<p>URL Alchemist is a browser extension that acts as middleware for URL navigation. It intercepts, transforms, and redirects URLs based on user-defined <strong>Action Packs</strong>. You build transformation logic visually in a workspace editor, compile it into an optimized Action Pack, and the extension runs that logic on matching pages.</p>
+
+<h2>Key Concepts</h2>
+
+<h3>Workspaces</h3>
+<p>A <strong>workspace</strong> (file extension <code>.workspace</code>) is a full-featured visual document where you design URL transformation logic using drag-and-drop blocks and connections. Workspaces are your editable source files. You can have multiple workspaces installed.</p>
+
+<h3>Action Packs</h3>
+<p>An <strong>Action Pack</strong> (file extension <code>.actionpack</code>) is a compiled, optimized, binary distribution of a workspace. Action Packs are what the extension engine actually executes at runtime. They are compact, validated, and include risk metadata so users can inspect them before installation.</p>
+
+<h3>The Engine</h3>
+<p>The background engine listens for navigation events and, when a matching Action Pack is installed and enabled, runs the compiled instruction set against the URL. Transformed URLs are applied to the tab silently.</p>
+
+<h2>Quick Start</h2>
+
+<ol>
+  <li>Open the <strong>Examples</strong> tab to browse built-in Action Packs.</li>
+  <li>Click <strong>Install Action Pack</strong> on an example to try it immediately, or <strong>Open Workspace</strong> to inspect and modify the source.</li>
+  <li>Use the <strong>Workspace Editor</strong> to build your own transformations from scratch.</li>
+  <li>When your workspace is valid, click <strong>Build &amp; Install</strong> to compile it into an Action Pack and activate it.</li>
+  <li>Use <strong>Export</strong> to share your Action Pack as a <code>.actionpack</code> file.</li>
+</ol>
+
+<h2>Tab Reference</h2>
+
+<ul>
+  <li><strong>Examples</strong> &mdash; Browse and install bundled example Action Packs and workspaces.</li>
+  <li><strong>Manage Resources</strong> &mdash; View, manage, export, and delete installed workspaces and Action Packs.</li>
+  <li><strong>Import</strong> &mdash; Import workspace or Action Pack files via drag-and-drop or file picker.</li>
+  <li><strong>Workspace Editor</strong> &mdash; The visual node editor where you build URL transformation logic.</li>
+  <li><strong>Security</strong> &mdash; Enable tracing, audit files, configure hardening limits, and monitor alerts.</li>
+  <li><strong>Settings</strong> &mdash; Global toggles, UI scaling, clipboard permissions, and backup/restore.</li>
+  <li><strong>Help</strong> &mdash; This documentation.</li>
+  <li><strong>About</strong> &mdash; Version info, license, repository links, and reset options.</li>
+</ul>
+
+</body>
+</html>

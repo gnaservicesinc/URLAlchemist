@@ -232,6 +232,16 @@ export async function upsertWorkspaceV2(workspace: WorkspaceFileV2): Promise<Sto
   return nextState;
 }
 
+export async function deleteWorkspaceV2(workspaceId: string): Promise<StoredState> {
+  const state = await loadStoredState();
+  const nextState = {
+    ...state,
+    workspacesV2: state.workspacesV2.filter((ws) => ws.metadata.id !== workspaceId),
+  };
+  await saveStoredState(nextState);
+  return nextState;
+}
+
 export async function updateActionPackV2Trace(packId: string, traceEnabledUntil: number): Promise<StoredState> {
   const state = await loadStoredState();
   const nextState = {

@@ -6,6 +6,8 @@ interface BundledExamplesPanelProps {
   savedWorkspaceIds: Set<string>;
   onDownloadActionPack: (example: BundledActionPackExample) => void;
   onDownloadWorkspace: (example: BundledActionPackExample) => void;
+  onDeleteInstalledActionPack: (example: BundledActionPackExample) => void;
+  onDeleteInstalledWorkspace: (example: BundledActionPackExample) => void;
   onInstallActionPack: (example: BundledActionPackExample) => void;
   onOpenWorkspace: (example: BundledActionPackExample) => void;
 }
@@ -40,6 +42,8 @@ export function BundledExamplesPanel({
   savedWorkspaceIds,
   onDownloadActionPack,
   onDownloadWorkspace,
+  onDeleteInstalledActionPack,
+  onDeleteInstalledWorkspace,
   onInstallActionPack,
   onOpenWorkspace,
 }: BundledExamplesPanelProps) {
@@ -94,6 +98,16 @@ export function BundledExamplesPanel({
                 <button className="ghost-button" type="button" onClick={() => onDownloadActionPack(example)}>
                   Export Pack
                 </button>
+                {installed ? (
+                  <button className="ghost-button" type="button" onClick={() => onDeleteInstalledActionPack(example)}>
+                    Delete Installed Action Pack
+                  </button>
+                ) : null}
+                {savedWorkspace ? (
+                  <button className="ghost-button" type="button" onClick={() => onDeleteInstalledWorkspace(example)}>
+                    Delete Installed Workspace
+                  </button>
+                ) : null}
                 <button className="ghost-button" type="button" onClick={() => onDownloadWorkspace(example)}>
                   Export Workspace
                 </button>
@@ -105,4 +119,3 @@ export function BundledExamplesPanel({
     </section>
   );
 }
-
