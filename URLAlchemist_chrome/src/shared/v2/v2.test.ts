@@ -844,7 +844,8 @@ describe('v2 workspace compiler and VM', () => {
       hardeningRegexTimeoutMs: 500,
     };
 
-    expect(normalizeUiScale(looseSettings.uiScale)).toBe(600);
+    expect(normalizeUiScale(looseSettings.uiScale)).toBe(150);
+    expect(normalizeUiScale(25)).toBe(75);
     expect(effectiveRedirectDepthLimit(looseSettings)).toBe(3);
     expect(effectiveRegexTimeoutMs(looseSettings)).toBe(50);
   });

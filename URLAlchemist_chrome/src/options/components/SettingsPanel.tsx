@@ -1,5 +1,7 @@
-import type { ChangeEvent, RefObject } from 'react';
+import { useEffect, useState, type ChangeEvent, type RefObject } from 'react';
 
+import { UI_SCALE_MAX, UI_SCALE_MIN, UI_SCALE_STEP } from '../../shared/constants';
+import { normalizeUiScale } from '../../shared/hardening';
 import type { GlobalSettings } from '../../shared/types';
 
 interface SettingsPanelProps {
@@ -43,6 +45,14 @@ export function SettingsPanel({
   onSyncEnabledToggle,
   onUiScaleChange,
 }: SettingsPanelProps) {
+  const [pendingUiScale, setPendingUiScale] = useState(() => normalizeUiScale(settings.uiScale));
+  const activeUiScale = normalizeUiScale(settings.uiScale);
+  const hasPendingUiScale = pendingUiScale !== activeUiScale;
+
+  useEffect(() => {
+    setPendingUiScale(activeUiScale);
+  }, [activeUiScale]);
+
   return (
     <section className="panel-shell reveal-panel">
       <p className="eyebrow">Settings</p>
@@ -84,30 +94,36 @@ export function SettingsPanel({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-sm font-semibold text-slate-900">UI Scale</p>
-              <p className="mt-1 text-xs text-slate-500">Scales the options interface from compact review mode to high-zoom accessibility mode.</p>
+              <p className="mt-1 text-xs text-slate-500">Stage a scale change, then apply it when the preview looks right.</p>
             </div>
-            <span className="risk-badge risk-badge-soft">{settings.uiScale}%</span>
+            <div className="flex flex-wrap gap-2">
+              <span className="risk-badge risk-badge-soft">{activeUiScale}% active</span>
+              {hasPendingUiScale ? <span className="risk-badge risk-badge-warn">{pendingUiScale}% pending</span> : null}
+            </div>
           </div>
-          <div className="mt-4 grid gap-3 md:grid-cols-[1fr_120px_auto]">
+          <div className="mt-4 grid gap-3 md:grid-cols-[1fr_120px_auto_auto]">
             <input
               aria-label="UI scale"
-              max={600}
-              min={10}
-              step={10}
+              max={UI_SCALE_MAX}
+              min={UI_SCALE_MIN}
+              step={UI_SCALE_STEP}
               type="range"
-              value={settings.uiScale}
-              onChange={(event) => onUiScaleChange(Number.parseInt(event.target.value, 10))}
+              value={pendingUiScale}
+              onChange={(event) => setPendingUiScale(normalizeUiScale(Number.parseInt(event.target.value, 10)))}
             />
             <input
               className="field-input"
-              max={600}
-              min={10}
-              step={10}
+              max={UI_SCALE_MAX}
+              min={UI_SCALE_MIN}
+              step={UI_SCALE_STEP}
               type="number"
-              value={settings.uiScale}
-              onChange={(event) => onUiScaleChange(Number.parseInt(event.target.value || '100', 10))}
+              value={pendingUiScale}
+              onChange={(event) => setPendingUiScale(normalizeUiScale(Number.parseInt(event.target.value || String(activeUiScale), 10)))}
             />
-            <button className="ghost-button" type="button" onClick={() => onUiScaleChange(100)}>
+            <button className="primary-button" disabled={!hasPendingUiScale} type="button" onClick={() => onUiScaleChange(pendingUiScale)}>
+              Apply
+            </button>
+            <button className="ghost-button" disabled={pendingUiScale === 100} type="button" onClick={() => setPendingUiScale(100)}>
               Reset
             </button>
           </div>

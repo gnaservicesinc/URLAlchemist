@@ -828,8 +828,8 @@ export function WorkspaceEditor({
   );
 
   const surface = (heightClassName?: string, expanded = false) => (
-    <div className="grid gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className={expanded ? 'flex h-full min-h-0 flex-col gap-3' : 'grid gap-4'}>
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-sm font-semibold text-slate-900">Workspace surface</p>
           <p className="text-xs text-slate-500">Right-click the canvas or use the block generator to add blocks.</p>
@@ -843,7 +843,7 @@ export function WorkspaceEditor({
           </button>
         ) : null}
       </div>
-      {blockToolbar}
+      <div className="shrink-0">{blockToolbar}</div>
       <ReactFlowProvider>
         <WorkspaceFlow
           advancedModeEnabled={advancedModeEnabled}
@@ -1051,9 +1051,9 @@ export function WorkspaceEditor({
         </div>
       </div>
       {isPopout ? createPortal(
-        <div className="fixed inset-0 z-40 bg-slate-950/60 p-4 backdrop-blur-sm">
-          <div className="flex h-full flex-col rounded-[1.25rem] border border-white/60 bg-[rgba(255,252,246,0.98)] p-4 shadow-[0_32px_90px_rgba(15,23,42,0.35)]">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="fixed inset-0 z-40 bg-slate-950/60 p-2 backdrop-blur-sm">
+          <div className="flex h-full min-h-0 flex-col rounded-[1.25rem] border border-white/60 bg-[rgba(255,252,246,0.98)] p-3 shadow-[0_32px_90px_rgba(15,23,42,0.35)]">
+            <div className="mb-3 flex shrink-0 flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="eyebrow">Workspace Surface</p>
                 <h3 className="mt-1 text-xl font-semibold text-slate-900">{workspace.metadata.name}</h3>
@@ -1065,7 +1065,7 @@ export function WorkspaceEditor({
                 Exit
               </button>
             </div>
-            <div className="min-h-0 flex-1">{surface('h-full min-h-[520px]', true)}</div>
+            <div className="flex min-h-0 flex-1 flex-col">{surface('min-h-0 flex-1', true)}</div>
           </div>
         </div>,
         document.body,

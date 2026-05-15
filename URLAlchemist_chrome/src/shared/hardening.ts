@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS, DEFAULT_VM_INSTRUCTION_LIMIT, MAX_REDIRECT_DEPTH, REGEX_TIMEOUT_MS } from './constants';
+import { DEFAULT_SETTINGS, DEFAULT_VM_INSTRUCTION_LIMIT, MAX_REDIRECT_DEPTH, REGEX_TIMEOUT_MS, UI_SCALE_MAX, UI_SCALE_MIN } from './constants';
 import type { GlobalSettings } from './types';
 
 function clampInteger(value: unknown, fallback: number, min: number, max: number): number {
@@ -11,7 +11,7 @@ function clampInteger(value: unknown, fallback: number, min: number, max: number
 }
 
 export function normalizeUiScale(value: unknown): number {
-  return clampInteger(value, DEFAULT_SETTINGS.uiScale, 10, 600);
+  return clampInteger(value, DEFAULT_SETTINGS.uiScale, UI_SCALE_MIN, UI_SCALE_MAX);
 }
 
 export function normalizeHardeningMaxInstructions(value: unknown): number {
