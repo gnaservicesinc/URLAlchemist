@@ -26,15 +26,23 @@ async function ensureOffscreenDocument(): Promise<void> {
   }
 
   if (!creatingDocumentPromise) {
-    creatingDocumentPromise = chrome.offscreen
-      .createDocument({
-        url: 'offscreen.html',
-        reasons: [chrome.offscreen.Reason.CLIPBOARD],
-        justification: 'URL Alchemist uses an offscreen page to sandbox regex execution and read clipboard placeholders',
-      })
-      .finally(() => {
-        creatingDocumentPromise = null;
-      });
+    creatingDocumentPromise = (async () => {
+      try {
+        await chrome.offscreen.createDocument({
+          url: 'offscreen.html',
+          reasons: [chrome.offscreen.Reason.CLIPBOARD],
+          justification: 'URL Alchemist uses an offscreen page to sandbox regex execution and read clipboard placeholders',
+        });
+      } catch (error) {
+        // Race or already-exists: re-check before throwing
+        if (await hasOffscreenDocument()) {
+          return;
+        }
+        throw error;
+      }
+    })().finally(() => {
+      creatingDocumentPromise = null;
+    });
   }
 
   await creatingDocumentPromise;

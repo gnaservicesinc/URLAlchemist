@@ -264,7 +264,12 @@ export function validateActionPack(candidate: unknown): ValidationResult<ActionP
   };
 }
 
-export function validateStoredState(candidate: unknown): ValidationResult<StoredState> {
+export interface ValidatedStoredState {
+  state: StoredState;
+  warnings: string[];
+}
+
+export function validateStoredState(candidate: unknown): ValidationResult<ValidatedStoredState> {
   if (!isRecord(candidate)) {
     return { ok: false, errors: ['Stored state must be an object'] };
   }
@@ -294,25 +299,31 @@ export function validateStoredState(candidate: unknown): ValidationResult<Stored
   const actionPacksV2: CompiledActionPackV2[] = [];
   const workspacesV2: StoredState['workspacesV2'] = [];
   const traceEntries: StoredState['traceEntries'] = [];
-  const errors: string[] = [];
+  const warnings: string[] = [];
+  let droppedLegacyPacks = 0;
 
   const candidatePacks = Array.isArray(candidate.packs) ? candidate.packs : [];
-  candidatePacks.forEach((pack: unknown) => {
+  candidatePacks.forEach((pack: unknown, index: number) => {
     const packResult = validateActionPack(pack);
     if (packResult.ok) {
       packs.push(packResult.value);
       return;
     }
 
-    errors.push(...packResult.errors);
+    droppedLegacyPacks += 1;
+    warnings.push(`Dropped legacy pack at index ${index}: ${packResult.errors.join('; ')}`);
   });
 
+  if (droppedLegacyPacks > 0) {
+    warnings.push(`Recovered ${packs.length} of ${candidatePacks.length} legacy packs (${droppedLegacyPacks} dropped).`);
+  }
+
   if (candidate.actionPacksV2 !== undefined && !Array.isArray(candidate.actionPacksV2)) {
-    errors.push('Stored v2 Action Packs must be an array');
+    warnings.push('Stored v2 Action Packs were not an array; resetting to empty.');
   }
 
   const candidateActionPacksV2 = Array.isArray(candidate.actionPacksV2) ? candidate.actionPacksV2 : [];
-  candidateActionPacksV2.forEach((pack: unknown) => {
+  candidateActionPacksV2.forEach((pack: unknown, index: number) => {
     if (
       isRecord(pack) &&
       pack.kind === 'action-pack.v2' &&
@@ -324,19 +335,25 @@ export function validateStoredState(candidate: unknown): ValidationResult<Stored
       const validation = validateCompiledActionPackV2(pack);
       if (validation.ok) {
         actionPacksV2.push(validation.pack);
+      } else {
+        warnings.push(`Dropped v2 Action Pack at index ${index}: ${validation.errors.join('; ')}`);
       }
+    } else {
+      warnings.push(`Dropped v2 Action Pack at index ${index}: missing required fields or wrong kind/schemaVersion.`);
     }
   });
 
   if (candidate.workspacesV2 !== undefined && !Array.isArray(candidate.workspacesV2)) {
-    errors.push('Stored workspaces must be an array');
+    warnings.push('Stored workspaces were not an array; resetting to empty.');
   }
 
   const candidateWorkspacesV2 = Array.isArray(candidate.workspacesV2) ? candidate.workspacesV2 : [];
-  candidateWorkspacesV2.forEach((workspace: unknown) => {
+  candidateWorkspacesV2.forEach((workspace: unknown, index: number) => {
     const validation = validateWorkspaceFile(workspace);
     if (validation.ok) {
       workspacesV2.push(validation.value);
+    } else {
+      warnings.push(`Dropped workspace at index ${index}: ${validation.errors.join('; ')}`);
     }
   });
 
@@ -349,34 +366,36 @@ export function validateStoredState(candidate: unknown): ValidationResult<Stored
     });
   }
 
-  if (errors.length > 0) {
-    return { ok: false, errors };
-  }
+  const state: StoredState = {
+    settings: {
+      globalEnabled: candidate.settings.globalEnabled,
+      allowLocalFiles: candidate.settings.allowLocalFiles,
+      advancedModeEnabled: candidate.settings.advancedModeEnabled,
+      syncEnabled: candidate.settings.syncEnabled ?? DEFAULT_SETTINGS.syncEnabled,
+      builderUuid: candidate.settings.builderUuid || crypto.randomUUID(),
+    },
+    packs,
+    actionPacksV2,
+    workspacesV2,
+    traceEntries,
+  };
 
   return {
     ok: true,
-    value: {
-      settings: {
-        globalEnabled: candidate.settings.globalEnabled,
-        allowLocalFiles: candidate.settings.allowLocalFiles,
-        advancedModeEnabled: candidate.settings.advancedModeEnabled,
-        syncEnabled: candidate.settings.syncEnabled ?? DEFAULT_SETTINGS.syncEnabled,
-        builderUuid: candidate.settings.builderUuid || crypto.randomUUID(),
-      },
-      packs,
-      actionPacksV2,
-      workspacesV2,
-      traceEntries,
-    },
+    value: { state, warnings },
   };
 }
 
 export function normalizeStoredState(candidate: unknown): StoredState {
   const parsed = validateStoredState(candidate);
   if (parsed.ok) {
-    return parsed.value;
+    if (parsed.value.warnings.length > 0) {
+      console.warn('[URL Alchemist] State normalization warnings:', parsed.value.warnings);
+    }
+    return parsed.value.state;
   }
 
+  console.warn('[URL Alchemist] Stored state was corrupted and reset to defaults:', parsed.errors);
   return {
     settings: DEFAULT_SETTINGS,
     packs: [],

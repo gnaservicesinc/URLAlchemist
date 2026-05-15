@@ -114,7 +114,7 @@ export async function simulateActionPack(
 ): Promise<EngineExecutionResult> {
   const issues: EngineIssue[] = [];
 
-  if (inputUrl.startsWith('file://') && !settings.allowLocalFiles) {
+  if (/^file:/i.test(inputUrl) && !settings.allowLocalFiles) {
     return {
       originalUrl: inputUrl,
       finalUrl: inputUrl,

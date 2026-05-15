@@ -177,8 +177,14 @@ function getPackImportValidationErrors(pack: CompiledActionPackV2 | null, instal
   return errors;
 }
 
-function workspaceHasDataOut(workspace: WorkspaceFileV2): boolean {
-  return workspace.nodes.some((node) => node.type === 'DataFlowOut');
+function workspaceHasConnectedDataOut(workspace: WorkspaceFileV2): boolean {
+  const outputNodeIds = new Set(
+    workspace.nodes.filter((node) => node.type === 'DataFlowOut' || node.type === 'ExtendedDataOut').map((n) => n.id),
+  );
+  if (outputNodeIds.size === 0) {
+    return false;
+  }
+  return workspace.edges.some((edge) => outputNodeIds.has(edge.target));
 }
 
 function shouldTrace(pack: CompiledActionPackV2): boolean {
@@ -209,7 +215,10 @@ function App() {
   const backupFileInputRef = useRef<HTMLInputElement | null>(null);
   const runtimeRef = useRef<GraphRuntime | null>(null);
   const legacyRuntimeRef = useRef<EngineRuntime | null>(null);
-  const compiledWorkspace = compileWorkspace(workspace, { builderUuid: state.settings.builderUuid });
+  const compiledWorkspace = useMemo(
+    () => compileWorkspace(workspace, { builderUuid: state.settings.builderUuid }),
+    [workspace, state.settings.builderUuid],
+  );
   const stagedValidationErrors = getPackImportValidationErrors(stagedPack, state.actionPacksV2);
   const installedExamplePackIds = useMemo(() => new Set(state.actionPacksV2.map((pack) => pack.manifest.id)), [state.actionPacksV2]);
   const savedExampleWorkspaceIds = useMemo(() => new Set(state.workspacesV2.map((savedWorkspace) => savedWorkspace.metadata.id)), [state.workspacesV2]);
@@ -294,16 +303,17 @@ function App() {
 
   useEffect(() => {
     const chromeApi = getChromeApi();
-    if (!chromeApi.permissions?.contains) {
+    const contains = chromeApi.permissions?.contains;
+    if (!contains) {
       setClipboardGranted(false);
       return;
     }
 
-    void chromeApi.permissions
-      .contains({
-        permissions: ['clipboardRead', 'clipboardWrite'],
-      })
-      .then(setClipboardGranted);
+    void (async () => {
+      const readGranted = await contains({ permissions: ['clipboardRead'] });
+      const writeGranted = await contains({ permissions: ['clipboardWrite'] });
+      setClipboardGranted(readGranted || writeGranted);
+    })();
   }, []);
 
   useEffect(() => {
@@ -362,15 +372,14 @@ function App() {
       return;
     }
 
-    const granted = await chromeApi.permissions.request({
-      permissions: ['clipboardRead', 'clipboardWrite'],
-    });
-
-    setClipboardGranted(granted);
+    // Request read and write separately so the user can grant either independently.
+    const readGranted = await chromeApi.permissions.request({ permissions: ['clipboardRead'] });
+    const writeGranted = await chromeApi.permissions.request({ permissions: ['clipboardWrite'] });
+    setClipboardGranted(readGranted || writeGranted);
   }
 
   async function saveWorkspace(): Promise<void> {
-    if (!workspaceHasDataOut(workspace)) {
+    if (!workspaceHasConnectedDataOut(workspace)) {
       setWorkspaceMessage('Add a Data Out block before saving this workspace.');
       return;
     }
@@ -393,7 +402,7 @@ function App() {
   }
 
   async function exportWorkspace(): Promise<void> {
-    if (!workspaceHasDataOut(workspace)) {
+    if (!workspaceHasConnectedDataOut(workspace)) {
       setWorkspaceMessage('Add a Data Out block before exporting this workspace.');
       return;
     }

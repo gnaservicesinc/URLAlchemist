@@ -395,15 +395,17 @@ function regexSettingsFromDraft(draft: ActivityDraft): Partial<WorkspaceBlockSet
   };
 }
 
-function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange }: Pick<WorkspaceEditorProps, 'advancedModeEnabled' | 'workspace' | 'onWorkspaceChange'>) {
+interface WorkspaceFlowProps {
+  advancedModeEnabled: boolean;
+  workspace: WorkspaceFileV2;
+  onWorkspaceChange: (workspace: WorkspaceFileV2) => void;
+  invalidEdgeIds: Set<string>;
+}
+
+function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, invalidEdgeIds }: WorkspaceFlowProps) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; flowX: number; flowY: number } | null>(null);
   const [flowInstance, setFlowInstance] = useState<ReactFlowInstance | null>(null);
   const [regexBuilderNodeId, setRegexBuilderNodeId] = useState<string | null>(null);
-  const compileResult = useMemo(() => compileWorkspace(workspace), [workspace]);
-  const invalidEdgeIds = useMemo(
-    () => new Set(compileResult.validation.invalidEdgeIds),
-    [compileResult.validation.invalidEdgeIds],
-  );
 
   const handleSettingsChange = useCallback(
     (nodeId: string, settings: Partial<WorkspaceBlockSettings>): void => {
@@ -730,6 +732,7 @@ export function WorkspaceEditor({
   onSaveWorkspace,
 }: WorkspaceEditorProps) {
   const compileResult = useMemo(() => compileWorkspace(workspace), [workspace]);
+  const invalidEdgeIds = useMemo(() => new Set(compileResult.validation.invalidEdgeIds), [compileResult.validation.invalidEdgeIds]);
   const hotkeyError = workspace.trigger.type === 'HOTKEY' ? getHotkeyValidationError(workspace.trigger.hotkey, []) : null;
   const hasDataOut = workspace.nodes.some((node) => node.type === 'DataFlowOut');
   const urlFilter = workspace.trigger.sourceFilters?.find((filter) => filter.source === 'url')?.pattern ?? '';
@@ -879,7 +882,7 @@ export function WorkspaceEditor({
 
       <div className="mt-5">
         <ReactFlowProvider>
-          <WorkspaceFlow advancedModeEnabled={advancedModeEnabled} workspace={workspace} onWorkspaceChange={onWorkspaceChange} />
+          <WorkspaceFlow advancedModeEnabled={advancedModeEnabled} workspace={workspace} onWorkspaceChange={onWorkspaceChange} invalidEdgeIds={invalidEdgeIds} />
         </ReactFlowProvider>
       </div>
 

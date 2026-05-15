@@ -16,8 +16,11 @@ function getChromeStorageChanges(): typeof chrome.storage.onChanged | null {
 }
 
 const SYNC_STORAGE_KEY = 'url-alchemist-sync-state';
+// Chrome sync QUOTA_BYTES_PER_ITEM is 8192 bytes per key.
+// We store the entire snapshot under ONE key, so the total must fit inside that limit.
 const SYNC_MAX_ITEM_BYTES = 8 * 1024;
-const SYNC_MAX_TOTAL_BYTES = 96 * 1024;
+// Leave ~400 bytes of headroom for Chrome's internal JSON wrapping/serialization overhead.
+const SYNC_MAX_TOTAL_BYTES = SYNC_MAX_ITEM_BYTES - 400;
 
 function jsonBytes(value: unknown): number {
   return new TextEncoder().encode(JSON.stringify(value)).byteLength;
@@ -72,9 +75,24 @@ async function saveSyncState(state: StoredState): Promise<void> {
     return;
   }
 
-  await chromeStorage.set({
-    [SYNC_STORAGE_KEY]: createSyncSnapshot(state),
-  });
+  const snapshot = createSyncSnapshot(state);
+  try {
+    await chromeStorage.set({
+      [SYNC_STORAGE_KEY]: snapshot,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    // QuotaExceeded and kQuotaBytesPerItem are the two common Chromium error strings.
+    if (message.includes('quota') || message.includes('Quota')) {
+      console.warn(
+        '[URL Alchemist] Sync snapshot exceeded the per-item quota and was skipped. '
+        + 'Local storage is unaffected. Disable Google Sync or reduce pack/workspace count.',
+        `Snapshot size: ${jsonBytes(snapshot)} bytes`,
+      );
+      return;
+    }
+    throw error;
+  }
 }
 
 async function loadSyncState(): Promise<StoredState | null> {
@@ -232,11 +250,25 @@ export async function updateActionPackV2Trace(packId: string, traceEnabledUntil:
   return nextState;
 }
 
+const MAX_TRACE_URL_LENGTH = 2048;
+
+function capTraceEntry(entry: StoredTraceEntry): StoredTraceEntry {
+  return {
+    ...entry,
+    inputUrl: entry.inputUrl.length > MAX_TRACE_URL_LENGTH
+      ? `${entry.inputUrl.slice(0, MAX_TRACE_URL_LENGTH)}...`
+      : entry.inputUrl,
+    outputUrl: entry.outputUrl.length > MAX_TRACE_URL_LENGTH
+      ? `${entry.outputUrl.slice(0, MAX_TRACE_URL_LENGTH)}...`
+      : entry.outputUrl,
+  };
+}
+
 export async function appendTraceEntry(entry: StoredTraceEntry): Promise<StoredState> {
   const state = await loadStoredState();
   const nextState = {
     ...state,
-    traceEntries: [entry, ...state.traceEntries].slice(0, 100),
+    traceEntries: [capTraceEntry(entry), ...state.traceEntries].slice(0, 100),
   };
 
   await saveStoredState(nextState);

@@ -437,6 +437,13 @@ function applyNumericOperation(
   return calculate(left, right);
 }
 
+/**
+ * cleanupStringCodes intentionally whitelists printable ASCII (32-126) and
+ * selected extended-Latin characters (128-255). It silently drops control
+ * characters, emoji, and most Unicode code points. This is a deliberate
+ * safety boundary for NUMBER_TO_STRING and DATA_TO_STRING conversions; if you
+ * need broader Unicode support, extend this whitelist or add a new convert mode.
+ */
 function cleanupStringCodes(values: number[]): number[] {
   return values
     .map((value) => Math.trunc(value))
@@ -690,7 +697,7 @@ export async function executeCompiledActionPackV2(
     outputs: new Map(),
   };
 
-  if (inputUrl.startsWith('file://') && !settings.allowLocalFiles) {
+  if (/^file:/i.test(inputUrl) && !settings.allowLocalFiles) {
     return {
       originalUrl: inputUrl,
       finalUrl: inputUrl,

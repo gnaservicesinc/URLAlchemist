@@ -74,10 +74,18 @@ function getRedirectDepth(tabId: number, packId: string, url: string): number {
 }
 
 function updateRedirectTrail(tabId: number, packId: string, url: string, depth: number): void {
+  // Evict expired entries on every write to prevent unbounded growth
+  const now = Date.now();
+  for (const [key, entry] of redirectTrail) {
+    if (entry.expiresAt < now) {
+      redirectTrail.delete(key);
+    }
+  }
+
   redirectTrail.set(getTrailKey(tabId, packId), {
     url,
     depth,
-    expiresAt: Date.now() + 15_000,
+    expiresAt: now + 15_000,
   });
 }
 
