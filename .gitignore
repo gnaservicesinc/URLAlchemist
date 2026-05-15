@@ -39,6 +39,7 @@ build/Release
 
 # Dependency directories
 node_modules/
+**/node_modules/
 jspm_packages/
 
 # Snowpack dependency directory (https://snowpack.dev/)
@@ -61,6 +62,8 @@ web_modules/
 
 # Output of 'npm pack'
 *.tgz
+*.crx
+*.pem
 
 # Yarn Integrity file
 .yarn-integrity
@@ -81,6 +84,8 @@ out
 # Nuxt.js build / generate output
 .nuxt
 dist
+dist/
+**/dist/
 .output
 
 # Gatsby files
@@ -145,3 +150,9 @@ vite.config.ts.timestamp-*
 # Mac
 .DS_Store
 */.DS_Store
+**/.DS_Store
+
+# URL Alchemist generated Chrome artifacts
+URLAlchemist_chrome/dist/
+URLAlchemist_chrome/dist.crx
+URLAlchemist_chrome/dist.pem
