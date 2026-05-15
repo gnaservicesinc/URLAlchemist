@@ -83,7 +83,7 @@ export const BLOCK_REGISTRY: Record<BlockKind, BlockDefinition> = {
     typeId: BLOCK_TYPE_IDS.RegExpression,
     label: 'Regex',
     category: 'regex',
-    inputs: [port('input', 'Input', 'Any', { required: true })],
+    inputs: [port('input', 'Input', 'Any', { required: true }), port('payload', 'Payload', 'Any')],
     outputs: [port('result', 'Result', 'Any')],
     flags: defaultFlags,
     defaultSettings: {
@@ -208,6 +208,39 @@ export const BLOCK_REGISTRY: Record<BlockKind, BlockDefinition> = {
     defaultSettings: {},
     risk: 'high',
   },
+  FetchData: {
+    kind: 'FetchData',
+    typeId: BLOCK_TYPE_IDS.FetchData,
+    label: 'Fetch GET',
+    category: 'data',
+    inputs: [port('url', 'URL', 'URL')],
+    outputs: [port('result', 'Result', 'data', { risk: 'high' })],
+    flags: defaultFlags,
+    defaultSettings: {
+      remoteUrl: '',
+      remoteDataType: 'data',
+      remoteTimeoutMs: 5000,
+      remoteMaxBytes: 128 * 1024,
+    },
+    risk: 'high',
+  },
+  HttpRequest: {
+    kind: 'HttpRequest',
+    typeId: BLOCK_TYPE_IDS.HttpRequest,
+    label: 'HTTP Request',
+    category: 'data',
+    inputs: [port('url', 'URL', 'URL'), port('body', 'Body', 'dict')],
+    outputs: [port('result', 'Result', 'data', { risk: 'high' })],
+    flags: defaultFlags,
+    defaultSettings: {
+      remoteUrl: '',
+      remoteDataType: 'data',
+      remoteMethod: 'GET',
+      remoteTimeoutMs: 5000,
+      remoteMaxBytes: 128 * 1024,
+    },
+    risk: 'high',
+  },
 };
 
 export const BLOCK_DEFINITIONS = Object.values(BLOCK_REGISTRY);
@@ -263,6 +296,10 @@ export function getEffectivePortDefinitions(
 ): GraphPortDefinition[] {
   if (node.type === 'Convert') {
     return effectiveConvertPorts(node, direction);
+  }
+
+  if ((node.type === 'FetchData' || node.type === 'HttpRequest') && direction === 'output') {
+    return [port('result', 'Result', node.settings.remoteDataType ?? 'data', { risk: 'high' })];
   }
 
   const definition = getBlockDefinition(node.type);

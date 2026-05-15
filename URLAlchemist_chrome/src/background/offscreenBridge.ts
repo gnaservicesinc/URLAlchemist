@@ -1,5 +1,6 @@
 import {
   OFFSCREEN_CLIPBOARD_MESSAGE,
+  OFFSCREEN_CLIPBOARD_WRITE_MESSAGE,
   OFFSCREEN_REGEX_MESSAGE,
   type ClipboardResponse,
   type RuntimeResponse,
@@ -99,4 +100,19 @@ export async function readClipboardFromOffscreen(): Promise<string> {
   });
 
   return response.text;
+}
+
+export async function writeClipboardFromOffscreen(text: string): Promise<void> {
+  const permissionGranted = await chrome.permissions.contains({
+    permissions: ['clipboardWrite'],
+  });
+
+  if (!permissionGranted) {
+    throw new Error('Clipboard writes require the optional clipboardWrite permission');
+  }
+
+  await sendOffscreenMessage<null>({
+    type: OFFSCREEN_CLIPBOARD_WRITE_MESSAGE,
+    text,
+  });
 }

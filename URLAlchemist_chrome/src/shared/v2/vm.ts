@@ -3,11 +3,21 @@ import type { EngineIssue, GlobalSettings } from '../types';
 import type { EngineRuntime } from '../engine/runtime';
 import type { CompiledActionPackV2, GraphValue, GraphVmInstruction } from './types';
 
+export interface RemoteRequest {
+  url: string;
+  method: 'GET' | 'POST';
+  body?: unknown;
+  outputDataType: GraphValue['type'];
+  timeoutMs: number;
+  maxBytes: number;
+}
+
 export interface GraphRuntime extends EngineRuntime {
   readSource?: (source: string) => Promise<GraphValue | undefined>;
   writeDestination?: (destination: string, value: GraphValue) => Promise<void>;
   loadSessionValue?: (key: string) => Promise<GraphValue | undefined>;
   saveSessionValue?: (key: string, value: GraphValue) => Promise<void>;
+  fetchRemote?: (request: RemoteRequest) => Promise<GraphValue>;
 }
 
 export interface GraphExecutionResult {
@@ -110,6 +120,133 @@ function graphValueFromUnknown(value: unknown, preferredType: GraphValue['type']
   }
 
   return { type: preferredType, value } as GraphValue;
+}
+
+function plainValue(value: GraphValue | undefined): unknown {
+  if (!value) {
+    return undefined;
+  }
+
+  if (value.type === 'dict' && typeof value.value === 'object' && value.value !== null) {
+    return Object.fromEntries(
+      Object.entries(value.value).map(([key, entry]) => [key, plainValue(entry as GraphValue)]),
+    );
+  }
+
+  return value.value;
+}
+
+function isPrivateOrLocalHost(hostname: string): boolean {
+  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (!normalized || normalized === 'localhost' || normalized.endsWith('.local')) {
+    return true;
+  }
+
+  if (normalized === '::1' || normalized.startsWith('fe80:') || normalized.startsWith('fc') || normalized.startsWith('fd')) {
+    return true;
+  }
+
+  const ipv4 = normalized.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (!ipv4) {
+    return false;
+  }
+
+  const octets = ipv4.slice(1).map((entry) => Number.parseInt(entry, 10));
+  if (octets.some((entry) => entry < 0 || entry > 255)) {
+    return true;
+  }
+
+  const [first, second] = octets;
+  return (
+    first === 0 ||
+    first === 10 ||
+    first === 127 ||
+    (first === 169 && second === 254) ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168)
+  );
+}
+
+function validateRemoteUrl(rawUrl: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error('Remote data URL must be a valid absolute URL');
+  }
+
+  if (parsed.protocol !== 'https:') {
+    throw new Error('Remote data blocks only allow HTTPS URLs');
+  }
+
+  if (parsed.username || parsed.password) {
+    throw new Error('Remote data URLs cannot include credentials');
+  }
+
+  if (isPrivateOrLocalHost(parsed.hostname)) {
+    throw new Error('Remote data blocks cannot access local or private network hosts');
+  }
+
+  return parsed.toString();
+}
+
+function coerceRemoteValue(raw: unknown, outputDataType: GraphValue['type']): GraphValue {
+  switch (outputDataType) {
+    case 'string':
+    case 'URL':
+    case 'JSON':
+      return { type: outputDataType, value: typeof raw === 'string' ? raw : JSON.stringify(raw) } as GraphValue;
+    case 'dict':
+      return { type: 'dict', value: typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? raw as Record<string, GraphValue> : {} };
+    case 'number': {
+      const numeric = Number(raw);
+      return { type: 'number', value: Number.isFinite(numeric) ? Math.trunc(numeric) : 0 };
+    }
+    case 'floatingPoint': {
+      const numeric = Number(raw);
+      return { type: 'floatingPoint', value: Number.isFinite(numeric) ? numeric : 0 };
+    }
+    case 'bool':
+      return { type: 'bool', value: raw ? 1 : 0 };
+    case 'Any':
+    case 'data':
+    default:
+      return { type: outputDataType, value: raw } as GraphValue;
+  }
+}
+
+async function defaultFetchRemote(request: RemoteRequest): Promise<GraphValue> {
+  const controller = new AbortController();
+  const timeout = globalThis.setTimeout(() => controller.abort(), request.timeoutMs);
+
+  try {
+    const response = await fetch(request.url, {
+      method: request.method,
+      redirect: 'error',
+      signal: controller.signal,
+      headers: request.method === 'POST' ? { 'content-type': 'application/json' } : undefined,
+      body: request.method === 'POST' ? JSON.stringify(request.body ?? {}) : undefined,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Remote request failed with HTTP ${response.status}`);
+    }
+
+    const buffer = new Uint8Array(await response.arrayBuffer());
+    if (buffer.byteLength > request.maxBytes) {
+      throw new Error('Remote response exceeded the configured byte limit');
+    }
+
+    const text = new TextDecoder().decode(buffer);
+    const contentType = response.headers.get('content-type') ?? '';
+    const raw = request.outputDataType === 'JSON' || request.outputDataType === 'dict' || contentType.includes('json')
+      ? JSON.parse(text || 'null')
+      : text;
+
+    return coerceRemoteValue(raw, request.outputDataType);
+  } finally {
+    globalThis.clearTimeout(timeout);
+  }
 }
 
 function asString(value: GraphValue | undefined): string {
@@ -300,9 +437,10 @@ async function executeInstruction(
     case 'REGEX_TRANSFORM': {
       const source = getValue(state, instruction.input);
       const input = asString(source);
+      const rawPayload = instruction.payloadInput ? asString(getValue(state, instruction.payloadInput)) : instruction.payload;
       let payload = instruction.payloadVars
-        ? instruction.payload.replaceAll('{date}', new Date().toISOString())
-        : instruction.payload.replace(/\$/g, '$$$$');
+        ? rawPayload.replaceAll('{date}', new Date().toISOString())
+        : rawPayload.replace(/\$/g, '$$$$');
       if (instruction.payloadVars && payload.includes('{clipboard}')) {
         payload = payload.replaceAll('{clipboard}', (await runtime.readClipboard()).replace(/\$/g, '$$$$'));
       }
@@ -317,6 +455,35 @@ async function executeInstruction(
       const value = graphValueFromUnknown(transformed.result, source?.type === 'URL' ? 'URL' : 'string');
       setValue(state, instruction.output, value, pack.vm.valueByteLimit);
       trace(state, instruction, transformed.matched ? 'Regex matched' : 'Regex did not match', value);
+      break;
+    }
+    case 'FETCH_GET': {
+      const requestUrl = validateRemoteUrl(instruction.url ? asString(getValue(state, instruction.url)) : instruction.fallbackUrl);
+      const fetcher = runtime.fetchRemote ?? defaultFetchRemote;
+      const value = await fetcher({
+        url: requestUrl,
+        method: 'GET',
+        outputDataType: instruction.outputDataType,
+        timeoutMs: instruction.timeoutMs,
+        maxBytes: instruction.maxBytes,
+      });
+      setValue(state, instruction.output, value, pack.vm.valueByteLimit);
+      trace(state, instruction, 'Fetched remote data', value);
+      break;
+    }
+    case 'HTTP_REQUEST': {
+      const requestUrl = validateRemoteUrl(instruction.url ? asString(getValue(state, instruction.url)) : instruction.fallbackUrl);
+      const fetcher = runtime.fetchRemote ?? defaultFetchRemote;
+      const value = await fetcher({
+        url: requestUrl,
+        method: instruction.method,
+        body: plainValue(getValue(state, instruction.body)),
+        outputDataType: instruction.outputDataType,
+        timeoutMs: instruction.timeoutMs,
+        maxBytes: instruction.maxBytes,
+      });
+      setValue(state, instruction.output, value, pack.vm.valueByteLimit);
+      trace(state, instruction, `${instruction.method} remote data`, value);
       break;
     }
     case 'COMPARE': {
@@ -399,7 +566,7 @@ async function executeInstruction(
       break;
     }
     case 'SAVELOAD': {
-      const key = asString(instruction.key ? getValue(state, instruction.key) : parseVariableOrLiteral(state, instruction.fallbackKey));
+      const key = instruction.key ? asString(getValue(state, instruction.key)) : instruction.fallbackKey;
       if (!key) {
         state.issues.push(issue('SaveLoad block skipped because key is empty', instruction.nodeId));
         break;
@@ -503,8 +670,9 @@ export async function executeCompiledActionPackV2(
         break;
       }
 
+      const issueCount = state.issues.length;
       await executeInstruction(instruction, state, runtime, pack, inputUrl);
-      if (state.issues.some((entry) => entry.message.includes('budget exceeded'))) {
+      if (state.issues.length > issueCount && pack.vm.safety.abortOnFailure) {
         break;
       }
     }

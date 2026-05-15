@@ -1,0 +1,157 @@
+{
+  "kind": "url-alchemist.bundled-actionpacks.v1",
+  "generatedAtUtc": 1778755200,
+  "builderUuid": "11111111-1111-4111-8111-111111111111",
+  "examples": [
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200001",
+      "name": "Clean Campaign Links",
+      "slug": "clean-campaign-links",
+      "description": "Removes common campaign tracking parameters and tidies query separators.",
+      "trigger": "INPUT_DATA",
+      "risk": "safe",
+      "features": [
+        "Input-data trigger",
+        "Regex cleanup",
+        "Safe URL output"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/clean-campaign-links.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/clean-campaign-links.actionpack"
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200002",
+      "name": "Keep Stable Query",
+      "slug": "keep-stable-query",
+      "description": "Keeps a stable id query value and removes noisy parameters after it.",
+      "trigger": "CONTEXT_MENU",
+      "risk": "safe",
+      "features": [
+        "After-pattern trimming",
+        "Context menu run",
+        "Stable share URLs"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/keep-stable-query.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/keep-stable-query.actionpack"
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200003",
+      "name": "GitHub PR Files Shortcut",
+      "slug": "github-pr-files-shortcut",
+      "description": "Turns a GitHub pull request URL into the files view.",
+      "trigger": "CONTEXT_MENU",
+      "risk": "safe",
+      "features": [
+        "Before-pattern append",
+        "GitHub scope",
+        "Link URL friendly"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/github-pr-files-shortcut.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/github-pr-files-shortcut.actionpack"
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200004",
+      "name": "Search Selected Text",
+      "slug": "search-selected-text",
+      "description": "Opens a search URL for the current selection with a hotkey.",
+      "trigger": "HOTKEY",
+      "risk": "safe",
+      "features": [
+        "Selected text input",
+        "Hotkey trigger",
+        "String to URL conversion"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/search-selected-text.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/search-selected-text.actionpack"
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200005",
+      "name": "Clipboard Search Launcher",
+      "slug": "clipboard-search-launcher",
+      "description": "Opens a search URL for the current clipboard contents.",
+      "trigger": "HOTKEY",
+      "risk": "high",
+      "features": [
+        "Clipboard input",
+        "High-risk staging warning",
+        "String to URL conversion"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/clipboard-search-launcher.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/clipboard-search-launcher.actionpack"
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200006",
+      "name": "Remember Current Page",
+      "slug": "remember-current-page",
+      "description": "Stores the current URL in session storage while leaving navigation unchanged.",
+      "trigger": "CONTEXT_MENU",
+      "risk": "extended",
+      "features": [
+        "Session SaveLoad",
+        "No redirect",
+        "Context menu utility"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/remember-current-page.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/remember-current-page.actionpack"
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200007",
+      "name": "Research Note Snapshot",
+      "slug": "research-note-snapshot",
+      "description": "Copies a small JSON note containing the current URL and page title.",
+      "trigger": "CONTEXT_MENU",
+      "risk": "high",
+      "features": [
+        "Dictionary building",
+        "JSON conversion",
+        "Clipboard output"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/research-note-snapshot.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/research-note-snapshot.actionpack"
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200008",
+      "name": "Uppercase Selection Clipboard",
+      "slug": "uppercase-selection-clipboard",
+      "description": "Copies a simple uppercase ASCII transform of the selected text.",
+      "trigger": "CONTEXT_MENU",
+      "risk": "high",
+      "features": [
+        "Declarations",
+        "Logic and loop blocks",
+        "Math conversion to clipboard"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/uppercase-selection-clipboard.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/uppercase-selection-clipboard.actionpack"
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200009",
+      "name": "Remote Text Fetch Preview",
+      "slug": "remote-text-fetch-preview",
+      "description": "Fetches a text file from a fixed HTTPS endpoint and writes it to the page-text output while leaving navigation unchanged.",
+      "trigger": "CONTEXT_MENU",
+      "risk": "high",
+      "features": [
+        "Remote GET warning",
+        "Typed string output",
+        "No redirect"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/remote-text-fetch-preview.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/remote-text-fetch-preview.actionpack"
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200010",
+      "name": "Remote POST Snapshot",
+      "slug": "remote-post-snapshot",
+      "description": "Builds a small dictionary from the current page and sends it to a fixed HTTPS endpoint.",
+      "trigger": "CONTEXT_MENU",
+      "risk": "high",
+      "features": [
+        "Remote POST warning",
+        "Dictionary body",
+        "No redirect"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/remote-post-snapshot.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/remote-post-snapshot.actionpack"
+    }
+  ]
+}

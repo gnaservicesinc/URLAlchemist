@@ -7,8 +7,9 @@ import {
 } from './types';
 import type { ActionPack, Activity, ActivityCondition, StoredState } from './types';
 import { DEFAULT_SETTINGS } from './constants';
-import { ACTION_PACK_SCHEMA_VERSION } from './v2/types';
+import { ACTION_PACK_SCHEMA_VERSION, LEGACY_ACTION_PACK_SCHEMA_VERSION } from './v2/types';
 import type { CompiledActionPackV2 } from './v2/types';
+import { validateCompiledActionPackV2 } from './v2/actionPackValidator';
 import { validateWorkspaceFile } from './v2/workspace';
 
 interface ValidationSuccess<T> {
@@ -39,7 +40,7 @@ const METADATA_KEYS = ['author', 'description', 'created_at'];
 const TRIGGER_KEYS = ['type', 'hotkey', 'scope_regex'];
 const CONDITION_KEYS = ['type', 'value', 'target'];
 const STORED_STATE_KEYS = ['settings', 'packs', 'actionPacksV2', 'workspacesV2', 'traceEntries'];
-const SETTINGS_KEYS = ['globalEnabled', 'allowLocalFiles', 'advancedModeEnabled', 'builderUuid'];
+const SETTINGS_KEYS = ['globalEnabled', 'allowLocalFiles', 'advancedModeEnabled', 'syncEnabled', 'builderUuid'];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -275,7 +276,8 @@ export function validateStoredState(candidate: unknown): ValidationResult<Stored
   if (
     typeof candidate.settings.globalEnabled !== 'boolean' ||
     typeof candidate.settings.allowLocalFiles !== 'boolean' ||
-    typeof candidate.settings.advancedModeEnabled !== 'boolean'
+    typeof candidate.settings.advancedModeEnabled !== 'boolean' ||
+    (candidate.settings.syncEnabled !== undefined && typeof candidate.settings.syncEnabled !== 'boolean')
   ) {
     return { ok: false, errors: ['Stored settings values must be booleans'] };
   }
@@ -314,12 +316,15 @@ export function validateStoredState(candidate: unknown): ValidationResult<Stored
     if (
       isRecord(pack) &&
       pack.kind === 'action-pack.v2' &&
-      pack.schemaVersion === ACTION_PACK_SCHEMA_VERSION &&
+      (pack.schemaVersion === ACTION_PACK_SCHEMA_VERSION || pack.schemaVersion === LEGACY_ACTION_PACK_SCHEMA_VERSION) &&
       isRecord(pack.manifest) &&
       isRecord(pack.vm) &&
       Array.isArray(pack.vm.instructions)
     ) {
-      actionPacksV2.push(pack as unknown as CompiledActionPackV2);
+      const validation = validateCompiledActionPackV2(pack);
+      if (validation.ok) {
+        actionPacksV2.push(validation.pack);
+      }
     }
   });
 
@@ -355,6 +360,7 @@ export function validateStoredState(candidate: unknown): ValidationResult<Stored
         globalEnabled: candidate.settings.globalEnabled,
         allowLocalFiles: candidate.settings.allowLocalFiles,
         advancedModeEnabled: candidate.settings.advancedModeEnabled,
+        syncEnabled: candidate.settings.syncEnabled ?? DEFAULT_SETTINGS.syncEnabled,
         builderUuid: candidate.settings.builderUuid || crypto.randomUUID(),
       },
       packs,

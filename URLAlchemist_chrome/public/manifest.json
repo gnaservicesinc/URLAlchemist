@@ -15,9 +15,10 @@
     "webNavigation",
     "contextMenus",
     "downloads",
-    "offscreen"
+    "offscreen",
+    "alarms"
   ],
-  "optional_permissions": ["clipboardRead"],
+  "optional_permissions": ["clipboardRead", "clipboardWrite"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js",

@@ -53,6 +53,7 @@ interface WorkspaceEditorProps {
 interface WorkspaceBlockData {
   [key: string]: unknown;
   definition: BlockDefinition;
+  connectedInputs: string[];
   inputs: GraphPortDefinition[];
   invalidInputs: string[];
   node: WorkspaceNodeV2;
@@ -110,13 +111,15 @@ function updateNodeSettings(workspace: WorkspaceFileV2, nodeId: string, settings
 
 function renderBlockSettings(
   node: WorkspaceNodeV2,
+  connectedInputs: Set<string>,
   onSettingsChange: (settings: Partial<WorkspaceBlockSettings>) => void,
   onOpenRegexBuilder: (() => void) | undefined,
 ) {
   const inputClass = 'nodrag rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-800 outline-none focus:border-amber-400';
 
   switch (node.type) {
-    case 'RegExpression':
+    case 'RegExpression': {
+      const payloadConnected = connectedInputs.has('payload');
       return (
         <div className="mt-3 grid gap-2">
           <div className="grid grid-cols-[1fr_auto] gap-2">
@@ -139,13 +142,14 @@ function renderBlockSettings(
               <option value="NTH_OCCURRENCE">Nth</option>
             </select>
           </div>
-          <textarea className={`${inputClass} min-h-14`} placeholder="Payload" value={settingText(node.settings.payload)} onChange={(event) => onSettingsChange({ payload: event.target.value })} />
+          <textarea className={`${inputClass} min-h-14 disabled:bg-slate-100 disabled:text-slate-400`} disabled={payloadConnected} placeholder={payloadConnected ? 'Connected payload input' : 'Payload'} value={payloadConnected ? '' : settingText(node.settings.payload)} onChange={(event) => onSettingsChange({ payload: event.target.value })} />
           <label className="nodrag flex items-center gap-2 text-[11px] text-slate-600">
             <input checked={Boolean(node.settings.payloadVars)} type="checkbox" onChange={(event) => onSettingsChange({ payloadVars: event.target.checked })} />
-            Resolve variables
+            Use replacement tokens
           </label>
         </div>
       );
+    }
     case 'Logical':
       return (
         <div className="mt-3 grid grid-cols-[1fr_0.8fr] gap-2">
@@ -223,13 +227,45 @@ function renderBlockSettings(
           <input className={inputClass} min={1} max={100} type="number" value={node.settings.loopLimit ?? 10} onChange={(event) => onSettingsChange({ loopLimit: Number.parseInt(event.target.value || '1', 10) })} />
         </div>
       );
+    case 'FetchData':
+      return (
+        <div className="mt-3 grid gap-2">
+          <input className={inputClass} disabled={connectedInputs.has('url')} placeholder="https://example.com/data.json" value={connectedInputs.has('url') ? '' : settingText(node.settings.remoteUrl)} onChange={(event) => onSettingsChange({ remoteUrl: event.target.value })} />
+          <select className={inputClass} value={node.settings.remoteDataType ?? 'data'} onChange={(event) => onSettingsChange({ remoteDataType: event.target.value as WorkspaceBlockSettings['remoteDataType'] })}>
+            <option value="data">Data</option>
+            <option value="string">String</option>
+            <option value="JSON">JSON</option>
+            <option value="dict">Dict</option>
+          </select>
+          <input className={inputClass} min={500} max={30000} type="number" value={node.settings.remoteTimeoutMs ?? 5000} onChange={(event) => onSettingsChange({ remoteTimeoutMs: Number.parseInt(event.target.value || '5000', 10) })} />
+          <input className={inputClass} min={1024} max={524288} type="number" value={node.settings.remoteMaxBytes ?? 131072} onChange={(event) => onSettingsChange({ remoteMaxBytes: Number.parseInt(event.target.value || '131072', 10) })} />
+        </div>
+      );
+    case 'HttpRequest':
+      return (
+        <div className="mt-3 grid gap-2">
+          <select className={inputClass} value={node.settings.remoteMethod ?? 'GET'} onChange={(event) => onSettingsChange({ remoteMethod: event.target.value as WorkspaceBlockSettings['remoteMethod'] })}>
+            <option value="GET">GET</option>
+            <option value="POST">POST</option>
+          </select>
+          <input className={inputClass} disabled={connectedInputs.has('url')} placeholder="https://example.com/api" value={connectedInputs.has('url') ? '' : settingText(node.settings.remoteUrl)} onChange={(event) => onSettingsChange({ remoteUrl: event.target.value })} />
+          <select className={inputClass} value={node.settings.remoteDataType ?? 'data'} onChange={(event) => onSettingsChange({ remoteDataType: event.target.value as WorkspaceBlockSettings['remoteDataType'] })}>
+            <option value="data">Data</option>
+            <option value="string">String</option>
+            <option value="JSON">JSON</option>
+            <option value="dict">Dict</option>
+          </select>
+          <input className={inputClass} min={500} max={30000} type="number" value={node.settings.remoteTimeoutMs ?? 5000} onChange={(event) => onSettingsChange({ remoteTimeoutMs: Number.parseInt(event.target.value || '5000', 10) })} />
+          <input className={inputClass} min={1024} max={524288} type="number" value={node.settings.remoteMaxBytes ?? 131072} onChange={(event) => onSettingsChange({ remoteMaxBytes: Number.parseInt(event.target.value || '131072', 10) })} />
+        </div>
+      );
     default:
       return null;
   }
 }
 
 const WorkspaceBlockNode = memo(function WorkspaceBlockNode({ data, selected }: NodeProps<WorkspaceFlowNode>) {
-  const { definition, inputs, invalidInputs, node, outputs, onDeleteNode, onLockToggle, onOpenRegexBuilder, onSettingsChange } = data;
+  const { connectedInputs, definition, inputs, invalidInputs, node, outputs, onDeleteNode, onLockToggle, onOpenRegexBuilder, onSettingsChange } = data;
   const locked = Boolean(node.settings.locked);
 
   return (
@@ -275,6 +311,7 @@ const WorkspaceBlockNode = memo(function WorkspaceBlockNode({ data, selected }: 
 
         {renderBlockSettings(
           node,
+          new Set(connectedInputs),
           (settings) => onSettingsChange(node.id, settings),
           node.type === 'RegExpression' ? () => onOpenRegexBuilder(node.id) : undefined,
         )}
@@ -423,12 +460,16 @@ function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange }: Pi
         const invalidInputs = workspace.edges
           .filter((edge) => edge.target === node.id && invalidEdgeIds.has(edge.id))
           .map((edge) => edge.targetHandle);
+        const connectedInputs = workspace.edges
+          .filter((edge) => edge.target === node.id)
+          .map((edge) => edge.targetHandle);
 
         return {
           id: node.id,
           type: 'workspaceBlock',
           position: node.position,
           data: {
+            connectedInputs,
             definition,
             inputs,
             invalidInputs,
@@ -691,6 +732,7 @@ export function WorkspaceEditor({
   const compileResult = useMemo(() => compileWorkspace(workspace), [workspace]);
   const hotkeyError = workspace.trigger.type === 'HOTKEY' ? getHotkeyValidationError(workspace.trigger.hotkey, []) : null;
   const hasDataOut = workspace.nodes.some((node) => node.type === 'DataFlowOut');
+  const urlFilter = workspace.trigger.sourceFilters?.find((filter) => filter.source === 'url')?.pattern ?? '';
 
   function updateWorkspace(updates: Partial<WorkspaceFileV2>): void {
     onWorkspaceChange({
@@ -709,6 +751,16 @@ export function WorkspaceEditor({
       ...workspace,
       metadata: { ...workspace.metadata, updated_at: Date.now() },
       nodes: [...workspace.nodes, createWorkspaceNode(kind, { x: 320 + workspace.nodes.length * 24, y: 260 + workspace.nodes.length * 18 })],
+    });
+  }
+
+  function updateUrlFilter(pattern: string): void {
+    const otherFilters = (workspace.trigger.sourceFilters ?? []).filter((filter) => filter.source !== 'url');
+    updateWorkspace({
+      trigger: {
+        ...workspace.trigger,
+        sourceFilters: pattern.trim() ? [...otherFilters, { source: 'url', pattern }] : otherFilters,
+      },
     });
   }
 
@@ -757,16 +809,39 @@ export function WorkspaceEditor({
         <label className="field-shell">
           <span className="field-label">Trigger</span>
           <select className="field-select" value={workspace.trigger.type} onChange={(event) => updateWorkspace({ trigger: { ...workspace.trigger, type: event.target.value as WorkspaceFileV2['trigger']['type'] } })}>
-            <option value="ALWAYS">Always</option>
+            <option value="INPUT_DATA">Run on input data</option>
             <option value="HOTKEY">Hotkey</option>
             <option value="CONTEXT_MENU">Context Menu</option>
+            <option value="INTERVAL">Recurring interval</option>
+            <option value="CONDITIONAL">Conditional</option>
             <option value="NEVER">Never</option>
           </select>
         </label>
         <label className="field-shell lg:col-span-2">
-          <span className="field-label">Scope Regex</span>
-          <input className="field-input" placeholder="Leave blank to run globally" value={workspace.trigger.scope_regex ?? ''} onChange={(event) => updateWorkspace({ trigger: { ...workspace.trigger, scope_regex: event.target.value } })} />
+          <span className="field-label">URL Input Filter</span>
+          <input className="field-input" placeholder="Optional regex for URL inputs" value={urlFilter} onChange={(event) => updateUrlFilter(event.target.value)} />
         </label>
+        {workspace.trigger.type === 'INTERVAL' ? (
+          <label className="field-shell lg:col-span-2">
+            <span className="field-label">Interval Seconds</span>
+            <input className="field-input" min={30} type="number" value={Math.max(30, Math.round((workspace.trigger.intervalMs ?? 60000) / 1000))} onChange={(event) => updateWorkspace({ trigger: { ...workspace.trigger, intervalMs: Math.max(30, Number.parseInt(event.target.value || '30', 10)) * 1000 } })} />
+          </label>
+        ) : null}
+        {workspace.trigger.type === 'CONDITIONAL' ? (
+          <>
+            <label className="field-shell">
+              <span className="field-label">Condition Mode</span>
+              <select className="field-select" value={workspace.trigger.conditionalMode ?? 'RISING_EDGE'} onChange={(event) => updateWorkspace({ trigger: { ...workspace.trigger, conditionalMode: event.target.value as WorkspaceFileV2['trigger']['conditionalMode'] } })}>
+                <option value="RISING_EDGE">False to true once</option>
+                <option value="WHILE_TRUE">Repeat while true</option>
+              </select>
+            </label>
+            <label className="field-shell">
+              <span className="field-label">Condition Workspace ID</span>
+              <input className="field-input" placeholder="Optional condition workspace UUID" value={workspace.trigger.conditionWorkspaceId ?? ''} onChange={(event) => updateWorkspace({ trigger: { ...workspace.trigger, conditionWorkspaceId: event.target.value } })} />
+            </label>
+          </>
+        ) : null}
         <label className="field-shell lg:col-span-2">
           <span className="field-label">Version File URL</span>
           <input className="field-input" placeholder="https://example.com/path/pack.version" value={workspace.metadata.versionFileUrl ?? ''} onChange={(event) => updateWorkspace({ metadata: { ...workspace.metadata, versionFileUrl: event.target.value } })} />

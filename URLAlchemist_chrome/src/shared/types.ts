@@ -1,12 +1,16 @@
 import type { CompiledActionPackV2, WorkspaceFileV2 } from './v2/types';
 
-export const TRIGGER_TYPES = ['ALWAYS', 'HOTKEY', 'CONTEXT_MENU', 'NEVER'] as const;
+export const WORKSPACE_TRIGGER_TYPES = ['INPUT_DATA', 'HOTKEY', 'CONTEXT_MENU', 'INTERVAL', 'CONDITIONAL', 'NEVER'] as const;
+export const LEGACY_TRIGGER_TYPES = ['ALWAYS'] as const;
+export const TRIGGER_TYPES = [...LEGACY_TRIGGER_TYPES, ...WORKSPACE_TRIGGER_TYPES] as const;
 export const ACTION_TYPES = ['SUBSTITUTE', 'REMOVE', 'APPEND', 'PREPEND'] as const;
 export const MATCH_MODES = ['STANDARD', 'BEFORE_PATTERN', 'AFTER_PATTERN', 'NTH_OCCURRENCE'] as const;
 export const CONDITION_TYPES = ['IF_CONTAINS', 'IF_REGEX_MATCH'] as const;
 export const CONDITION_TARGETS = ['URL', 'PREVIOUS_OUTPUT'] as const;
 
 export type TriggerType = (typeof TRIGGER_TYPES)[number];
+export type WorkspaceTriggerType = (typeof WORKSPACE_TRIGGER_TYPES)[number];
+export type LegacyTriggerType = (typeof LEGACY_TRIGGER_TYPES)[number];
 export type ActionType = (typeof ACTION_TYPES)[number];
 export type MatchMode = (typeof MATCH_MODES)[number];
 export type ConditionType = (typeof CONDITION_TYPES)[number];
@@ -52,6 +56,7 @@ export interface GlobalSettings {
   globalEnabled: boolean;
   allowLocalFiles: boolean;
   advancedModeEnabled: boolean;
+  syncEnabled: boolean;
   builderUuid: string;
 }
 

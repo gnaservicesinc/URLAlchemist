@@ -1,8 +1,8 @@
 import { getDefaultHotkey } from '../hotkeys';
 import type { ActionPack } from '../types';
 import { BLOCK_REGISTRY, getBlockDefinition } from './blockRegistry';
-import type { BlockKind, WorkspaceEdgeV2, WorkspaceFileV2, WorkspaceNodeV2 } from './types';
-import { BLOCK_TYPE_IDS, WORKSPACE_SCHEMA_VERSION } from './types';
+import type { BlockKind, WorkspaceEdgeV2, WorkspaceFileV2, WorkspaceNodeV2, WorkspaceTrigger } from './types';
+import { BLOCK_TYPE_IDS, LEGACY_WORKSPACE_SCHEMA_VERSION, WORKSPACE_SCHEMA_VERSION } from './types';
 
 function createNodeId(kind: BlockKind): string {
   return `${BLOCK_TYPE_IDS[kind]}-${crypto.randomUUID()}`;
@@ -45,9 +45,10 @@ export function createDefaultWorkspace(): WorkspaceFileV2 {
       updated_at: now,
     },
     trigger: {
-      type: 'ALWAYS',
+      type: 'INPUT_DATA',
       hotkey: getDefaultHotkey(),
-      scope_regex: '',
+      inputSources: ['url'],
+      sourceFilters: [],
     },
     nodes: [input, output],
     edges: [],
@@ -102,6 +103,42 @@ export function isWorkspaceEdge(value: unknown): value is WorkspaceEdgeV2 {
   );
 }
 
+function normalizeWorkspaceTrigger(trigger: unknown): WorkspaceTrigger {
+  const candidate = typeof trigger === 'object' && trigger !== null ? trigger as Partial<WorkspaceTrigger> : {};
+  const type = candidate.type === 'ALWAYS' ? 'INPUT_DATA' : candidate.type;
+  const sourceFilters = [...(Array.isArray(candidate.sourceFilters) ? candidate.sourceFilters : [])];
+  if (candidate.scope_regex?.trim()) {
+    sourceFilters.push({
+      source: 'url',
+      pattern: candidate.scope_regex.trim(),
+    });
+  }
+
+  return {
+    ...candidate,
+    type: ['INPUT_DATA', 'HOTKEY', 'CONTEXT_MENU', 'INTERVAL', 'CONDITIONAL', 'NEVER'].includes(type ?? '')
+      ? type as WorkspaceTrigger['type']
+      : 'INPUT_DATA',
+    hotkey: candidate.hotkey,
+    inputSources: Array.isArray(candidate.inputSources) && candidate.inputSources.length > 0
+      ? candidate.inputSources
+      : ['url'],
+    sourceFilters,
+    intervalMs: candidate.intervalMs,
+    conditionalMode: candidate.conditionalMode ?? 'RISING_EDGE',
+    conditionWorkspaceId: candidate.conditionWorkspaceId,
+    scope_regex: undefined,
+  };
+}
+
+export function migrateWorkspaceFile(value: WorkspaceFileV2): WorkspaceFileV2 {
+  return {
+    ...value,
+    schemaVersion: WORKSPACE_SCHEMA_VERSION,
+    trigger: normalizeWorkspaceTrigger(value.trigger),
+  };
+}
+
 export function validateWorkspaceFile(value: unknown): { ok: true; value: WorkspaceFileV2 } | { ok: false; errors: string[] } {
   const errors: string[] = [];
 
@@ -114,7 +151,7 @@ export function validateWorkspaceFile(value: unknown): { ok: true; value: Worksp
     errors.push('Workspace kind is invalid');
   }
 
-  if (candidate.schemaVersion !== WORKSPACE_SCHEMA_VERSION) {
+  if (![WORKSPACE_SCHEMA_VERSION, LEGACY_WORKSPACE_SCHEMA_VERSION].includes(candidate.schemaVersion)) {
     errors.push(`Unsupported workspace schema version: ${String(candidate.schemaVersion)}`);
   }
 
@@ -152,7 +189,7 @@ export function validateWorkspaceFile(value: unknown): { ok: true; value: Worksp
 
   return {
     ok: true,
-    value: candidate,
+    value: migrateWorkspaceFile(candidate),
   };
 }
 
@@ -210,7 +247,12 @@ export function workspaceFromLegacyPack(pack: ActionPack): WorkspaceFileV2 {
       updated_at: now,
     },
     trigger: {
-      ...pack.trigger,
+      type: pack.trigger.type === 'ALWAYS' ? 'INPUT_DATA' : pack.trigger.type,
+      hotkey: pack.trigger.hotkey,
+      inputSources: ['url'],
+      sourceFilters: pack.trigger.scope_regex?.trim()
+        ? [{ source: 'url', pattern: pack.trigger.scope_regex.trim() }]
+        : [],
     },
     nodes,
     edges,
@@ -221,4 +263,3 @@ export function workspaceFromLegacyPack(pack: ActionPack): WorkspaceFileV2 {
     },
   };
 }
-

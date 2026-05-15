@@ -122,6 +122,8 @@ if (window.top === window) {
         {
           type: HOTKEY_TRIGGER_MESSAGE,
           hotkey,
+          pageTitle: document.title,
+          selectedText: window.getSelection()?.toString() ?? '',
           url: window.location.href,
         },
         () => {

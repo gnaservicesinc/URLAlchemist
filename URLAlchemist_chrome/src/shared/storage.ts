@@ -7,8 +7,85 @@ function getChromeStorageLocal(): typeof chrome.storage.local | null {
   return globalThis.chrome?.storage?.local ?? null;
 }
 
+function getChromeStorageSync(): typeof chrome.storage.sync | null {
+  return globalThis.chrome?.storage?.sync ?? null;
+}
+
 function getChromeStorageChanges(): typeof chrome.storage.onChanged | null {
   return globalThis.chrome?.storage?.onChanged ?? null;
+}
+
+const SYNC_STORAGE_KEY = 'url-alchemist-sync-state';
+const SYNC_MAX_ITEM_BYTES = 8 * 1024;
+const SYNC_MAX_TOTAL_BYTES = 96 * 1024;
+
+function jsonBytes(value: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(value)).byteLength;
+}
+
+function createSyncSnapshot(state: StoredState): StoredState {
+  const settings = {
+    ...state.settings,
+    syncEnabled: true,
+  };
+  const actionPacksV2 = state.actionPacksV2.filter((pack) => jsonBytes(pack) <= SYNC_MAX_ITEM_BYTES);
+  const workspacesV2 = state.workspacesV2.filter((workspace) => jsonBytes(workspace) <= SYNC_MAX_ITEM_BYTES);
+  let snapshot: StoredState = {
+    settings,
+    packs: [],
+    actionPacksV2,
+    workspacesV2,
+    traceEntries: [],
+  };
+
+  while (jsonBytes(snapshot) > SYNC_MAX_TOTAL_BYTES && snapshot.workspacesV2.length > 0) {
+    snapshot = {
+      ...snapshot,
+      workspacesV2: snapshot.workspacesV2.slice(0, -1),
+    };
+  }
+
+  while (jsonBytes(snapshot) > SYNC_MAX_TOTAL_BYTES && snapshot.actionPacksV2.length > 0) {
+    snapshot = {
+      ...snapshot,
+      actionPacksV2: snapshot.actionPacksV2.slice(0, -1),
+    };
+  }
+
+  return jsonBytes(snapshot) <= SYNC_MAX_TOTAL_BYTES ? snapshot : {
+    settings,
+    packs: [],
+    actionPacksV2: [],
+    workspacesV2: [],
+    traceEntries: [],
+  };
+}
+
+async function saveSyncState(state: StoredState): Promise<void> {
+  const chromeStorage = getChromeStorageSync();
+  if (!chromeStorage) {
+    return;
+  }
+
+  if (!state.settings.syncEnabled) {
+    await chromeStorage.remove(SYNC_STORAGE_KEY);
+    return;
+  }
+
+  await chromeStorage.set({
+    [SYNC_STORAGE_KEY]: createSyncSnapshot(state),
+  });
+}
+
+async function loadSyncState(): Promise<StoredState | null> {
+  const chromeStorage = getChromeStorageSync();
+  if (!chromeStorage) {
+    return null;
+  }
+
+  const stored = await chromeStorage.get(SYNC_STORAGE_KEY);
+  const candidate = stored[SYNC_STORAGE_KEY];
+  return candidate === undefined ? null : normalizeStoredState(candidate);
 }
 
 export function getDefaultState(): StoredState {
@@ -32,7 +109,7 @@ export async function loadStoredState(): Promise<StoredState> {
   const candidate = stored[STORAGE_KEY];
 
   if (candidate === undefined) {
-    return getDefaultState();
+    return await loadSyncState() ?? getDefaultState();
   }
 
   return normalizeStoredState(candidate);
@@ -49,6 +126,7 @@ export async function saveStoredState(state: StoredState): Promise<void> {
   await chromeStorage.set({
     [STORAGE_KEY]: state,
   });
+  await saveSyncState(state);
 }
 
 export async function updateSettings(settings: Partial<GlobalSettings>): Promise<StoredState> {

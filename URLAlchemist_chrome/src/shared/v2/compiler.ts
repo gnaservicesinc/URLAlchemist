@@ -1,4 +1,4 @@
-import { GLOBAL_SCOPE_PATTERNS } from '../constants';
+import { GLOBAL_SCOPE_PATTERNS, REGEX_TIMEOUT_MS } from '../constants';
 import { getHotkeyValidationError } from '../hotkeys';
 import { assertSafeRegexPattern } from '../regex/executeRegexJob';
 import {
@@ -13,21 +13,47 @@ import { URL_ALCHEMIST_VERSION } from './buildInfo';
 import type {
   BlockKind,
   CompiledActionPackV2,
+  CompiledTriggerPlan,
   CompiledRiskSummary,
   GraphCompileResult,
   GraphDataType,
   GraphVmInstruction,
+  GraphVmSafetyPolicy,
   RiskLevel,
+  WorkspaceInputSource,
   WorkspaceEdgeV2,
   WorkspaceFileV2,
   WorkspaceNodeV2,
   WorkspaceValidationState,
 } from './types';
-import { ACTION_PACK_SCHEMA_VERSION } from './types';
+import {
+  ACTION_PACK_SCHEMA_VERSION,
+  DEFAULT_INTERVAL_TRIGGER_MS,
+  DEFAULT_REMOTE_MAX_BYTES,
+  DEFAULT_REMOTE_TIMEOUT_MS,
+  INPUT_TRIGGER_BURST_LIMIT,
+  INPUT_TRIGGER_BURST_WINDOW_MS,
+  INPUT_TRIGGER_HISTORY_LIMIT,
+  MIN_INTERVAL_TRIGGER_MS,
+} from './types';
 
 const VM_STEP_BUDGET = 300;
 const VM_LOOP_BUDGET = 500;
 const VM_VALUE_BYTE_LIMIT = 256 * 1024;
+const WORKSPACE_INPUT_SOURCE_IDS = new Set<WorkspaceInputSource>([
+  'url',
+  'linkUrl',
+  'selectedText',
+  'pageTitle',
+  'pageMetadata',
+  'clipboard',
+  'pageText',
+  'rawHtml',
+  'mediaData',
+  'pageLinks',
+  'jsMetadata',
+  'consoleOutput',
+]);
 
 interface CompileOptions {
   builderUuid?: string;
@@ -252,18 +278,47 @@ function validateWorkspace(workspace: WorkspaceFileV2): WorkspaceValidationState
     errors.push('At least one Data Out block is required.');
   }
 
+  const triggerType = workspace.trigger.type === 'ALWAYS' ? 'INPUT_DATA' : workspace.trigger.type;
   const hotkeyError =
-    workspace.trigger.type === 'HOTKEY' ? getHotkeyValidationError(workspace.trigger.hotkey, []) : null;
+    triggerType === 'HOTKEY' ? getHotkeyValidationError(workspace.trigger.hotkey, []) : null;
   if (hotkeyError) {
     errors.push(`Hotkey: ${hotkeyError}`);
   }
 
-  if (workspace.trigger.scope_regex?.trim()) {
-    const scopeError = validateRegexPattern(workspace.trigger.scope_regex);
-    if (scopeError) {
-      errors.push(`Scope regex: ${scopeError}`);
+  if (!['INPUT_DATA', 'HOTKEY', 'CONTEXT_MENU', 'INTERVAL', 'CONDITIONAL', 'NEVER'].includes(triggerType)) {
+    errors.push(`Trigger ${String(workspace.trigger.type)} is not supported.`);
+  }
+
+  if (triggerType === 'INTERVAL') {
+    const intervalMs = Math.trunc(workspace.trigger.intervalMs ?? DEFAULT_INTERVAL_TRIGGER_MS);
+    if (intervalMs < MIN_INTERVAL_TRIGGER_MS) {
+      errors.push(`Interval trigger must be at least ${MIN_INTERVAL_TRIGGER_MS / 1000} seconds.`);
     }
   }
+
+  if (triggerType === 'CONDITIONAL' && !['RISING_EDGE', 'WHILE_TRUE'].includes(workspace.trigger.conditionalMode ?? 'RISING_EDGE')) {
+    errors.push('Conditional trigger mode must be Rising Edge or While True.');
+  }
+
+  const sourceFilters = [
+    ...(workspace.trigger.sourceFilters ?? []),
+    ...(workspace.trigger.scope_regex?.trim()
+      ? [{ source: 'url' as const, pattern: workspace.trigger.scope_regex.trim() }]
+      : []),
+  ];
+  sourceFilters.forEach((filter) => {
+    if (!WORKSPACE_INPUT_SOURCE_IDS.has(filter.source)) {
+      errors.push(`Input filter source ${filter.source} is not supported.`);
+      return;
+    }
+
+    if (filter.pattern.trim()) {
+      const scopeError = validateRegexPattern(filter.pattern);
+      if (scopeError) {
+        errors.push(`${filter.source} input filter: ${scopeError}`);
+      }
+    }
+  });
 
   workspace.edges.forEach((edge) => {
     const sourceNode = findNode(workspace, edge.source);
@@ -326,6 +381,39 @@ function validateWorkspace(workspace: WorkspaceFileV2): WorkspaceValidationState
 
       if (node.settings.payloadVars && node.settings.payload?.includes('{clipboard}')) {
         addRisk(risk, 'high', 'Clipboard payload interpolation is high risk.', 'input');
+      }
+    }
+
+    if (node.type === 'FetchData' || node.type === 'HttpRequest') {
+      addRisk(risk, 'high', 'Remote data access is high risk.', 'input');
+      const fallbackUrl = node.settings.remoteUrl?.trim() ?? '';
+      if (!connectedInput(edgesByTarget, node.id, 'url') && !fallbackUrl) {
+        errors.push(`${node.settings.label || definition.label}: remote URL is required unless the URL input is connected.`);
+      }
+
+      if (fallbackUrl) {
+        try {
+          const parsed = new URL(fallbackUrl);
+          if (parsed.protocol !== 'https:' || parsed.username || parsed.password) {
+            errors.push(`${node.settings.label || definition.label}: remote URL must be an HTTPS URL without credentials.`);
+          }
+        } catch {
+          errors.push(`${node.settings.label || definition.label}: remote URL must be a valid absolute URL.`);
+        }
+      }
+
+      const timeoutMs = Math.trunc(node.settings.remoteTimeoutMs ?? DEFAULT_REMOTE_TIMEOUT_MS);
+      if (timeoutMs < 500 || timeoutMs > 30_000) {
+        errors.push(`${node.settings.label || definition.label}: timeout must be between 500ms and 30000ms.`);
+      }
+
+      const maxBytes = Math.trunc(node.settings.remoteMaxBytes ?? DEFAULT_REMOTE_MAX_BYTES);
+      if (maxBytes < 1_024 || maxBytes > 512 * 1024) {
+        errors.push(`${node.settings.label || definition.label}: max bytes must be between 1KB and 512KB.`);
+      }
+
+      if (node.type === 'HttpRequest' && !['GET', 'POST'].includes(node.settings.remoteMethod ?? 'GET')) {
+        errors.push(`${node.settings.label || definition.label}: method must be GET or POST.`);
       }
     }
 
@@ -398,7 +486,34 @@ function instructionForNode(
         matchMode: node.settings.matchMode ?? 'STANDARD',
         nthOccurrence: node.settings.nthOccurrence ?? 1,
         payload: node.settings.payload ?? '',
+        payloadInput: connectedInput(edgesByTarget, node.id, 'payload'),
         payloadVars: Boolean(node.settings.payloadVars),
+      });
+      break;
+    case 'FetchData':
+      instructions.push({
+        op: 'FETCH_GET',
+        nodeId: node.id,
+        url: connectedInput(edgesByTarget, node.id, 'url'),
+        output: symbol(node.id, 'result'),
+        fallbackUrl: node.settings.remoteUrl ?? '',
+        outputDataType: node.settings.remoteDataType ?? 'data',
+        timeoutMs: Math.max(500, Math.min(30_000, Math.trunc(node.settings.remoteTimeoutMs ?? DEFAULT_REMOTE_TIMEOUT_MS))),
+        maxBytes: Math.max(1_024, Math.min(512 * 1024, Math.trunc(node.settings.remoteMaxBytes ?? DEFAULT_REMOTE_MAX_BYTES))),
+      });
+      break;
+    case 'HttpRequest':
+      instructions.push({
+        op: 'HTTP_REQUEST',
+        nodeId: node.id,
+        url: connectedInput(edgesByTarget, node.id, 'url'),
+        body: connectedInput(edgesByTarget, node.id, 'body'),
+        output: symbol(node.id, 'result'),
+        method: node.settings.remoteMethod ?? 'GET',
+        fallbackUrl: node.settings.remoteUrl ?? '',
+        outputDataType: node.settings.remoteDataType ?? 'data',
+        timeoutMs: Math.max(500, Math.min(30_000, Math.trunc(node.settings.remoteTimeoutMs ?? DEFAULT_REMOTE_TIMEOUT_MS))),
+        maxBytes: Math.max(1_024, Math.min(512 * 1024, Math.trunc(node.settings.remoteMaxBytes ?? DEFAULT_REMOTE_MAX_BYTES))),
       });
       break;
     case 'Logical':
@@ -518,13 +633,133 @@ function buildSymbolTable(workspace: WorkspaceFileV2): Record<string, GraphDataT
   return symbolTable;
 }
 
-function requiredPermissionsForRisk(risk: CompiledRiskSummary): string[] {
+function requiredPermissionsForInstructions(instructions: GraphVmInstruction[]): string[] {
   const permissions = new Set<string>();
-  if (risk.reasons.some((reason) => reason.toLowerCase().includes('clipboard'))) {
-    permissions.add('clipboardRead');
-  }
+  instructions.forEach((instruction) => {
+    if (
+      (instruction.op === 'SOURCE' && instruction.source === 'clipboard') ||
+      (instruction.op === 'REGEX_TRANSFORM' && instruction.payloadVars && instruction.payload.includes('{clipboard}'))
+    ) {
+      permissions.add('clipboardRead');
+    }
+
+    if (instruction.op === 'OUTPUT' && instruction.destination === 'clipboard') {
+      permissions.add('clipboardWrite');
+    }
+  });
 
   return Array.from(permissions);
+}
+
+function deriveInputSources(workspace: WorkspaceFileV2, reachable: Set<string>): WorkspaceInputSource[] {
+  const sources = new Set<WorkspaceInputSource>();
+  workspace.edges.forEach((edge) => {
+    if (!reachable.has(edge.source) || !reachable.has(edge.target)) {
+      return;
+    }
+
+    const sourceNode = findNode(workspace, edge.source);
+    if (!sourceNode || (sourceNode.type !== 'DataFlowIn' && sourceNode.type !== 'ExtendedDataIn')) {
+      return;
+    }
+
+    if (WORKSPACE_INPUT_SOURCE_IDS.has(edge.sourceHandle as WorkspaceInputSource)) {
+      sources.add(edge.sourceHandle as WorkspaceInputSource);
+    }
+  });
+
+  if (workspace.trigger.inputSources) {
+    workspace.trigger.inputSources.forEach((source) => {
+      if (WORKSPACE_INPUT_SOURCE_IDS.has(source)) {
+        sources.add(source);
+      }
+    });
+  }
+
+  if (sources.size === 0) {
+    sources.add('url');
+  }
+
+  return Array.from(sources).sort();
+}
+
+function compileTriggerPlan(workspace: WorkspaceFileV2, inputSources: WorkspaceInputSource[]): CompiledTriggerPlan {
+  const type = workspace.trigger.type === 'ALWAYS' ? 'INPUT_DATA' : workspace.trigger.type;
+  const sourceFilters = [
+    ...(workspace.trigger.sourceFilters ?? []),
+    ...(workspace.trigger.scope_regex?.trim()
+      ? [{ source: 'url' as const, pattern: workspace.trigger.scope_regex.trim() }]
+      : []),
+  ].filter((filter) => WORKSPACE_INPUT_SOURCE_IDS.has(filter.source) && filter.pattern.trim());
+
+  return {
+    type,
+    inputSources,
+    sourceFilters,
+    intervalMs: type === 'INTERVAL'
+      ? Math.max(MIN_INTERVAL_TRIGGER_MS, Math.trunc(workspace.trigger.intervalMs ?? DEFAULT_INTERVAL_TRIGGER_MS))
+      : undefined,
+    conditionalMode: type === 'CONDITIONAL' ? workspace.trigger.conditionalMode ?? 'RISING_EDGE' : undefined,
+    conditionWorkspaceId: type === 'CONDITIONAL' ? workspace.trigger.conditionWorkspaceId : undefined,
+    safety: {
+      timestampHistoryLimit: INPUT_TRIGGER_HISTORY_LIMIT,
+      burstLimit: INPUT_TRIGGER_BURST_LIMIT,
+      burstWindowMs: INPUT_TRIGGER_BURST_WINDOW_MS,
+    },
+  };
+}
+
+function buildSafetyPolicy(instructions: GraphVmInstruction[]): GraphVmSafetyPolicy {
+  return {
+    abortOnFailure: true,
+    regexTimeoutMs: REGEX_TIMEOUT_MS,
+    remoteTimeoutMs: DEFAULT_REMOTE_TIMEOUT_MS,
+    remoteMaxBytes: DEFAULT_REMOTE_MAX_BYTES,
+    rules: instructions.map((instruction) => {
+      if (instruction.op === 'REGEX_TRANSFORM') {
+        return {
+          nodeId: instruction.nodeId,
+          op: instruction.op,
+          requiresWatchdog: true,
+          maxRuntimeMs: REGEX_TIMEOUT_MS,
+        };
+      }
+
+      if (instruction.op === 'FETCH_GET' || instruction.op === 'HTTP_REQUEST') {
+        return {
+          nodeId: instruction.nodeId,
+          op: instruction.op,
+          requiresWatchdog: true,
+          maxRuntimeMs: instruction.timeoutMs,
+          maxBytes: instruction.maxBytes,
+        };
+      }
+
+      if (instruction.op === 'DECLARE') {
+        return {
+          nodeId: instruction.nodeId,
+          op: instruction.op,
+          requiresWatchdog: false,
+          rangeCheck: 'numeric values must fit the declared runtime data range',
+        };
+      }
+
+      if (instruction.op === 'LOOP') {
+        return {
+          nodeId: instruction.nodeId,
+          op: instruction.op,
+          requiresWatchdog: false,
+          rangeCheck: `loop count is capped at ${instruction.loopLimit}`,
+        };
+      }
+
+      return {
+        nodeId: instruction.nodeId,
+        op: instruction.op,
+        requiresWatchdog: false,
+      };
+    }),
+  };
 }
 
 export function compileWorkspace(workspace: WorkspaceFileV2, options: CompileOptions = {}): GraphCompileResult {
@@ -563,6 +798,8 @@ export function compileWorkspace(workspace: WorkspaceFileV2, options: CompileOpt
 
   const edgesByTarget = new Map(workspace.edges.map((edge) => [`${edge.target}:${edge.targetHandle}`, edge]));
   const instructions = sorted.nodes.flatMap((node) => instructionForNode(node, workspace, edgesByTarget));
+  const triggerPlan = compileTriggerPlan(workspace, deriveInputSources(workspace, reachable));
+  const safety = buildSafetyPolicy(instructions);
   const risk = { ...validation.risk };
   instructions.forEach((instruction) => {
     if ('risk' in instruction && getRiskRank(instruction.risk) > 0) {
@@ -572,6 +809,21 @@ export function compileWorkspace(workspace: WorkspaceFileV2, options: CompileOpt
         instruction.risk,
         `${label} is ${instruction.risk} risk.`,
         instruction.op === 'OUTPUT' ? 'output' : 'input',
+      );
+    }
+
+    if (instruction.op === 'SAVELOAD') {
+      addRisk(risk, 'extended', 'Session storage access is extended risk.', 'output');
+    }
+
+    if (instruction.op === 'FETCH_GET' || instruction.op === 'HTTP_REQUEST') {
+      addRisk(risk, 'high', 'Remote data access is high risk.', 'input');
+      const host = instruction.fallbackUrl ? cleanUrl(instruction.fallbackUrl) : undefined;
+      addRisk(
+        risk,
+        'high',
+        host ? `Remote host ${new URL(host).host} may receive or provide data.` : 'Dynamic remote host may receive or provide data.',
+        'input',
       );
     }
   });
@@ -593,7 +845,16 @@ export function compileWorkspace(workspace: WorkspaceFileV2, options: CompileOpt
         publicKeyLocateValue: cleanLocateValue(workspace.metadata.publicKeyLocateValue),
         created_at: workspace.metadata.created_at,
       },
-      trigger: workspace.trigger,
+      trigger: {
+        ...workspace.trigger,
+        type: workspace.trigger.type === 'ALWAYS' ? 'INPUT_DATA' : workspace.trigger.type,
+        inputSources: triggerPlan.inputSources,
+        sourceFilters: triggerPlan.sourceFilters,
+        intervalMs: triggerPlan.intervalMs,
+        conditionalMode: triggerPlan.conditionalMode,
+        conditionWorkspaceId: triggerPlan.conditionWorkspaceId,
+        scope_regex: undefined,
+      },
     },
     sourceWorkspaceId: workspace.metadata.id,
     builder: {
@@ -602,7 +863,8 @@ export function compileWorkspace(workspace: WorkspaceFileV2, options: CompileOpt
       builderUuid: options.builderUuid ?? crypto.randomUUID(),
     },
     risk,
-    requiredPermissions: requiredPermissionsForRisk(risk),
+    triggerPlan,
+    requiredPermissions: requiredPermissionsForInstructions(instructions),
     vm: {
       instructions,
       constants: {},
@@ -610,6 +872,7 @@ export function compileWorkspace(workspace: WorkspaceFileV2, options: CompileOpt
       stepBudget: VM_STEP_BUDGET,
       loopBudget: VM_LOOP_BUDGET,
       valueByteLimit: VM_VALUE_BYTE_LIMIT,
+      safety,
     },
   };
 

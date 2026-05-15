@@ -4,7 +4,13 @@ import { MAX_ACTION_PACK_BINARY_BYTES } from '../constants';
 import { hexToBytes, sha256Hex } from '../crypto';
 import { importActionPackBinary } from '../vault';
 import type { CompiledActionPackV2, ImportedV2Artifact, WorkspaceFileV2 } from './types';
-import { ACTION_PACK_SCHEMA_VERSION, WORKSPACE_SCHEMA_VERSION } from './types';
+import {
+  ACTION_PACK_SCHEMA_VERSION,
+  LEGACY_ACTION_PACK_SCHEMA_VERSION,
+  LEGACY_WORKSPACE_SCHEMA_VERSION,
+  WORKSPACE_SCHEMA_VERSION,
+} from './types';
+import { migrateCompiledActionPackV2Candidate, validateCompiledActionPackV2 } from './actionPackValidator';
 import { validateWorkspaceFile } from './workspace';
 
 export const WORKSPACE_MAGIC = 'WSPC2';
@@ -19,8 +25,24 @@ function headerLength(magicBytes: Uint8Array): number {
   return magicBytes.length + 1 + HEADER_CHECKSUM_BYTES;
 }
 
+function omitUndefinedFields(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(omitUndefinedFields);
+  }
+
+  if (typeof value !== 'object' || value === null) {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, entry]) => entry !== undefined)
+      .map(([key, entry]) => [key, omitUndefinedFields(entry)]),
+  );
+}
+
 async function exportWithHeader(value: unknown, magicBytes: Uint8Array, schemaVersion: number): Promise<Uint8Array> {
-  const payload = encode(value);
+  const payload = encode(omitUndefinedFields(value));
   const checksumHex = await sha256Hex(payload);
   const checksumBytes = hexToBytes(checksumHex);
   const output = new Uint8Array(headerLength(magicBytes) + payload.length);
@@ -76,16 +98,13 @@ export async function exportWorkspaceBinary(workspace: WorkspaceFileV2): Promise
 }
 
 export async function exportCompiledActionPackV2Binary(pack: CompiledActionPackV2): Promise<Uint8Array> {
-  const payload: CompiledActionPackV2 = {
-    ...pack,
-    checksumHex: undefined,
-  };
+  const { checksumHex: _checksumHex, traceEnabledUntil: _traceEnabledUntil, ...payload } = pack;
   return exportWithHeader(payload, ACTION_PACK_MAGIC_BYTES, ACTION_PACK_SCHEMA_VERSION);
 }
 
 export async function importWorkspaceBinary(bytes: Uint8Array): Promise<{ workspace: WorkspaceFileV2; checksumHex: string; schemaVersion: number }> {
   const imported = await importWithHeader(bytes, WORKSPACE_MAGIC);
-  if (imported.schemaVersion !== WORKSPACE_SCHEMA_VERSION) {
+  if (![WORKSPACE_SCHEMA_VERSION, LEGACY_WORKSPACE_SCHEMA_VERSION].includes(imported.schemaVersion)) {
     throw new Error(`Unsupported workspace schema version: ${imported.schemaVersion}`);
   }
 
@@ -103,26 +122,19 @@ export async function importWorkspaceBinary(bytes: Uint8Array): Promise<{ worksp
 
 export async function importCompiledActionPackV2Binary(bytes: Uint8Array): Promise<{ pack: CompiledActionPackV2; checksumHex: string; schemaVersion: number }> {
   const imported = await importWithHeader(bytes, ACTION_PACK_MAGIC);
-  if (imported.schemaVersion !== ACTION_PACK_SCHEMA_VERSION) {
+  if (![ACTION_PACK_SCHEMA_VERSION, LEGACY_ACTION_PACK_SCHEMA_VERSION].includes(imported.schemaVersion)) {
     throw new Error(`Unsupported Action Pack schema version: ${imported.schemaVersion}`);
   }
 
-  const candidate = imported.decoded as CompiledActionPackV2;
-  if (
-    typeof candidate !== 'object' ||
-    candidate === null ||
-    candidate.kind !== 'action-pack.v2' ||
-    candidate.schemaVersion !== ACTION_PACK_SCHEMA_VERSION ||
-    !candidate.manifest ||
-    !Array.isArray(candidate.vm?.instructions)
-  ) {
-    throw new Error('The file is not a valid v2 Action Pack');
+  const validation = validateCompiledActionPackV2(migrateCompiledActionPackV2Candidate(imported.decoded));
+  if (!validation.ok) {
+    throw new Error(validation.errors.join('; '));
   }
 
   return {
     pack: {
-      ...candidate,
-      checksumHex: candidate.checksumHex ?? imported.checksumHex,
+      ...validation.pack,
+      checksumHex: imported.checksumHex,
     },
     checksumHex: imported.checksumHex,
     schemaVersion: imported.schemaVersion,

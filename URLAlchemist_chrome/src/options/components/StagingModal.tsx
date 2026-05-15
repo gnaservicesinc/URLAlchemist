@@ -47,6 +47,10 @@ function instructionLabel(instruction: CompiledActionPackV2['vm']['instructions'
       return `Writes ${instruction.destination}`;
     case 'REGEX_TRANSFORM':
       return `${instruction.action} with "${instruction.pattern}"`;
+    case 'FETCH_GET':
+      return instruction.fallbackUrl ? `Fetches ${instruction.fallbackUrl}` : 'Fetches from a dynamic remote URL';
+    case 'HTTP_REQUEST':
+      return instruction.fallbackUrl ? `${instruction.method} to ${instruction.fallbackUrl}` : `${instruction.method} to a dynamic remote URL`;
     case 'COMPARE':
       return `Compares input ${instruction.operator} ${instruction.compareValue}`;
     case 'MATH':
@@ -85,6 +89,7 @@ export function StagingModal({
   }
 
   const confirmUnlocked = (hasSandboxRun || reviewAcknowledged) && validationErrors.length === 0;
+  const remoteInstructions = pack.vm.instructions.filter((instruction) => instruction.op === 'FETCH_GET' || instruction.op === 'HTTP_REQUEST');
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/55 px-4 py-10 backdrop-blur-md">
@@ -116,6 +121,22 @@ export function StagingModal({
           </div>
         ) : null}
 
+        {remoteInstructions.length > 0 ? (
+          <div className="mb-5 rounded-[1.5rem] border-2 border-rose-300 bg-rose-100 px-5 py-4 text-rose-900">
+            <p className="text-lg font-bold">Remote data access</p>
+            <p className="mt-1 text-sm">
+              This Action Pack can contact remote servers. Static hosts are shown below when known; dynamic remote hosts depend on runtime input data.
+            </p>
+            <ul className="mt-2 list-disc pl-5 text-sm">
+              {remoteInstructions.map((instruction) => (
+                <li key={instruction.nodeId}>
+                  {instruction.fallbackUrl ? new URL(instruction.fallbackUrl).host : 'Dynamic remote host'}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
         <div className="grid gap-6 lg:grid-cols-[1fr_0.95fr]">
           <section className="panel-shell">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -135,15 +156,15 @@ export function StagingModal({
             <dl className="mt-5 grid gap-3 text-sm text-slate-700 sm:grid-cols-2">
               <div className="info-chip">
                 <dt className="font-semibold text-slate-900">Trigger</dt>
-                <dd>{pack.manifest.trigger.type}</dd>
+                <dd>{pack.triggerPlan.type}</dd>
               </div>
               <div className="info-chip">
                 <dt className="font-semibold text-slate-900">Instructions</dt>
                 <dd>{pack.vm.instructions.length}</dd>
               </div>
               <div className="info-chip sm:col-span-2">
-                <dt className="font-semibold text-slate-900">Scope Regex</dt>
-                <dd className="break-all">{pack.manifest.trigger.scope_regex?.trim() || 'Runs globally'}</dd>
+                <dt className="font-semibold text-slate-900">Input Filters</dt>
+                <dd className="break-all">{pack.triggerPlan.sourceFilters.map((filter) => `${filter.source}: ${filter.pattern}`).join(', ') || 'No input filters'}</dd>
               </div>
               <div className="info-chip sm:col-span-2">
                 <dt className="font-semibold text-slate-900">Description</dt>

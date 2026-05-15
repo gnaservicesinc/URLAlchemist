@@ -1,7 +1,16 @@
-import type { ActionPack, ActionType, MatchMode, TriggerType } from '../types';
+import type { ActionPack, ActionType, MatchMode, WorkspaceTriggerType } from '../types';
 
-export const WORKSPACE_SCHEMA_VERSION = 2;
-export const ACTION_PACK_SCHEMA_VERSION = 2;
+export const WORKSPACE_SCHEMA_VERSION = 3;
+export const LEGACY_WORKSPACE_SCHEMA_VERSION = 2;
+export const ACTION_PACK_SCHEMA_VERSION = 3;
+export const LEGACY_ACTION_PACK_SCHEMA_VERSION = 2;
+export const INPUT_TRIGGER_HISTORY_LIMIT = 25;
+export const INPUT_TRIGGER_BURST_LIMIT = 10;
+export const INPUT_TRIGGER_BURST_WINDOW_MS = 1_000;
+export const MIN_INTERVAL_TRIGGER_MS = 30_000;
+export const DEFAULT_INTERVAL_TRIGGER_MS = 60_000;
+export const DEFAULT_REMOTE_TIMEOUT_MS = 5_000;
+export const DEFAULT_REMOTE_MAX_BYTES = 128 * 1024;
 
 export type GraphDataType =
   | 'bool'
@@ -38,6 +47,8 @@ export const BLOCK_TYPE_IDS = {
   DataStructure: 9,
   ExtendedDataIn: 10,
   ExtendedDataOut: 11,
+  FetchData: 12,
+  HttpRequest: 13,
 } as const;
 
 export type BlockKind = keyof typeof BLOCK_TYPE_IDS;
@@ -77,6 +88,7 @@ export interface WorkspaceMetadata {
   version: number;
   author?: string;
   description?: string;
+  compatibility?: WorkspaceCompatibilityMetadata;
   versionFileUrl?: string;
   versionFileSignatureUrl?: string;
   downloadUrl?: string;
@@ -85,10 +97,52 @@ export interface WorkspaceMetadata {
   updated_at: number;
 }
 
+export type WorkspaceCompatibilityStatus =
+  | 'supported'
+  | 'source-only'
+  | 'pending-v2-runtime'
+  | 'unsupported';
+
+export interface WorkspaceCompatibilityTarget {
+  version: string;
+  status: WorkspaceCompatibilityStatus;
+}
+
+export interface WorkspaceCompatibilityMetadata {
+  chrome?: WorkspaceCompatibilityTarget;
+  firefox?: WorkspaceCompatibilityTarget;
+}
+
+export type WorkspaceInputSource =
+  | 'url'
+  | 'linkUrl'
+  | 'selectedText'
+  | 'pageTitle'
+  | 'pageMetadata'
+  | 'clipboard'
+  | 'pageText'
+  | 'rawHtml'
+  | 'mediaData'
+  | 'pageLinks'
+  | 'jsMetadata'
+  | 'consoleOutput';
+
+export interface WorkspaceSourceFilter {
+  source: WorkspaceInputSource;
+  pattern: string;
+}
+
+export type ConditionalTriggerMode = 'RISING_EDGE' | 'WHILE_TRUE';
+
 export interface WorkspaceTrigger {
-  type: TriggerType;
+  type: WorkspaceTriggerType | 'ALWAYS';
   hotkey?: string;
   scope_regex?: string;
+  inputSources?: WorkspaceInputSource[];
+  sourceFilters?: WorkspaceSourceFilter[];
+  intervalMs?: number;
+  conditionalMode?: ConditionalTriggerMode;
+  conditionWorkspaceId?: string;
 }
 
 export type WorkspaceRegexSourceMode = 'VISUAL' | 'MANUAL';
@@ -120,6 +174,11 @@ export interface WorkspaceBlockSettings {
   matchMode?: MatchMode;
   nthOccurrence?: number;
   payload?: string;
+  remoteUrl?: string;
+  remoteDataType?: GraphDataType;
+  remoteMethod?: 'GET' | 'POST';
+  remoteTimeoutMs?: number;
+  remoteMaxBytes?: number;
   payloadVars?: boolean;
   regexBuilder?: WorkspaceRegexBuilderState;
   regexSourceMode?: WorkspaceRegexSourceMode;
@@ -198,6 +257,22 @@ export interface CompiledRiskSummary {
   reasons: string[];
 }
 
+export interface CompiledTriggerSafety {
+  timestampHistoryLimit: number;
+  burstLimit: number;
+  burstWindowMs: number;
+}
+
+export interface CompiledTriggerPlan {
+  type: WorkspaceTriggerType;
+  inputSources: WorkspaceInputSource[];
+  sourceFilters: WorkspaceSourceFilter[];
+  intervalMs?: number;
+  conditionalMode?: ConditionalTriggerMode;
+  conditionWorkspaceId?: string;
+  safety: CompiledTriggerSafety;
+}
+
 export interface CompiledManifestV2 {
   id: string;
   name: string;
@@ -240,7 +315,30 @@ export type GraphVmInstruction =
       matchMode: MatchMode;
       nthOccurrence?: number;
       payload: string;
+      payloadInput?: string;
       payloadVars: boolean;
+    }
+  | {
+      op: 'FETCH_GET';
+      nodeId: string;
+      url?: string;
+      output: string;
+      fallbackUrl: string;
+      outputDataType: GraphDataType;
+      timeoutMs: number;
+      maxBytes: number;
+    }
+  | {
+      op: 'HTTP_REQUEST';
+      nodeId: string;
+      url?: string;
+      body?: string;
+      output: string;
+      method: 'GET' | 'POST';
+      fallbackUrl: string;
+      outputDataType: GraphDataType;
+      timeoutMs: number;
+      maxBytes: number;
     }
   | {
       op: 'COMPARE';
@@ -313,6 +411,23 @@ export type GraphVmInstruction =
       risk: RiskLevel;
     };
 
+export interface GraphVmSafetyRule {
+  nodeId: string;
+  op: GraphVmInstruction['op'];
+  requiresWatchdog: boolean;
+  maxRuntimeMs?: number;
+  maxBytes?: number;
+  rangeCheck?: string;
+}
+
+export interface GraphVmSafetyPolicy {
+  abortOnFailure: boolean;
+  regexTimeoutMs: number;
+  remoteTimeoutMs: number;
+  remoteMaxBytes: number;
+  rules: GraphVmSafetyRule[];
+}
+
 export interface GraphVmProgram {
   instructions: GraphVmInstruction[];
   constants: Record<string, GraphValue>;
@@ -320,6 +435,7 @@ export interface GraphVmProgram {
   stepBudget: number;
   loopBudget: number;
   valueByteLimit: number;
+  safety: GraphVmSafetyPolicy;
 }
 
 export interface CompiledActionPackV2 {
@@ -329,6 +445,7 @@ export interface CompiledActionPackV2 {
   sourceWorkspaceId?: string;
   builder: CompiledBuilderMetadataV2;
   risk: CompiledRiskSummary;
+  triggerPlan: CompiledTriggerPlan;
   requiredPermissions: string[];
   vm: GraphVmProgram;
   checksumHex?: string;
