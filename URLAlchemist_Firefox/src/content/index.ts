@@ -109,7 +109,7 @@ if (window.top === window) {
   window.addEventListener(
     'keydown',
     (event) => {
-      if (event.defaultPrevented || event.repeat || isEditableTarget(event.target)) {
+      if (!event.isTrusted || event.defaultPrevented || event.repeat || isEditableTarget(event.target)) {
         return;
       }
 

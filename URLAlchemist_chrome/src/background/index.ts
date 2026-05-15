@@ -296,10 +296,6 @@ async function applyPacksToTab(
       continue;
     }
 
-    if (!(await recordTriggerOrSkip(pack))) {
-      continue;
-    }
-
     try {
       const matchesScope = await v2ScopeMatches(pack, currentUrl);
       if (!matchesScope) {
@@ -310,6 +306,10 @@ async function applyPacksToTab(
         `[URL Alchemist V2] Scope regex failed for ${pack.manifest.name}`,
         error instanceof Error ? error.message : error,
       );
+      continue;
+    }
+
+    if (!(await recordTriggerOrSkip(pack))) {
       continue;
     }
 

@@ -296,8 +296,11 @@ function validateWorkspace(workspace: WorkspaceFileV2): WorkspaceValidationState
     }
   }
 
-  if (triggerType === 'CONDITIONAL' && !['RISING_EDGE', 'WHILE_TRUE'].includes(workspace.trigger.conditionalMode ?? 'RISING_EDGE')) {
-    errors.push('Conditional trigger mode must be Rising Edge or While True.');
+  if (triggerType === 'CONDITIONAL') {
+    errors.push('Conditional triggers are not supported by the Chrome runtime yet.');
+    if (!['RISING_EDGE', 'WHILE_TRUE'].includes(workspace.trigger.conditionalMode ?? 'RISING_EDGE')) {
+      errors.push('Conditional trigger mode must be Rising Edge or While True.');
+    }
   }
 
   const sourceFilters = [

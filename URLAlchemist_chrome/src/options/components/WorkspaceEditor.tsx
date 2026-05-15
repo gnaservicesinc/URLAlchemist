@@ -813,7 +813,7 @@ export function WorkspaceEditor({
             <option value="HOTKEY">Hotkey</option>
             <option value="CONTEXT_MENU">Context Menu</option>
             <option value="INTERVAL">Recurring interval</option>
-            <option value="CONDITIONAL">Conditional</option>
+            <option disabled value="CONDITIONAL">Conditional (not available)</option>
             <option value="NEVER">Never</option>
           </select>
         </label>

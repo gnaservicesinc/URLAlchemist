@@ -1,14 +1,27 @@
 import type { GraphValue } from './types';
 import type { GraphRuntime } from './vm';
 
+const SANDBOX_SOURCE_VALUES: Record<string, GraphValue> = {
+  selectedText: { type: 'string', value: 'sandbox-selected-text' },
+  pageTitle: { type: 'string', value: 'Sandbox Page Title' },
+  pageMetadata: { type: 'dict', value: {} },
+  clipboard: { type: 'string', value: 'sandbox-clipboard' },
+  pageText: { type: 'string', value: 'sandbox-page-text' },
+  rawHtml: { type: 'string', value: '<html></html>' },
+  mediaData: { type: 'dict', value: {} },
+  pageLinks: { type: 'data', value: [] },
+  jsMetadata: { type: 'dict', value: {} },
+  consoleOutput: { type: 'data', value: [] },
+};
+
 export function createSandboxGraphRuntime(runtime: GraphRuntime): GraphRuntime {
   const sessionValues = new Map<string, GraphValue>();
 
   return {
     regex: runtime.regex,
-    readClipboard: runtime.readClipboard,
+    readClipboard: async () => 'sandbox-clipboard',
     now: runtime.now,
-    readSource: runtime.readSource,
+    readSource: async (source) => SANDBOX_SOURCE_VALUES[source],
     loadSessionValue: async (key) => sessionValues.get(key),
     saveSessionValue: async (key, value) => {
       sessionValues.set(key, value);

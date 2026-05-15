@@ -70,6 +70,18 @@ function instructionLabel(instruction: CompiledActionPackV2['vm']['instructions'
   }
 }
 
+function remoteInstructionHost(instruction: Extract<CompiledActionPackV2['vm']['instructions'][number], { op: 'FETCH_GET' | 'HTTP_REQUEST' }>): string {
+  if (!instruction.fallbackUrl) {
+    return 'Dynamic remote host';
+  }
+
+  try {
+    return new URL(instruction.fallbackUrl).host;
+  } catch {
+    return 'Invalid static remote URL';
+  }
+}
+
 export function StagingModal({
   checksumHex,
   pack,
@@ -130,7 +142,7 @@ export function StagingModal({
             <ul className="mt-2 list-disc pl-5 text-sm">
               {remoteInstructions.map((instruction) => (
                 <li key={instruction.nodeId}>
-                  {instruction.fallbackUrl ? new URL(instruction.fallbackUrl).host : 'Dynamic remote host'}
+                  {remoteInstructionHost(instruction)}
                 </li>
               ))}
             </ul>

@@ -1,9 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { encode } from '@msgpack/msgpack';
+import { describe, expect, it, vi } from 'vitest';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { DEFAULT_SETTINGS } from '../constants';
+import { hexToBytes, sha256Hex } from '../crypto';
 import { exportBackupState, importBackupState } from '../backup';
 import { executeRegexJobRequest } from '../regex/executeRegexJob';
 import type { ActionPack, RegexTransformRequest } from '../types';
@@ -12,12 +14,13 @@ import { validateCompiledActionPackV2 } from './actionPackValidator';
 import { BUNDLED_ACTION_PACK_EXAMPLES, createBundledExampleActionPacks, createBundledExampleWorkspaces } from './bundledExamples';
 import { compileWorkspace } from './compiler';
 import { createSandboxGraphRuntime } from './sandboxRuntime';
-import { BLOCK_TYPE_IDS, type BlockKind, type CompiledActionPackV2 } from './types';
+import { ACTION_PACK_SCHEMA_VERSION, BLOCK_TYPE_IDS, type BlockKind, type CompiledActionPackV2 } from './types';
 import { executeCompiledActionPackV2, type GraphRuntime } from './vm';
 import { createEdge, createDefaultWorkspace, createWorkspaceNode, workspaceFromLegacyPack } from './workspace';
 import {
   exportCompiledActionPackV2Binary,
   exportWorkspaceBinary,
+  ACTION_PACK_MAGIC,
   importAnyArtifact,
   importCompiledActionPackV2Binary,
   importWorkspaceBinary,
@@ -96,6 +99,34 @@ function createBasicCompiledPack() {
   }
 
   return compiled.pack;
+}
+
+async function encodeActionPackCandidate(candidate: unknown): Promise<Uint8Array> {
+  const magicBytes = new TextEncoder().encode(ACTION_PACK_MAGIC);
+  const payload = encode(omitUndefinedFields(candidate));
+  const checksumBytes = hexToBytes(await sha256Hex(payload));
+  const output = new Uint8Array(magicBytes.length + 1 + checksumBytes.length + payload.length);
+  output.set(magicBytes, 0);
+  output[magicBytes.length] = ACTION_PACK_SCHEMA_VERSION;
+  output.set(checksumBytes, magicBytes.length + 1);
+  output.set(payload, magicBytes.length + 1 + checksumBytes.length);
+  return output;
+}
+
+function omitUndefinedFields(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(omitUndefinedFields);
+  }
+
+  if (typeof value !== 'object' || value === null) {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, entry]) => entry !== undefined)
+      .map(([key, entry]) => [key, omitUndefinedFields(entry)]),
+  );
 }
 
 describe('v2 workspace compiler and VM', () => {
@@ -239,6 +270,23 @@ describe('v2 workspace compiler and VM', () => {
     expect(compiled.validation.errors.join(' ')).toContain('Interval trigger');
   });
 
+  it('blocks conditional triggers until the Chrome runtime supports them', () => {
+    const workspace = createDefaultWorkspace();
+    const dataIn = workspace.nodes.find((node) => node.type === 'DataFlowIn')!;
+    const dataOut = workspace.nodes.find((node) => node.type === 'DataFlowOut')!;
+    const compiled = compileWorkspace({
+      ...workspace,
+      trigger: {
+        type: 'CONDITIONAL',
+        conditionalMode: 'RISING_EDGE',
+      },
+      edges: [createEdge(dataIn.id, 'url', dataOut.id, 'url')],
+    });
+
+    expect(compiled.ok).toBe(false);
+    expect(compiled.validation.errors.join(' ')).toContain('Conditional triggers are not supported');
+  });
+
   it('uses a connected Regex payload input before the text payload field', async () => {
     const workspace = createDefaultWorkspace();
     const dataIn = workspace.nodes.find((node) => node.type === 'DataFlowIn')!;
@@ -336,6 +384,17 @@ describe('v2 workspace compiler and VM', () => {
     expect(imported.pack.checksumHex).toBe(imported.checksumHex);
   });
 
+  it('clears runtime-only trace windows from imported binary action packs', async () => {
+    const imported = await importCompiledActionPackV2Binary(
+      await encodeActionPackCandidate({
+        ...createBasicCompiledPack(),
+        traceEnabledUntil: Date.now() + 60_000,
+      }),
+    );
+
+    expect(imported.pack.traceEnabledUntil).toBeUndefined();
+  });
+
   it('rejects malformed v2 VM instructions', async () => {
     const pack = createBasicCompiledPack();
     const malformed = {
@@ -423,6 +482,30 @@ describe('v2 workspace compiler and VM', () => {
     ).rejects.toThrow('Unsafe regular expression rejected');
   });
 
+  it('rejects imported conditional trigger plans until the runtime supports them', async () => {
+    const basePack = createBasicCompiledPack();
+    const pack: CompiledActionPackV2 = {
+      ...basePack,
+      manifest: {
+        ...basePack.manifest,
+        trigger: {
+          ...basePack.manifest.trigger,
+          type: 'CONDITIONAL',
+          conditionalMode: 'RISING_EDGE',
+        },
+      },
+      triggerPlan: {
+        ...basePack.triggerPlan,
+        type: 'CONDITIONAL',
+        conditionalMode: 'RISING_EDGE',
+      },
+    };
+
+    await expect(
+      importCompiledActionPackV2Binary(await exportCompiledActionPackV2Binary(pack)),
+    ).rejects.toThrow('CONDITIONAL is not supported');
+  });
+
   it('runs staged SaveLoad and output instructions without persistent side effects', async () => {
     let persistentSaveCount = 0;
     let persistentWriteCount = 0;
@@ -505,6 +588,166 @@ describe('v2 workspace compiler and VM', () => {
 
     expect(persistentSaveCount).toBe(0);
     expect(persistentWriteCount).toBe(0);
+  });
+
+  it('runs staged imports without reading real clipboard or page sources', async () => {
+    let clipboardReadCount = 0;
+    let sourceReadCount = 0;
+    const pack: CompiledActionPackV2 = {
+      ...createBasicCompiledPack(),
+      risk: {
+        highest: 'high',
+        usesExtendedInput: false,
+        usesExtendedOutput: false,
+        usesHighRiskInput: true,
+        usesHighRiskOutput: false,
+        reasons: ['Clipboard payload interpolation is high risk.'],
+      },
+      requiredPermissions: ['clipboardRead'],
+      vm: {
+        constants: {},
+        symbolTable: {
+          'input.clipboard': 'string',
+          'input.url': 'URL',
+          'output.url': 'URL',
+        },
+        stepBudget: 300,
+        loopBudget: 500,
+        valueByteLimit: 256 * 1024,
+        safety: {
+          abortOnFailure: true,
+          regexTimeoutMs: 50,
+          remoteTimeoutMs: 5000,
+          remoteMaxBytes: 128 * 1024,
+          rules: [],
+        },
+        instructions: [
+          {
+            op: 'SOURCE',
+            nodeId: 'clipboard-input',
+            source: 'clipboard',
+            output: 'input.clipboard',
+            dataType: 'string',
+            risk: 'high',
+          },
+          {
+            op: 'SOURCE',
+            nodeId: 'url-input',
+            source: 'url',
+            output: 'input.url',
+            dataType: 'URL',
+            risk: 'safe',
+          },
+          {
+            op: 'REGEX_TRANSFORM',
+            nodeId: 'rewrite-url',
+            input: 'input.url',
+            output: 'output.url',
+            pattern: '^.*$',
+            action: 'SUBSTITUTE',
+            matchMode: 'STANDARD',
+            payload: 'https://example.com/{clipboard}',
+            payloadVars: true,
+          },
+          {
+            op: 'OUTPUT',
+            nodeId: 'output',
+            input: 'output.url',
+            destination: 'url',
+            dataType: 'URL',
+            risk: 'safe',
+          },
+        ],
+      },
+    };
+
+    const result = await executeCompiledActionPackV2(
+      'https://start.example/',
+      pack,
+      createSandboxGraphRuntime({
+        ...runtime,
+        readClipboard: async () => {
+          clipboardReadCount += 1;
+          return 'real-clipboard';
+        },
+        readSource: async () => {
+          sourceReadCount += 1;
+          return { type: 'string', value: 'real-source' };
+        },
+      }),
+      DEFAULT_SETTINGS,
+    );
+
+    expect(result.finalUrl).toBe('https://example.com/sandbox-clipboard');
+    expect(clipboardReadCount).toBe(0);
+    expect(sourceReadCount).toBe(0);
+  });
+
+  it('stops reading remote response streams after the byte limit is exceeded', async () => {
+    let cancelCalled = false;
+    const pack: CompiledActionPackV2 = {
+      ...createBasicCompiledPack(),
+      vm: {
+        constants: {},
+        symbolTable: {
+          'remote.result': 'string',
+        },
+        stepBudget: 300,
+        loopBudget: 500,
+        valueByteLimit: 256 * 1024,
+        safety: {
+          abortOnFailure: true,
+          regexTimeoutMs: 50,
+          remoteTimeoutMs: 5000,
+          remoteMaxBytes: 128 * 1024,
+          rules: [],
+        },
+        instructions: [
+          {
+            op: 'FETCH_GET',
+            nodeId: 'fetch',
+            output: 'remote.result',
+            fallbackUrl: 'https://example.com/large.txt',
+            outputDataType: 'string',
+            timeoutMs: 5000,
+            maxBytes: 1024,
+          },
+          {
+            op: 'OUTPUT',
+            nodeId: 'output',
+            input: 'remote.result',
+            destination: 'pageText',
+            dataType: 'string',
+            risk: 'high',
+          },
+        ],
+      },
+    };
+
+    vi.stubGlobal(
+      'fetch',
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            pull(controller) {
+              controller.enqueue(new Uint8Array(1025));
+            },
+            cancel() {
+              cancelCalled = true;
+            },
+          }),
+          { status: 200 },
+        ),
+    );
+
+    try {
+      const result = await executeCompiledActionPackV2('https://example.com/', pack, runtime, DEFAULT_SETTINGS);
+
+      expect(result.issues[0]?.message).toContain('byte limit');
+      expect(cancelCalled).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('compiles every bundled example and covers the v2 block surface', () => {

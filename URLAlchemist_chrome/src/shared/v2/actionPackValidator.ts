@@ -840,6 +840,8 @@ function validateTriggerPlan(value: unknown, errors: string[]): CompiledTriggerP
 
   if (!isEnumValue(WORKSPACE_TRIGGER_TYPES, value.type)) {
     errors.push('triggerPlan.type is invalid');
+  } else if (value.type === 'CONDITIONAL') {
+    errors.push('triggerPlan.type CONDITIONAL is not supported by the Chrome runtime yet');
   }
 
   if (!Array.isArray(value.inputSources) || !value.inputSources.every((source) => isEnumValue(WORKSPACE_INPUT_SOURCES, source))) {

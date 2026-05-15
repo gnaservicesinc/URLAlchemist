@@ -215,6 +215,48 @@ function coerceRemoteValue(raw: unknown, outputDataType: GraphValue['type']): Gr
   }
 }
 
+async function readResponseBytes(response: Response, maxBytes: number): Promise<Uint8Array> {
+  if (!response.body) {
+    const buffer = new Uint8Array(await response.arrayBuffer());
+    if (buffer.byteLength > maxBytes) {
+      throw new Error('Remote response exceeded the configured byte limit');
+    }
+
+    return buffer;
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+
+  try {
+    for (;;) {
+      const result = await reader.read();
+      if (result.done) {
+        break;
+      }
+
+      total += result.value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        throw new Error('Remote response exceeded the configured byte limit');
+      }
+
+      chunks.push(result.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const output = new Uint8Array(total);
+  let offset = 0;
+  chunks.forEach((chunk) => {
+    output.set(chunk, offset);
+    offset += chunk.byteLength;
+  });
+  return output;
+}
+
 async function defaultFetchRemote(request: RemoteRequest): Promise<GraphValue> {
   const controller = new AbortController();
   const timeout = globalThis.setTimeout(() => controller.abort(), request.timeoutMs);
@@ -232,11 +274,7 @@ async function defaultFetchRemote(request: RemoteRequest): Promise<GraphValue> {
       throw new Error(`Remote request failed with HTTP ${response.status}`);
     }
 
-    const buffer = new Uint8Array(await response.arrayBuffer());
-    if (buffer.byteLength > request.maxBytes) {
-      throw new Error('Remote response exceeded the configured byte limit');
-    }
-
+    const buffer = await readResponseBytes(response, request.maxBytes);
     const text = new TextDecoder().decode(buffer);
     const contentType = response.headers.get('content-type') ?? '';
     const raw = request.outputDataType === 'JSON' || request.outputDataType === 'dict' || contentType.includes('json')

@@ -130,10 +130,11 @@ export async function importCompiledActionPackV2Binary(bytes: Uint8Array): Promi
   if (!validation.ok) {
     throw new Error(validation.errors.join('; '));
   }
+  const { traceEnabledUntil: _traceEnabledUntil, ...pack } = validation.pack;
 
   return {
     pack: {
-      ...validation.pack,
+      ...pack,
       checksumHex: imported.checksumHex,
     },
     checksumHex: imported.checksumHex,
