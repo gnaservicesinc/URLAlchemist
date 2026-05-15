@@ -79,7 +79,7 @@ export const BLOCK_TYPE_IDS = {
   GetImage: 23,
   GetVideo: 24,
   GetAudio: 25,
-  ArcadeGame: 26,
+  OverlayInput: 26,
 } as const;
 
 export type BlockKind = keyof typeof BLOCK_TYPE_IDS;
@@ -200,7 +200,6 @@ export type UserInteractionKind = 'PROMPT_TEXT' | 'PROMPT_NUMBER' | 'CONFIRM' | 
 export type DisplayMode = 'OVERLAY' | 'REPLACE_PAGE' | 'NEW_TAB';
 export type ShowImageStopMode = 'CLOSE_BUTTON' | 'CLICK' | 'TIMEOUT' | 'CONFIRM';
 export type AssetFetchKind = 'image' | 'video' | 'audio';
-export type ArcadeGamePreset = 'SPACE_DEFENDER';
 
 export interface WorkspaceBlockSettings {
   label?: string;
@@ -233,7 +232,6 @@ export interface WorkspaceBlockSettings {
   imageStopMode?: ShowImageStopMode;
   displayTimeoutMs?: number;
   requireUserGesture?: boolean;
-  gamePreset?: ArcadeGamePreset;
   captureKeyboard?: boolean;
   captureMouse?: boolean;
   payloadVars?: boolean;
@@ -432,12 +430,11 @@ export type GraphVmInstruction =
       input?: string;
       asset?: string;
       output?: string;
-      displayType: 'message' | 'image' | 'video' | 'sound' | 'arcade-game';
+      displayType: 'message' | 'image' | 'video' | 'sound' | 'input-capture';
       message: string;
       mode: DisplayMode;
       stopMode?: ShowImageStopMode;
       timeoutMs?: number;
-      gamePreset?: ArcadeGamePreset;
       captureKeyboard?: boolean;
       captureMouse?: boolean;
     }

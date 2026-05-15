@@ -354,14 +354,11 @@ function renderBlockSettings(
           </select>
         </div>
       );
-    case 'ArcadeGame':
+    case 'OverlayInput':
       return (
         <div className="mt-3 grid gap-2">
-          <select className={inputClass} value={node.settings.gamePreset ?? 'SPACE_DEFENDER'} onChange={(event) => onSettingsChange({ gamePreset: event.target.value as WorkspaceBlockSettings['gamePreset'] })}>
-            <option value="SPACE_DEFENDER">Space Defender</option>
-          </select>
-          <input className={inputClass} disabled={connectedInputs.has('title')} placeholder={connectedInputs.has('title') ? 'Connected title input' : 'Game title'} value={connectedInputs.has('title') ? '' : settingText(node.settings.promptMessage)} onChange={(event) => onSettingsChange({ promptMessage: event.target.value })} />
-          <input className={inputClass} min={10000} max={3600000} placeholder="Timeout ms" type="number" value={node.settings.displayTimeoutMs ?? 180000} onChange={(event) => onSettingsChange({ displayTimeoutMs: Number(event.target.value || '180000') })} />
+          <textarea className={`${inputClass} min-h-14`} disabled={connectedInputs.has('message')} placeholder={connectedInputs.has('message') ? 'Connected message input' : 'Overlay message'} value={connectedInputs.has('message') ? '' : settingText(node.settings.promptMessage)} onChange={(event) => onSettingsChange({ promptMessage: event.target.value })} />
+          <input className={inputClass} min={0} max={3600000} placeholder="Timeout ms" type="number" value={node.settings.displayTimeoutMs ?? 10000} onChange={(event) => onSettingsChange({ displayTimeoutMs: Number(event.target.value || '0') })} />
           <label className="nodrag flex items-center gap-2 text-[11px] text-slate-600">
             <input checked={node.settings.captureKeyboard ?? true} type="checkbox" onChange={(event) => onSettingsChange({ captureKeyboard: event.target.checked })} />
             Capture keyboard while overlay is open

@@ -151,35 +151,36 @@ describe('v2 workspace compiler and VM', () => {
     expect(result.finalUrl).toBe('https://example.com/?keep=1');
   });
 
-  it('compiles and executes the built-in arcade game overlay block', async () => {
+  it('compiles and executes the generic overlay input block', async () => {
     const workspace = createDefaultWorkspace();
     const dataIn = workspace.nodes.find((node) => node.type === 'DataFlowIn')!;
     const dataOut = workspace.nodes.find((node) => node.type === 'DataFlowOut')!;
-    const game = createWorkspaceNode('ArcadeGame', { x: 260, y: 80 }, {
-      gamePreset: 'SPACE_DEFENDER',
+    const capture = createWorkspaceNode('OverlayInput', { x: 260, y: 80 }, {
+      promptMessage: 'Capture test input',
       captureKeyboard: true,
       captureMouse: true,
     });
     const save = createWorkspaceNode('SaveLoad', { x: 520, y: 80 }, {
-      literalValue: 'space-defender:test-result',
+      literalValue: 'overlay-input:test-result',
     });
     const extendedOut = createWorkspaceNode('ExtendedDataOut', { x: 780, y: 80 });
     const compiled = compileWorkspace({
       ...workspace,
-      nodes: [...workspace.nodes, game, save, extendedOut],
+      nodes: [...workspace.nodes, capture, save, extendedOut],
       edges: [
-        createEdge(game.id, 'result', save.id, 'value'),
+        createEdge(capture.id, 'result', save.id, 'value'),
         createEdge(save.id, 'result', extendedOut.id, 'fileBlob'),
         createEdge(dataIn.id, 'url', dataOut.id, 'url'),
       ],
     });
 
     expect(compiled.ok).toBe(true);
-    expect(compiled.pack!.risk.reasons).toContain('Game overlay can capture keyboard or mouse while it is open.');
+    expect(compiled.pack!.risk.reasons).toContain('Overlay input can capture keyboard or mouse while it is open.');
     expect(compiled.pack!.vm.instructions).toContainEqual(expect.objectContaining({
       op: 'DISPLAY',
-      displayType: 'arcade-game',
-      gamePreset: 'SPACE_DEFENDER',
+      displayType: 'input-capture',
+      captureKeyboard: true,
+      captureMouse: true,
     }));
 
     const result = await executeCompiledActionPackV2(
@@ -187,7 +188,7 @@ describe('v2 workspace compiler and VM', () => {
       compiled.pack!,
       {
         ...runtime,
-        displayOverlay: async () => ({ type: 'dict', value: { score: { type: 'number', value: 10 } } }),
+        displayOverlay: async () => ({ type: 'dict', value: { events: { type: 'data', value: [{ type: 'keydown', key: 'ArrowLeft' }] } } }),
       },
       DEFAULT_SETTINGS,
     );

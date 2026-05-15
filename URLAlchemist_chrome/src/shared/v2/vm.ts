@@ -37,7 +37,6 @@ export interface DisplayRequest {
   stopMode?: Extract<GraphVmInstruction, { op: 'DISPLAY' }>['stopMode'];
   timeoutMs?: number;
   asset?: AssetRef;
-  gamePreset?: Extract<GraphVmInstruction, { op: 'DISPLAY' }>['gamePreset'];
   captureKeyboard?: boolean;
   captureMouse?: boolean;
 }
@@ -649,7 +648,6 @@ async function executeInstruction(
         stopMode: instruction.stopMode,
         timeoutMs: instruction.timeoutMs,
         asset: assetValue?.type === 'asset' ? assetValue.value : undefined,
-        gamePreset: instruction.gamePreset,
         captureKeyboard: instruction.captureKeyboard,
         captureMouse: instruction.captureMouse,
       });

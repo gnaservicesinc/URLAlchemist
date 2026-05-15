@@ -459,8 +459,8 @@ function validateWorkspace(workspace: WorkspaceFileV2): WorkspaceValidationState
       addRisk(risk, 'high', 'File selection or user-provided URL is high risk.', 'input');
     }
 
-    if (node.type === 'ShowMessage' || node.type === 'ShowImage' || node.type === 'ShowVideo' || node.type === 'PlaySound' || node.type === 'ArcadeGame') {
-      addRisk(risk, 'extended', node.type === 'ArcadeGame' ? 'Game overlay can capture keyboard or mouse while it is open.' : 'Page overlay display is extended risk.', 'output');
+    if (node.type === 'ShowMessage' || node.type === 'ShowImage' || node.type === 'ShowVideo' || node.type === 'PlaySound' || node.type === 'OverlayInput') {
+      addRisk(risk, 'extended', node.type === 'OverlayInput' ? 'Overlay input can capture keyboard or mouse while it is open.' : 'Page overlay display is extended risk.', 'output');
       if (!['OVERLAY', 'REPLACE_PAGE', 'NEW_TAB'].includes(node.settings.displayMode ?? 'OVERLAY')) {
         errors.push(`${node.settings.label || definition.label}: display mode is invalid.`);
       }
@@ -469,10 +469,6 @@ function validateWorkspace(workspace: WorkspaceFileV2): WorkspaceValidationState
       if (timeoutMs !== undefined && (Math.trunc(timeoutMs) < 0 || Math.trunc(timeoutMs) > 3_600_000)) {
         errors.push(`${node.settings.label || definition.label}: timeout must be between 0ms and 3600000ms.`);
       }
-    }
-
-    if (node.type === 'ArcadeGame' && (node.settings.gamePreset ?? 'SPACE_DEFENDER') !== 'SPACE_DEFENDER') {
-      errors.push(`${node.settings.label || definition.label}: game preset is invalid.`);
     }
 
     if (node.type === 'Loop') {
@@ -650,17 +646,16 @@ function instructionForNode(
         timeoutMs: node.settings.displayTimeoutMs,
       });
       break;
-    case 'ArcadeGame':
+    case 'OverlayInput':
       instructions.push({
         op: 'DISPLAY',
         nodeId: node.id,
-        input: connectedInput(edgesByTarget, node.id, 'title'),
+        input: connectedInput(edgesByTarget, node.id, 'message'),
         output: symbol(node.id, 'result'),
-        displayType: 'arcade-game',
-        message: node.settings.promptMessage ?? 'Space Defender',
+        displayType: 'input-capture',
+        message: node.settings.promptMessage ?? 'Use the keyboard or mouse while this overlay is open.',
         mode: 'OVERLAY',
         timeoutMs: node.settings.displayTimeoutMs,
-        gamePreset: node.settings.gamePreset ?? 'SPACE_DEFENDER',
         captureKeyboard: node.settings.captureKeyboard ?? true,
         captureMouse: node.settings.captureMouse ?? true,
       });
@@ -1000,8 +995,8 @@ export function compileWorkspace(workspace: WorkspaceFileV2, options: CompileOpt
       addRisk(
         risk,
         'extended',
-        instruction.displayType === 'arcade-game'
-          ? 'Game overlay can capture keyboard or mouse while it is open.'
+        instruction.displayType === 'input-capture'
+          ? 'Overlay input can capture keyboard or mouse while it is open.'
           : 'Page overlay display is extended risk.',
         'output',
       );

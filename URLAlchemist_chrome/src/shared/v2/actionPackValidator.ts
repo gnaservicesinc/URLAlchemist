@@ -41,10 +41,9 @@ const SAVELOAD_MODES = ['SAVE', 'EXISTS', 'GET'] as const;
 const REMOTE_METHODS = ['GET', 'POST'] as const;
 const SYSTEM_DATA_MODES = ['NOW_MS', 'EPOCH_SECONDS', 'ISO_DATE', 'TIMEZONE_OFFSET_MINUTES', 'LOCALE_DATE', 'LOCALE_TIME'] as const;
 const USER_INTERACTIONS = ['PROMPT_TEXT', 'PROMPT_NUMBER', 'CONFIRM', 'PICK_FILE_OR_URL'] as const;
-const DISPLAY_TYPES = ['message', 'image', 'video', 'sound', 'arcade-game'] as const;
+const DISPLAY_TYPES = ['message', 'image', 'video', 'sound', 'input-capture'] as const;
 const DISPLAY_MODES = ['OVERLAY', 'REPLACE_PAGE', 'NEW_TAB'] as const;
 const SHOW_IMAGE_STOP_MODES = ['CLOSE_BUTTON', 'CLICK', 'TIMEOUT', 'CONFIRM'] as const;
-const GAME_PRESETS = ['SPACE_DEFENDER'] as const;
 const ASSET_KINDS = ['image', 'video', 'audio', 'unknown'] as const;
 const ASSET_SOURCES = ['remote', 'embedded', 'picked-file'] as const;
 const ASSET_COMPRESSION = ['gzip', 'none'] as const;
@@ -754,7 +753,7 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'DISPLAY': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'displayType', 'message', 'mode'], ['input', 'asset', 'output', 'stopMode', 'timeoutMs', 'gamePreset', 'captureKeyboard', 'captureMouse'])) {
+      if (!hasExactKeys(instruction, ['op', 'nodeId', 'displayType', 'message', 'mode'], ['input', 'asset', 'output', 'stopMode', 'timeoutMs', 'captureKeyboard', 'captureMouse'])) {
         addError(errors, prefix, 'DISPLAY instruction has invalid keys');
         return null;
       }
@@ -783,10 +782,6 @@ function validateInstruction(
         addError(errors, prefix, 'timeoutMs must be between 0 and 3600000');
       }
 
-      if (instruction.gamePreset !== undefined && !isEnumValue(GAME_PRESETS, instruction.gamePreset)) {
-        addError(errors, prefix, 'gamePreset is invalid');
-      }
-
       if (instruction.captureKeyboard !== undefined && !isBoolean(instruction.captureKeyboard)) {
         addError(errors, prefix, 'captureKeyboard must be boolean when provided');
       }
@@ -798,8 +793,8 @@ function validateInstruction(
       addRisk(
         derivedRisk,
         'extended',
-        instruction.displayType === 'arcade-game'
-          ? 'Game overlay can capture keyboard or mouse while it is open.'
+        instruction.displayType === 'input-capture'
+          ? 'Overlay input can capture keyboard or mouse while it is open.'
           : 'Page overlay display is extended risk.',
         'output',
       );

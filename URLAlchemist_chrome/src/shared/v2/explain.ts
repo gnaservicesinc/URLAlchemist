@@ -25,7 +25,7 @@ export function explainRiskReason(reason: string): string {
   if (lower.includes('file selection')) {
     return 'Can ask you to choose a file or enter a web address.';
   }
-  if (lower.includes('game overlay') || lower.includes('keyboard') || lower.includes('mouse')) {
+  if (lower.includes('overlay input') || lower.includes('keyboard') || lower.includes('mouse')) {
     return 'Can open a page overlay and capture keyboard or mouse input while that overlay is open.';
   }
   if (lower.includes('session storage')) {
@@ -98,8 +98,8 @@ export function explainInstruction(instruction: GraphVmInstruction): string {
         ? `Loads ${instruction.kind} media from ${hostFromUrl(instruction.fallbackUrl)}.`
         : `Loads ${instruction.kind} media from a web address chosen while the pack runs.`;
     case 'DISPLAY':
-      if (instruction.displayType === 'arcade-game') {
-        return `Opens the built-in Space Defender game overlay${instruction.captureKeyboard || instruction.captureMouse ? ' and captures controls while it is open' : ''}.`;
+      if (instruction.displayType === 'input-capture') {
+        return `Opens an overlay and records keyboard or mouse input${instruction.captureKeyboard || instruction.captureMouse ? ' while that overlay is open' : ''}.`;
       }
       return `Shows a ${instruction.displayType} ${instruction.mode === 'OVERLAY' ? 'overlay on the page' : 'view'}.`;
     case 'COMPARE':
@@ -127,11 +127,11 @@ export function explainInstruction(instruction: GraphVmInstruction): string {
 export function summarizePackBehavior(pack: CompiledActionPackV2): string {
   const hasRemote = pack.vm.instructions.some((instruction) => instruction.op === 'FETCH_GET' || instruction.op === 'HTTP_REQUEST' || instruction.op === 'GET_ASSET');
   const hasClipboard = pack.requiredPermissions.some((permission) => permission.toLowerCase().includes('clipboard'));
-  const hasGame = pack.vm.instructions.some((instruction) => instruction.op === 'DISPLAY' && instruction.displayType === 'arcade-game');
+  const hasOverlayInput = pack.vm.instructions.some((instruction) => instruction.op === 'DISPLAY' && instruction.displayType === 'input-capture');
   const outputs = pack.vm.instructions.filter((instruction): instruction is Extract<GraphVmInstruction, { op: 'OUTPUT' }> => instruction.op === 'OUTPUT');
 
-  if (hasGame) {
-    return 'This pack opens a built-in game overlay. It can capture game controls only while the overlay is open.';
+  if (hasOverlayInput) {
+    return 'This pack opens an overlay that can capture keyboard or mouse input only while the overlay is open.';
   }
   if (hasRemote && hasClipboard) {
     return 'This pack can use clipboard data and contact the internet. Review the steps before enabling it.';

@@ -329,269 +329,162 @@ async function handleInteraction(message: Extract<ContentRuntimeMessage, { type:
   });
 }
 
-function runSpaceDefender(request: Extract<ContentRuntimeMessage, { type: typeof CONTENT_DISPLAY_MESSAGE }>['request']): Promise<GraphValue> {
+function runOverlayInputCapture(request: Extract<ContentRuntimeMessage, { type: typeof CONTENT_DISPLAY_MESSAGE }>['request']): Promise<GraphValue> {
   const ui = overlayShell();
   const start = performance.now();
-  ui.panel.style.cssText = [
-    'width:min(780px,calc(100vw - 24px))',
-    'max-height:calc(100vh - 24px)',
-    'overflow:hidden',
-    'background:#020617',
-    'border:1px solid rgba(148,163,184,0.4)',
-    'border-radius:12px',
-    'box-shadow:0 24px 80px rgba(15,23,42,0.45)',
-    'padding:14px',
-    'color:#e2e8f0',
-  ].join(';');
-  ui.root.style.background = 'rgba(2,6,23,0.72)';
+  const events: Array<Record<string, unknown>> = [];
+  const pressed = new Set<string>();
+  let lastPointer: { x: number; y: number; buttons: number } | null = null;
 
   const title = document.createElement('div');
-  title.textContent = request.message || 'Space Defender';
-  title.style.cssText = 'font-size:15px;font-weight:800;margin-bottom:8px;color:#f8fafc';
-  const status = document.createElement('div');
-  status.textContent = 'Arrow keys or mouse move, Space or click to fire, Escape closes.';
-  status.style.cssText = 'font-size:12px;margin-bottom:10px;color:#94a3b8';
-  const canvas = document.createElement('canvas');
-  canvas.width = 720;
-  canvas.height = 420;
-  canvas.tabIndex = 0;
-  canvas.style.cssText = 'display:block;width:100%;aspect-ratio:12/7;background:#030712;border:1px solid #1e293b;border-radius:10px;outline:none';
-  const close = ui.close;
-  close.style.cssText = 'margin-top:10px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer';
-  ui.panel.append(title, status, canvas, close);
-  canvas.focus();
-
-  const context = canvas.getContext('2d');
-  if (!context) {
-    ui.cleanup();
-    return Promise.resolve(dict({ ok: false, cancelled: true, reason: 'canvas-unavailable' }));
-  }
-
-  type Shot = { x: number; y: number; dy: number; enemy: boolean };
-  type Invader = { x: number; y: number; alive: boolean };
-  const keys = new Set<string>();
-  const shots: Shot[] = [];
-  const invaders: Invader[] = [];
-  for (let row = 0; row < 3; row += 1) {
-    for (let col = 0; col < 9; col += 1) {
-      invaders.push({ x: 92 + col * 58, y: 62 + row * 42, alive: true });
-    }
-  }
-
-  let playerX = canvas.width / 2;
-  let invaderDirection = 1;
-  let score = 0;
-  let lives = 3;
-  let lastShot = 0;
-  let lastEnemyShot = 0;
-  let lastFrame = performance.now();
-  let animation = 0;
-  let settled = false;
-  let reason = 'closed';
+  title.textContent = request.message || 'Overlay input capture';
+  title.style.cssText = 'font-size:16px;font-weight:700;margin-bottom:10px';
+  const instructions = document.createElement('p');
+  instructions.textContent = [
+    request.captureKeyboard ? 'Keyboard is captured.' : '',
+    request.captureMouse ? 'Mouse is captured inside this panel.' : '',
+    'Close or press Escape to finish.',
+  ].filter(Boolean).join(' ');
+  instructions.style.cssText = 'margin:0 0 12px;color:#475569;font-size:13px';
+  const target = document.createElement('div');
+  target.tabIndex = 0;
+  target.style.cssText = [
+    'min-height:220px',
+    'border:1px dashed #94a3b8',
+    'border-radius:10px',
+    'background:#f8fafc',
+    'display:flex',
+    'align-items:center',
+    'justify-content:center',
+    'text-align:center',
+    'padding:18px',
+    'outline:none',
+    'color:#334155',
+    'font-weight:700',
+  ].join(';');
+  target.textContent = 'Press keys or move/click the mouse here.';
+  ui.panel.append(title, instructions, target, ui.close);
+  target.focus();
 
   return new Promise((resolve) => {
+    let settled = false;
+    let timeoutId = 0;
+    const addEvent = (event: Record<string, unknown>) => {
+      if (events.length >= 200) {
+        return;
+      }
+      events.push({
+        ...event,
+        t: Math.round(performance.now() - start),
+      });
+    };
+
     const finish = (finishReason: string) => {
       if (settled) {
         return;
       }
       settled = true;
-      reason = finishReason;
-      cancelAnimationFrame(animation);
       window.removeEventListener('keydown', keyDown, true);
       window.removeEventListener('keyup', keyUp, true);
-      canvas.removeEventListener('pointermove', pointerMove);
-      canvas.removeEventListener('pointerdown', pointerDown);
+      target.removeEventListener('pointermove', pointerMove);
+      target.removeEventListener('pointerdown', pointerDown);
+      target.removeEventListener('pointerup', pointerUp);
+      window.clearTimeout(timeoutId);
       ui.cleanup();
       resolve(dict({
         ok: true,
-        completed: finishReason === 'won',
         cancelled: finishReason === 'closed' || finishReason === 'escape',
-        score,
-        lives,
-        reason,
+        reason: finishReason,
         durationSeconds: Math.round((performance.now() - start) / 100) / 10,
+        events,
+        keys: Array.from(pressed),
+        pointer: lastPointer,
         keyboardCaptured: Boolean(request.captureKeyboard),
         mouseCaptured: Boolean(request.captureMouse),
       }));
-    };
-
-    const fire = () => {
-      const now = performance.now();
-      if (now - lastShot < 220) {
-        return;
-      }
-      lastShot = now;
-      shots.push({ x: playerX, y: 356, dy: -430, enemy: false });
     };
 
     const keyDown = (event: KeyboardEvent) => {
       if (!request.captureKeyboard || settled) {
         return;
       }
-      if (['ArrowLeft', 'ArrowRight', ' ', 'Spacebar', 'Space', 'Escape'].includes(event.key)) {
-        event.preventDefault();
-        event.stopPropagation();
-      }
+      event.preventDefault();
+      event.stopPropagation();
       if (event.key === 'Escape') {
         finish('escape');
         return;
       }
-      if (event.key === ' ' || event.key === 'Spacebar' || event.key === 'Space') {
-        fire();
-      }
-      keys.add(event.key);
+      pressed.add(event.key);
+      addEvent({ type: 'keydown', key: event.key, code: event.code });
     };
 
     const keyUp = (event: KeyboardEvent) => {
-      keys.delete(event.key);
-    };
-
-    const pointerMove = (event: PointerEvent) => {
-      if (!request.captureMouse) {
-        return;
-      }
-      const rect = canvas.getBoundingClientRect();
-      playerX = Math.max(24, Math.min(canvas.width - 24, ((event.clientX - rect.left) / rect.width) * canvas.width));
-    };
-
-    const pointerDown = (event: PointerEvent) => {
-      if (!request.captureMouse) {
+      if (!request.captureKeyboard || settled) {
         return;
       }
       event.preventDefault();
-      fire();
+      event.stopPropagation();
+      pressed.delete(event.key);
+      addEvent({ type: 'keyup', key: event.key, code: event.code });
     };
 
-    const drawShip = () => {
-      context.fillStyle = '#38bdf8';
-      context.beginPath();
-      context.moveTo(playerX, 330);
-      context.lineTo(playerX - 24, 374);
-      context.lineTo(playerX + 24, 374);
-      context.closePath();
-      context.fill();
-      context.fillStyle = '#e0f2fe';
-      context.fillRect(playerX - 5, 342, 10, 18);
-    };
-
-    const drawInvader = (invader: Invader) => {
-      context.fillStyle = '#facc15';
-      context.fillRect(invader.x - 16, invader.y - 10, 32, 18);
-      context.fillStyle = '#020617';
-      context.fillRect(invader.x - 9, invader.y - 5, 5, 5);
-      context.fillRect(invader.x + 4, invader.y - 5, 5, 5);
-      context.fillStyle = '#f97316';
-      context.fillRect(invader.x - 22, invader.y + 8, 8, 8);
-      context.fillRect(invader.x + 14, invader.y + 8, 8, 8);
-    };
-
-    const update = (now: number) => {
-      const dt = Math.min(0.034, (now - lastFrame) / 1000);
-      lastFrame = now;
-      if (keys.has('ArrowLeft')) {
-        playerX -= 310 * dt;
-      }
-      if (keys.has('ArrowRight')) {
-        playerX += 310 * dt;
-      }
-      playerX = Math.max(24, Math.min(canvas.width - 24, playerX));
-
-      let edgeHit = false;
-      invaders.forEach((invader) => {
-        if (!invader.alive) {
-          return;
-        }
-        invader.x += invaderDirection * 34 * dt;
-        edgeHit = edgeHit || invader.x > canvas.width - 38 || invader.x < 38;
-      });
-      if (edgeHit) {
-        invaderDirection *= -1;
-        invaders.forEach((invader) => {
-          invader.y += 18;
-        });
-      }
-
-      const living = invaders.filter((invader) => invader.alive);
-      if (living.length > 0 && now - lastEnemyShot > 900) {
-        lastEnemyShot = now;
-        const shooter = living[Math.floor(Math.random() * living.length)];
-        shots.push({ x: shooter.x, y: shooter.y + 16, dy: 220, enemy: true });
-      }
-
-      shots.forEach((shot) => {
-        shot.y += shot.dy * dt;
-      });
-
-      shots.forEach((shot) => {
-        if (shot.enemy) {
-          if (Math.abs(shot.x - playerX) < 24 && shot.y > 324 && shot.y < 376) {
-            shot.y = canvas.height + 99;
-            lives -= 1;
-          }
-          return;
-        }
-        invaders.forEach((invader) => {
-          if (invader.alive && Math.abs(shot.x - invader.x) < 22 && Math.abs(shot.y - invader.y) < 20) {
-            invader.alive = false;
-            shot.y = -99;
-            score += 10;
-          }
-        });
-      });
-
-      for (let index = shots.length - 1; index >= 0; index -= 1) {
-        if (shots[index].y < -20 || shots[index].y > canvas.height + 20) {
-          shots.splice(index, 1);
-        }
-      }
-
-      context.clearRect(0, 0, canvas.width, canvas.height);
-      context.fillStyle = '#020617';
-      context.fillRect(0, 0, canvas.width, canvas.height);
-      context.fillStyle = '#0f172a';
-      for (let x = 0; x < canvas.width; x += 48) {
-        context.fillRect(x, 398, 24, 2);
-      }
-      context.fillStyle = '#e2e8f0';
-      context.font = '16px system-ui, sans-serif';
-      context.fillText(`Score ${score}`, 18, 28);
-      context.fillText(`Lives ${lives}`, canvas.width - 92, 28);
-      invaders.filter((invader) => invader.alive).forEach(drawInvader);
-      shots.forEach((shot) => {
-        context.fillStyle = shot.enemy ? '#fb7185' : '#67e8f9';
-        context.fillRect(shot.x - 2, shot.y - 10, 4, 14);
-      });
-      drawShip();
-
-      if (lives <= 0 || living.some((invader) => invader.y > 306)) {
-        finish('lost');
+    const pointerMove = (event: PointerEvent) => {
+      if (!request.captureMouse || settled) {
         return;
       }
-      if (living.length === 0) {
-        finish('won');
-        return;
-      }
-      if (request.timeoutMs && now - start > request.timeoutMs) {
-        finish('timeout');
-        return;
-      }
-
-      animation = requestAnimationFrame(update);
+      const rect = target.getBoundingClientRect();
+      lastPointer = {
+        x: Math.round(event.clientX - rect.left),
+        y: Math.round(event.clientY - rect.top),
+        buttons: event.buttons,
+      };
+      addEvent({ type: 'pointermove', ...lastPointer });
     };
 
-    close.addEventListener('click', () => finish('closed'));
+    const pointerDown = (event: PointerEvent) => {
+      if (!request.captureMouse || settled) {
+        return;
+      }
+      event.preventDefault();
+      const rect = target.getBoundingClientRect();
+      lastPointer = {
+        x: Math.round(event.clientX - rect.left),
+        y: Math.round(event.clientY - rect.top),
+        buttons: event.buttons,
+      };
+      addEvent({ type: 'pointerdown', button: event.button, ...lastPointer });
+    };
+
+    const pointerUp = (event: PointerEvent) => {
+      if (!request.captureMouse || settled) {
+        return;
+      }
+      event.preventDefault();
+      const rect = target.getBoundingClientRect();
+      lastPointer = {
+        x: Math.round(event.clientX - rect.left),
+        y: Math.round(event.clientY - rect.top),
+        buttons: event.buttons,
+      };
+      addEvent({ type: 'pointerup', button: event.button, ...lastPointer });
+    };
+
+    ui.close.addEventListener('click', () => finish('closed'));
     window.addEventListener('keydown', keyDown, true);
     window.addEventListener('keyup', keyUp, true);
-    canvas.addEventListener('pointermove', pointerMove);
-    canvas.addEventListener('pointerdown', pointerDown);
-    animation = requestAnimationFrame(update);
+    target.addEventListener('pointermove', pointerMove);
+    target.addEventListener('pointerdown', pointerDown);
+    target.addEventListener('pointerup', pointerUp);
+    if (request.timeoutMs) {
+      timeoutId = window.setTimeout(() => finish('timeout'), request.timeoutMs);
+    }
   });
 }
 
 async function handleDisplay(message: Extract<ContentRuntimeMessage, { type: typeof CONTENT_DISPLAY_MESSAGE }>): Promise<GraphValue> {
   const { request } = message;
-  if (request.type === 'arcade-game') {
-    return runSpaceDefender(request);
+  if (request.type === 'input-capture') {
+    return runOverlayInputCapture(request);
   }
 
   const ui = overlayShell();

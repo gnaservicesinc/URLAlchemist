@@ -14,7 +14,7 @@ export interface BundledActionPackExample {
   name: string;
   slug: string;
   description: string;
-  category: 'URL cleanup' | 'Search' | 'Storage' | 'Remote data' | 'Page tools' | 'Media' | 'Games';
+  category: 'URL cleanup' | 'Search' | 'Storage' | 'Remote data' | 'Page tools' | 'Media';
   trigger: string;
   risk: 'safe' | 'extended' | 'high';
   features: string[];
@@ -181,15 +181,15 @@ export const BUNDLED_ACTION_PACK_EXAMPLES: BundledActionPackExample[] = [
   },
   {
     id: '0f6b6d50-9d44-4a86-9d0f-80a9e8200014',
-    name: 'Space Defender Overlay',
-    slug: 'space-defender-overlay',
-    description: 'Launches a built-in arcade overlay from a hotkey and captures game controls only while the overlay is open.',
-    category: 'Games',
+    name: 'Overlay Input Capture',
+    slug: 'overlay-input-capture',
+    description: 'Opens an overlay from a hotkey, captures keyboard and mouse events while it is open, and stores the bounded event summary.',
+    category: 'Page tools',
     trigger: 'HOTKEY',
     risk: 'extended',
-    features: ['Hotkey launch', 'Keyboard capture', 'Mouse capture', 'Built-in game block'],
-    workspacePath: 'bundled-actionpacks/workspaces/space-defender-overlay.workspace',
-    actionPackPath: 'bundled-actionpacks/action-packs/space-defender-overlay.actionpack',
+    features: ['Hotkey launch', 'Overlay input', 'Keyboard capture', 'Mouse capture'],
+    workspacePath: 'bundled-actionpacks/workspaces/overlay-input-capture.workspace',
+    actionPackPath: 'bundled-actionpacks/action-packs/overlay-input-capture.actionpack',
   },
 ];
 
@@ -860,28 +860,27 @@ function playbackResume(): WorkspaceFileV2 {
   );
 }
 
-function spaceDefenderOverlay(): WorkspaceFileV2 {
-  const slug = 'space-defender-overlay';
+function overlayInputCapture(): WorkspaceFileV2 {
+  const slug = 'overlay-input-capture';
   const input = node(slug, 'input', 'DataFlowIn', { x: 0, y: 160 }, { locked: true });
-  const game = node(slug, 'game', 'ArcadeGame', { x: 300, y: 40 }, {
-    label: 'Launch Space Defender',
-    gamePreset: 'SPACE_DEFENDER',
-    promptMessage: 'Space Defender',
-    displayTimeoutMs: 180000,
+  const capture = node(slug, 'capture', 'OverlayInput', { x: 300, y: 40 }, {
+    label: 'Capture overlay controls',
+    promptMessage: 'Press arrows, WASD, Space, or click inside this overlay. Close it to save the captured event summary.',
+    displayTimeoutMs: 15000,
     captureKeyboard: true,
     captureMouse: true,
   });
   const save = node(slug, 'save', 'SaveLoad', { x: 620, y: 40 }, {
-    label: 'Save last score',
-    literalValue: 'space-defender:last-result',
+    label: 'Save captured input',
+    literalValue: 'overlay-input:last-capture',
   });
   const output = node(slug, 'output', 'DataFlowOut', { x: 620, y: 220 }, { locked: true });
 
   return baseWorkspace(
     getExample(slug),
-    [input, game, save, output],
+    [input, capture, save, output],
     [
-      edge(game, 'result', save, 'value'),
+      edge(capture, 'result', save, 'value'),
       edge(input, 'url', output, 'url'),
     ],
     {
@@ -908,7 +907,7 @@ export function createBundledExampleWorkspaces(): WorkspaceFileV2[] {
     cleanWords(),
     screenTime(),
     playbackResume(),
-    spaceDefenderOverlay(),
+    overlayInputCapture(),
   ];
 }
 
