@@ -7,6 +7,12 @@ import {
 } from './types';
 import type { ActionPack, Activity, ActivityCondition, StoredState } from './types';
 import { DEFAULT_SETTINGS } from './constants';
+import {
+  normalizeHardeningMaxInstructions,
+  normalizeHardeningMaxRecursion,
+  normalizeHardeningRegexTimeoutMs,
+  normalizeUiScale,
+} from './hardening';
 import { ACTION_PACK_SCHEMA_VERSION, LEGACY_ACTION_PACK_SCHEMA_VERSION } from './v2/types';
 import type { CompiledActionPackV2 } from './v2/types';
 import { validateCompiledActionPackV2 } from './v2/actionPackValidator';
@@ -40,7 +46,17 @@ const METADATA_KEYS = ['author', 'description', 'created_at'];
 const TRIGGER_KEYS = ['type', 'hotkey', 'scope_regex'];
 const CONDITION_KEYS = ['type', 'value', 'target'];
 const STORED_STATE_KEYS = ['settings', 'packs', 'actionPacksV2', 'workspacesV2', 'traceEntries'];
-const SETTINGS_KEYS = ['globalEnabled', 'allowLocalFiles', 'advancedModeEnabled', 'syncEnabled', 'builderUuid'];
+const SETTINGS_KEYS = [
+  'globalEnabled',
+  'allowLocalFiles',
+  'advancedModeEnabled',
+  'syncEnabled',
+  'uiScale',
+  'hardeningMaxInstructions',
+  'hardeningMaxRecursion',
+  'hardeningRegexTimeoutMs',
+  'builderUuid',
+];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -291,6 +307,15 @@ export function validateStoredState(candidate: unknown): ValidationResult<Valida
     return { ok: false, errors: ['Stored builder UUID must be a string'] };
   }
 
+  if (
+    (candidate.settings.uiScale !== undefined && !isFiniteNumber(candidate.settings.uiScale)) ||
+    (candidate.settings.hardeningMaxInstructions !== undefined && !isFiniteNumber(candidate.settings.hardeningMaxInstructions)) ||
+    (candidate.settings.hardeningMaxRecursion !== undefined && !isFiniteNumber(candidate.settings.hardeningMaxRecursion)) ||
+    (candidate.settings.hardeningRegexTimeoutMs !== undefined && !isFiniteNumber(candidate.settings.hardeningRegexTimeoutMs))
+  ) {
+    return { ok: false, errors: ['Stored numeric settings must be finite numbers'] };
+  }
+
   if (candidate.packs !== undefined && !Array.isArray(candidate.packs)) {
     return { ok: false, errors: ['Stored packs must be an array'] };
   }
@@ -372,6 +397,10 @@ export function validateStoredState(candidate: unknown): ValidationResult<Valida
       allowLocalFiles: candidate.settings.allowLocalFiles,
       advancedModeEnabled: candidate.settings.advancedModeEnabled,
       syncEnabled: candidate.settings.syncEnabled ?? DEFAULT_SETTINGS.syncEnabled,
+      uiScale: normalizeUiScale(candidate.settings.uiScale),
+      hardeningMaxInstructions: normalizeHardeningMaxInstructions(candidate.settings.hardeningMaxInstructions),
+      hardeningMaxRecursion: normalizeHardeningMaxRecursion(candidate.settings.hardeningMaxRecursion),
+      hardeningRegexTimeoutMs: normalizeHardeningRegexTimeoutMs(candidate.settings.hardeningRegexTimeoutMs),
       builderUuid: candidate.settings.builderUuid || crypto.randomUUID(),
     },
     packs,

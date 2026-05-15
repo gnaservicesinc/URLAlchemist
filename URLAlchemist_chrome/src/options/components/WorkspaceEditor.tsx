@@ -25,6 +25,7 @@ import {
   type NodeChange,
   type NodeProps,
   type ReactFlowInstance,
+  type Viewport,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
@@ -39,10 +40,18 @@ import { buildRegexFromBuilder, validateEditorRegexPattern } from '../regexBuild
 import { HotkeyRecorder } from './HotkeyRecorder';
 import { RegexBuilderPanel } from './RegexBuilderPanel';
 
+export interface WorkspaceChangeOptions {
+  viewportOnly?: boolean;
+}
+
 interface WorkspaceEditorProps {
   advancedModeEnabled: boolean;
+  allWorkspaces: WorkspaceFileV2[];
+  isDirty: boolean;
   workspace: WorkspaceFileV2;
-  onWorkspaceChange: (workspace: WorkspaceFileV2) => void;
+  onNewWorkspace: () => void;
+  onSwitchWorkspace: (workspaceId: string) => void;
+  onWorkspaceChange: (workspace: WorkspaceFileV2, options?: WorkspaceChangeOptions) => void;
   onBuildActionPack: () => void;
   onExportActionPack: () => void;
   onExportActionPackVersionFile: () => void;
@@ -398,11 +407,12 @@ function regexSettingsFromDraft(draft: ActivityDraft): Partial<WorkspaceBlockSet
 interface WorkspaceFlowProps {
   advancedModeEnabled: boolean;
   workspace: WorkspaceFileV2;
-  onWorkspaceChange: (workspace: WorkspaceFileV2) => void;
+  onWorkspaceChange: (workspace: WorkspaceFileV2, options?: WorkspaceChangeOptions) => void;
   invalidEdgeIds: Set<string>;
+  heightClassName?: string;
 }
 
-function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, invalidEdgeIds }: WorkspaceFlowProps) {
+function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, invalidEdgeIds, heightClassName = 'h-[720px]' }: WorkspaceFlowProps) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; flowX: number; flowY: number } | null>(null);
   const [flowInstance, setFlowInstance] = useState<ReactFlowInstance | null>(null);
   const [regexBuilderNodeId, setRegexBuilderNodeId] = useState<string | null>(null);
@@ -625,9 +635,25 @@ function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, inva
     });
   }
 
+  function handleViewportChange(viewport: Viewport): void {
+    if (
+      Math.abs(workspace.viewport.x - viewport.x) < 0.5 &&
+      Math.abs(workspace.viewport.y - viewport.y) < 0.5 &&
+      Math.abs(workspace.viewport.zoom - viewport.zoom) < 0.001
+    ) {
+      return;
+    }
+
+    onWorkspaceChange({
+      ...workspace,
+      viewport,
+    }, { viewportOnly: true });
+  }
+
   return (
-    <div className="relative h-[720px] overflow-hidden rounded-[1.25rem] border border-slate-200 bg-white">
+    <div className={`relative overflow-hidden rounded-[1.25rem] border border-slate-200 bg-white ${heightClassName}`}>
       <ReactFlow
+        key={workspace.metadata.id}
         colorMode="light"
         connectionLineStyle={{ stroke: '#c76a1a', strokeWidth: 2 }}
         defaultViewport={workspace.viewport}
@@ -650,6 +676,7 @@ function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, inva
         onInit={setFlowInstance}
         onNodeDragStop={handleNodeDragStop}
         onNodesChange={handleNodeChanges}
+        onMoveEnd={(_event, viewport) => handleViewportChange(viewport)}
         onPaneClick={() => setContextMenu(null)}
         onPaneContextMenu={(event) => {
           event.preventDefault();
@@ -723,14 +750,20 @@ function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, inva
 
 export function WorkspaceEditor({
   advancedModeEnabled,
+  allWorkspaces,
+  isDirty,
   workspace,
   onWorkspaceChange,
+  onNewWorkspace,
+  onSwitchWorkspace,
   onBuildActionPack,
   onExportActionPack,
   onExportActionPackVersionFile,
   onExportWorkspace,
   onSaveWorkspace,
 }: WorkspaceEditorProps) {
+  const [metadataCollapsed, setMetadataCollapsed] = useState(false);
+  const [isPopout, setIsPopout] = useState(false);
   const compileResult = useMemo(() => compileWorkspace(workspace), [workspace]);
   const invalidEdgeIds = useMemo(() => new Set(compileResult.validation.invalidEdgeIds), [compileResult.validation.invalidEdgeIds]);
   const hotkeyError = workspace.trigger.type === 'HOTKEY' ? getHotkeyValidationError(workspace.trigger.hotkey, []) : null;
@@ -767,17 +800,101 @@ export function WorkspaceEditor({
     });
   }
 
+  useEffect(() => {
+    if (!isPopout) {
+      return undefined;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsPopout(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isPopout]);
+
+  const blockToolbar = (
+    <div className="flex flex-wrap gap-2">
+      {BLOCK_DEFINITIONS.map((definition) => (
+        <button key={definition.kind} className="ghost-button" type="button" onClick={() => addToolbarBlock(definition.kind)}>
+          {definition.label}
+        </button>
+      ))}
+    </div>
+  );
+
+  const surface = (heightClassName?: string, expanded = false) => (
+    <div className="grid gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-slate-900">Workspace surface</p>
+          <p className="text-xs text-slate-500">Right-click the canvas or use the block generator to add blocks.</p>
+        </div>
+        {!expanded ? (
+          <button className="ghost-button" title="Expand workspace surface" type="button" onClick={() => setIsPopout(true)}>
+            <svg aria-hidden="true" className="mr-2 inline-block h-4 w-4 align-[-2px]" fill="none" viewBox="0 0 24 24">
+              <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M21 16v5h-5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+            </svg>
+            Pop Out
+          </button>
+        ) : null}
+      </div>
+      {blockToolbar}
+      <ReactFlowProvider>
+        <WorkspaceFlow
+          advancedModeEnabled={advancedModeEnabled}
+          heightClassName={heightClassName}
+          invalidEdgeIds={invalidEdgeIds}
+          workspace={workspace}
+          onWorkspaceChange={onWorkspaceChange}
+        />
+      </ReactFlowProvider>
+    </div>
+  );
+
   return (
     <section className="panel-shell reveal-panel">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="eyebrow">Workspace</p>
+          <p className="eyebrow">Workspace Editor</p>
           <h2 className="mt-2 text-2xl font-semibold text-slate-900">Node action builder</h2>
           <p className="mt-2 max-w-3xl text-sm text-slate-600">
             Workspaces can be saved while otherwise invalid, but at least one Data Out block is required. Building a distributable Action Pack is blocked until every required connection and type check passes.
           </p>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <select
+              className="field-select min-w-72"
+              value={allWorkspaces.some((candidate) => candidate.metadata.id === workspace.metadata.id) ? workspace.metadata.id : '__current__'}
+              onChange={(event) => {
+                if (event.target.value === '__new__') {
+                  onNewWorkspace();
+                  return;
+                }
+
+                if (event.target.value !== '__current__') {
+                  onSwitchWorkspace(event.target.value);
+                }
+              }}
+            >
+              <option value="__current__">{workspace.metadata.name} (current draft)</option>
+              <option value="__new__">New Workspace</option>
+              {allWorkspaces.map((savedWorkspace) => (
+                <option key={savedWorkspace.metadata.id} value={savedWorkspace.metadata.id}>
+                  {savedWorkspace.metadata.name}
+                </option>
+              ))}
+            </select>
+            {isDirty ? <span className="risk-badge risk-badge-warn">Unsaved changes</span> : <span className="risk-badge risk-badge-soft">Saved</span>}
+          </div>
         </div>
         <div className="flex flex-wrap gap-3">
+          <button className="ghost-button" type="button" onClick={() => setMetadataCollapsed((current) => !current)}>
+            {metadataCollapsed ? 'Show Metadata' : 'Hide Metadata'}
+          </button>
           <button className="ghost-button" disabled={!hasDataOut} type="button" onClick={onSaveWorkspace}>
             Save Workspace
           </button>
@@ -796,7 +913,7 @@ export function WorkspaceEditor({
         </div>
       </div>
 
-      <div className="mt-6 grid gap-4 lg:grid-cols-4">
+      {!metadataCollapsed ? <div className="mt-6 grid gap-4 lg:grid-cols-4">
         <label className="field-shell">
           <span className="field-label">Workspace Name</span>
           <input className="field-input" value={workspace.metadata.name} onChange={(event) => updateWorkspace({ metadata: { ...workspace.metadata, name: event.target.value } })} />
@@ -870,20 +987,23 @@ export function WorkspaceEditor({
             />
           </div>
         ) : null}
-      </div>
-
-      <div className="mt-5 flex flex-wrap gap-2">
-        {BLOCK_DEFINITIONS.map((definition) => (
-          <button key={definition.kind} className="ghost-button" type="button" onClick={() => addToolbarBlock(definition.kind)}>
-            {definition.label}
-          </button>
-        ))}
-      </div>
+      </div> : (
+        <div className="mt-5 rounded-[1.25rem] border border-slate-200 bg-white/70 px-5 py-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm font-semibold text-slate-900">{workspace.metadata.name}</p>
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+              v{workspace.metadata.version} · {workspace.trigger.type}
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="mt-5">
-        <ReactFlowProvider>
-          <WorkspaceFlow advancedModeEnabled={advancedModeEnabled} workspace={workspace} onWorkspaceChange={onWorkspaceChange} invalidEdgeIds={invalidEdgeIds} />
-        </ReactFlowProvider>
+        {isPopout ? (
+          <div className="rounded-[1.25rem] border border-slate-200 bg-white/70 px-5 py-6 text-sm text-slate-500">
+            Workspace surface is open in the expanded editor.
+          </div>
+        ) : surface()}
       </div>
 
       <div className="mt-5 grid gap-4 lg:grid-cols-2">
@@ -930,6 +1050,26 @@ export function WorkspaceEditor({
           ) : null}
         </div>
       </div>
+      {isPopout ? createPortal(
+        <div className="fixed inset-0 z-40 bg-slate-950/60 p-4 backdrop-blur-sm">
+          <div className="flex h-full flex-col rounded-[1.25rem] border border-white/60 bg-[rgba(255,252,246,0.98)] p-4 shadow-[0_32px_90px_rgba(15,23,42,0.35)]">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="eyebrow">Workspace Surface</p>
+                <h3 className="mt-1 text-xl font-semibold text-slate-900">{workspace.metadata.name}</h3>
+              </div>
+              <button className="ghost-button" type="button" onClick={() => setIsPopout(false)}>
+                <svg aria-hidden="true" className="mr-2 inline-block h-4 w-4 align-[-2px]" fill="none" viewBox="0 0 24 24">
+                  <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
+                </svg>
+                Exit
+              </button>
+            </div>
+            <div className="min-h-0 flex-1">{surface('h-full min-h-[520px]', true)}</div>
+          </div>
+        </div>,
+        document.body,
+      ) : null}
     </section>
   );
 }

@@ -1,7 +1,8 @@
 import { DEFAULT_SETTINGS, STORAGE_KEY } from './constants';
 import type { ActionPack, GlobalSettings, StoredState, StoredTraceEntry } from './types';
 import { normalizeStoredState } from './validation';
-import type { CompiledActionPackV2, WorkspaceFileV2 } from './v2/types';
+import { validateWorkspaceFile } from './v2/workspace';
+import type { CompiledActionPackV2, WorkspaceFileV2, WorkspaceViewport } from './v2/types';
 
 function getChromeStorageLocal(): typeof chrome.storage.local | null {
   return globalThis.chrome?.storage?.local ?? null;
@@ -15,7 +16,12 @@ function getChromeStorageChanges(): typeof chrome.storage.onChanged | null {
   return globalThis.chrome?.storage?.onChanged ?? null;
 }
 
+function getChromeStorageSession(): typeof chrome.storage.session | null {
+  return globalThis.chrome?.storage?.session ?? null;
+}
+
 const SYNC_STORAGE_KEY = 'url-alchemist-sync-state';
+const OPEN_WORKSPACE_DRAFT_KEY = 'url-alchemist-open-workspace';
 // Chrome sync QUOTA_BYTES_PER_ITEM is 8192 bytes per key.
 // We store the entire snapshot under ONE key, so the total must fit inside that limit.
 const SYNC_MAX_ITEM_BYTES = 8 * 1024;
@@ -161,6 +167,45 @@ export async function updateSettings(settings: Partial<GlobalSettings>): Promise
   return nextState;
 }
 
+export async function loadOpenWorkspaceDraft(): Promise<WorkspaceFileV2 | null> {
+  const chromeStorage = getChromeStorageLocal();
+  const candidate = chromeStorage
+    ? (await chromeStorage.get(OPEN_WORKSPACE_DRAFT_KEY))[OPEN_WORKSPACE_DRAFT_KEY]
+    : globalThis.localStorage?.getItem(OPEN_WORKSPACE_DRAFT_KEY);
+  let raw: unknown;
+  try {
+    raw = typeof candidate === 'string' ? JSON.parse(candidate) : candidate;
+  } catch {
+    return null;
+  }
+  if (raw === undefined || raw === null) {
+    return null;
+  }
+
+  const validation = validateWorkspaceFile(raw);
+  return validation.ok ? validation.value : null;
+}
+
+export async function saveOpenWorkspaceDraft(workspace: WorkspaceFileV2): Promise<void> {
+  const chromeStorage = getChromeStorageLocal();
+  if (!chromeStorage) {
+    globalThis.localStorage?.setItem(OPEN_WORKSPACE_DRAFT_KEY, JSON.stringify(workspace));
+    return;
+  }
+
+  await chromeStorage.set({ [OPEN_WORKSPACE_DRAFT_KEY]: workspace });
+}
+
+export async function clearOpenWorkspaceDraft(): Promise<void> {
+  const chromeStorage = getChromeStorageLocal();
+  if (!chromeStorage) {
+    globalThis.localStorage?.removeItem(OPEN_WORKSPACE_DRAFT_KEY);
+    return;
+  }
+
+  await chromeStorage.remove(OPEN_WORKSPACE_DRAFT_KEY);
+}
+
 export async function upsertPack(pack: ActionPack): Promise<StoredState> {
   const state = await loadStoredState();
   const index = state.packs.findIndex((candidate) => candidate.id === pack.id);
@@ -242,6 +287,24 @@ export async function deleteWorkspaceV2(workspaceId: string): Promise<StoredStat
   return nextState;
 }
 
+export async function updateWorkspaceV2Viewport(workspaceId: string, viewport: WorkspaceViewport): Promise<StoredState> {
+  const state = await loadStoredState();
+  const nextState = {
+    ...state,
+    workspacesV2: state.workspacesV2.map((workspace) =>
+      workspace.metadata.id === workspaceId
+        ? {
+            ...workspace,
+            viewport,
+          }
+        : workspace,
+    ),
+  };
+
+  await saveStoredState(nextState);
+  return nextState;
+}
+
 export async function updateActionPackV2Trace(packId: string, traceEnabledUntil: number): Promise<StoredState> {
   const state = await loadStoredState();
   const nextState = {
@@ -294,6 +357,22 @@ export async function deletePack(packId: string): Promise<StoredState> {
 
   await saveStoredState(nextState);
   return nextState;
+}
+
+export async function resetExtensionStorage(): Promise<void> {
+  const local = getChromeStorageLocal();
+  const sync = getChromeStorageSync();
+  const session = getChromeStorageSession();
+
+  if (local) {
+    await local.clear();
+  } else {
+    globalThis.localStorage?.removeItem(STORAGE_KEY);
+    globalThis.localStorage?.removeItem(OPEN_WORKSPACE_DRAFT_KEY);
+  }
+
+  await sync?.clear();
+  await session?.clear();
 }
 
 export function subscribeStoredState(listener: (state: StoredState) => void): () => void {

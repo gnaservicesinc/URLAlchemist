@@ -1,9 +1,10 @@
-import { CONTEXT_MENU_RUN_ID, MAX_REDIRECT_DEPTH } from '../shared/constants';
+import { CONTEXT_MENU_RUN_ID } from '../shared/constants';
 import { packMatchesScope, simulateActionPack, triggerMatches } from '../shared/engine/engine';
+import { effectiveRedirectDepthLimit, effectiveRegexTimeoutMs } from '../shared/hardening';
 import { normalizeHotkeyValue } from '../shared/hotkeys';
 import { isHotkeyTriggerMessage, type RuntimeSourceContext } from '../shared/messages';
 import { appendTraceEntry, loadStoredState } from '../shared/storage';
-import type { ActionPack, EngineIssue, TriggerType, WorkspaceTriggerType } from '../shared/types';
+import type { ActionPack, EngineIssue, GlobalSettings, TriggerType, WorkspaceTriggerType } from '../shared/types';
 import type { CompiledActionPackV2, WorkspaceInputSource } from '../shared/v2/types';
 import { executeCompiledActionPackV2, type GraphRuntime } from '../shared/v2/vm';
 import { createOffscreenRegexExecutor, readClipboardFromOffscreen, writeClipboardFromOffscreen } from './offscreenBridge';
@@ -23,9 +24,10 @@ const baseRuntime: GraphRuntime = {
   },
 };
 
-function createRunRuntime(context: RuntimeSourceContext = {}): GraphRuntime {
+function createRunRuntime(context: RuntimeSourceContext = {}, settings?: GlobalSettings): GraphRuntime {
   return {
     ...baseRuntime,
+    regex: createOffscreenRegexExecutor(settings ? effectiveRegexTimeoutMs(settings) : undefined),
     readSource: async (source) => {
       if (source === 'clipboard') {
         return { type: 'string', value: await readClipboardFromOffscreen() };
@@ -175,14 +177,14 @@ function v2TriggerMatches(
   return normalizeHotkeyValue(pack.manifest.trigger.hotkey) === normalizeHotkeyValue(triggeredHotkey);
 }
 
-async function v2ScopeMatches(pack: CompiledActionPackV2, url: string): Promise<boolean> {
+async function v2ScopeMatches(pack: CompiledActionPackV2, url: string, runtime: GraphRuntime): Promise<boolean> {
   const urlFilters = pack.triggerPlan.sourceFilters.filter((filter) => filter.source === 'url' && filter.pattern.trim());
   if (urlFilters.length === 0) {
     return true;
   }
 
   for (const filter of urlFilters) {
-    if (!(await baseRuntime.regex.test(url, filter.pattern))) {
+    if (!(await runtime.regex.test(url, filter.pattern))) {
       return false;
     }
   }
@@ -253,7 +255,8 @@ async function applyPacksToTab(
     return;
   }
 
-  const runtime = createRunRuntime(context);
+  const runtime = createRunRuntime(context, state.settings);
+  const redirectDepthLimit = effectiveRedirectDepthLimit(state.settings);
   let currentUrl = inputUrl;
   let urlChanged = false;
 
@@ -277,7 +280,7 @@ async function applyPacksToTab(
     }
 
     const redirectDepth = getRedirectDepth(tabId, pack.id, currentUrl);
-    if (redirectDepth >= MAX_REDIRECT_DEPTH) {
+    if (redirectDepth >= redirectDepthLimit) {
       console.warn(`[URL Alchemist] Loop protection skipped ${pack.name} on ${currentUrl}`);
       continue;
     }
@@ -305,7 +308,7 @@ async function applyPacksToTab(
     }
 
     try {
-      const matchesScope = await v2ScopeMatches(pack, currentUrl);
+      const matchesScope = await v2ScopeMatches(pack, currentUrl, runtime);
       if (!matchesScope) {
         continue;
       }
@@ -322,7 +325,7 @@ async function applyPacksToTab(
     }
 
     const redirectDepth = getRedirectDepth(tabId, pack.manifest.id, currentUrl);
-    if (redirectDepth >= MAX_REDIRECT_DEPTH) {
+    if (redirectDepth >= redirectDepthLimit) {
       console.warn(`[URL Alchemist V2] Loop protection skipped ${pack.manifest.name} on ${currentUrl}`);
       continue;
     }

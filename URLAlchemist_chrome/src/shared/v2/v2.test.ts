@@ -7,9 +7,11 @@ import { fileURLToPath } from 'node:url';
 import { DEFAULT_SETTINGS } from '../constants';
 import { hexToBytes, sha256Hex } from '../crypto';
 import { exportBackupState, importBackupState } from '../backup';
+import { effectiveRedirectDepthLimit, effectiveRegexTimeoutMs, normalizeUiScale } from '../hardening';
 import { executeRegexJobRequest } from '../regex/executeRegexJob';
 import type { ActionPack, RegexTransformRequest } from '../types';
 import { getDefaultState } from '../storage';
+import { normalizeStoredState } from '../validation';
 import { validateCompiledActionPackV2 } from './actionPackValidator';
 import { BUNDLED_ACTION_PACK_EXAMPLES, createBundledExampleActionPacks, createBundledExampleWorkspaces } from './bundledExamples';
 import { compileWorkspace } from './compiler';
@@ -811,6 +813,56 @@ describe('v2 workspace compiler and VM', () => {
     expect(restored.settings.syncEnabled).toBe(true);
     expect(restored.actionPacksV2).toHaveLength(1);
     expect(restored.workspacesV2).toHaveLength(1);
+  });
+
+  it('migrates stored settings with hardening and UI scale defaults', () => {
+    const restored = normalizeStoredState({
+      settings: {
+        globalEnabled: true,
+        allowLocalFiles: false,
+        advancedModeEnabled: false,
+        syncEnabled: false,
+        builderUuid: 'builder-id',
+      },
+      packs: [],
+      actionPacksV2: [],
+      workspacesV2: [],
+      traceEntries: [],
+    });
+
+    expect(restored.settings.uiScale).toBe(100);
+    expect(restored.settings.hardeningMaxInstructions).toBe(300);
+    expect(restored.settings.hardeningMaxRecursion).toBe(3);
+    expect(restored.settings.hardeningRegexTimeoutMs).toBe(50);
+  });
+
+  it('clamps UI scale and hardening settings to stricter effective limits', () => {
+    const looseSettings = {
+      ...DEFAULT_SETTINGS,
+      uiScale: 1000,
+      hardeningMaxRecursion: 10,
+      hardeningRegexTimeoutMs: 500,
+    };
+
+    expect(normalizeUiScale(looseSettings.uiScale)).toBe(600);
+    expect(effectiveRedirectDepthLimit(looseSettings)).toBe(3);
+    expect(effectiveRegexTimeoutMs(looseSettings)).toBe(50);
+  });
+
+  it('honors the hardened VM instruction limit at runtime', async () => {
+    const pack = createBasicCompiledPack();
+    const result = await executeCompiledActionPackV2(
+      'https://example.com/?utm_source=test&id=1',
+      pack,
+      runtime,
+      {
+        ...DEFAULT_SETTINGS,
+        hardeningMaxInstructions: 1,
+      },
+    );
+
+    expect(result.changed).toBe(false);
+    expect(result.issues.some((entry) => entry.message.includes('VM step budget exceeded'))).toBe(true);
   });
 
   it('executes bundled examples that use selected text, clipboard input, storage, and clipboard output', async () => {

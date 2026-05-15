@@ -63,7 +63,7 @@ async function sendOffscreenMessage<T>(message: object): Promise<T> {
   return response.data;
 }
 
-export function createOffscreenRegexExecutor(): RegexExecutor {
+export function createOffscreenRegexExecutor(timeoutMs?: number): RegexExecutor {
   return {
     async test(input, pattern) {
       const response = await sendOffscreenMessage<RegexJobResponse>({
@@ -72,6 +72,7 @@ export function createOffscreenRegexExecutor(): RegexExecutor {
           kind: 'test',
           input,
           pattern,
+          timeoutMs,
         },
       });
 
@@ -83,6 +84,7 @@ export function createOffscreenRegexExecutor(): RegexExecutor {
         request: {
           kind: 'transform',
           ...request,
+          timeoutMs,
         },
       });
 

@@ -1,4 +1,5 @@
 import { ALLOWED_NAVIGATION_PROTOCOLS } from '../constants';
+import { effectiveVmInstructionLimit } from '../hardening';
 import type { EngineIssue, GlobalSettings } from '../types';
 import type { EngineRuntime } from '../engine/runtime';
 import type { CompiledActionPackV2, GraphValue, GraphVmInstruction } from './types';
@@ -709,8 +710,9 @@ export async function executeCompiledActionPackV2(
   }
 
   try {
+    const stepBudget = effectiveVmInstructionLimit(settings, pack.vm.stepBudget);
     for (const [index, instruction] of pack.vm.instructions.entries()) {
-      if (index >= pack.vm.stepBudget) {
+      if (index >= stepBudget) {
         state.issues.push(issue('VM step budget exceeded; pack execution was aborted'));
         break;
       }

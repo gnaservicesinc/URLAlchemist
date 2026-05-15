@@ -11,6 +11,7 @@ const packageJson = JSON.parse(readFileSync(fileURLToPath(new URL('./package.jso
 export default defineConfig({
   define: {
     __URL_ALCHEMIST_VERSION__: JSON.stringify(packageJson.version),
+    __URL_ALCHEMIST_BUILD_TIME__: JSON.stringify(new Date().toISOString()),
   },
   plugins: [react(), tailwindcss()],
   build: {

@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Regex Builder</title>
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; line-height: 1.7; max-width: 760px; margin: 0 auto; padding: 40px 24px; color: #1e293b; background: #fff; }
+  h1 { color: #0f172a; margin-top: 0; }
+  h2 { color: #334155; margin-top: 2rem; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; }
+  code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<h1>Regex Builder</h1>
+<p>The regex builder helps create transformation patterns from sample text. It is designed for users who do not want to write manual regular expressions first.</p>
+<h2>Visual Mode</h2>
+<p>Paste a sample URL, select text, and tune generated tokens. The builder stores both the visual token model and the generated pattern in the workspace.</p>
+<h2>Advanced Mode</h2>
+<p>Advanced Mode enables manual regex editing. Patterns are still validated and run through the same safety wrappers used by compiled Action Packs.</p>
+<h2>Replacement Tokens</h2>
+<p>Payloads can use safe replacement tokens such as regex capture groups, <code>{date}</code>, and clipboard placeholders when the pack requests the relevant permission.</p>
+</body>
+</html>

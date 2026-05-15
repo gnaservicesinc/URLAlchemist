@@ -119,6 +119,7 @@ export interface RegexTestRequest {
   kind: 'test';
   input: string;
   pattern: string;
+  timeoutMs?: number;
 }
 
 export interface RegexTransformRequest {
@@ -129,6 +130,7 @@ export interface RegexTransformRequest {
   action: ActionType;
   replacement: string;
   nthOccurrence?: number;
+  timeoutMs?: number;
 }
 
 export type RegexJobRequest = RegexTestRequest | RegexTransformRequest;
