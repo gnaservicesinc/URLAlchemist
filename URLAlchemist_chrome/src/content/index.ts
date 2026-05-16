@@ -18,6 +18,10 @@ const CONTENT_RUNTIME_MESSAGE_TYPES = new Set<string>([
   CONTENT_READ_SOURCE_MESSAGE,
 ]);
 
+function isContextValid(): boolean {
+  return !!(typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id);
+}
+
 function isContentRuntimeMessage(message: unknown): message is ContentRuntimeMessage {
   return (
     typeof message === 'object' &&
@@ -166,6 +170,10 @@ if (window.top === window) {
         return;
       }
 
+      if (!isContextValid()) {
+        return;
+      }
+
       chrome.runtime.sendMessage(
         {
           type: HOTKEY_TRIGGER_MESSAGE,
@@ -282,6 +290,9 @@ function plain(value: unknown): unknown {
 }
 
 function sendOverlayAppEvent(packId: string, event: OverlayRuntimeEvent): void {
+  if (!isContextValid()) {
+    return;
+  }
   chrome.runtime.sendMessage(
     {
       type: OVERLAY_APP_EVENT_MESSAGE,
@@ -957,6 +968,9 @@ function readPageSource(source: string): GraphValue {
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (!isContextValid()) {
+    return;
+  }
   if (!isContentRuntimeMessage(message)) {
     return;
   }
