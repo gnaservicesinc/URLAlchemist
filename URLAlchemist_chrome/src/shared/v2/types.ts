@@ -285,6 +285,7 @@ export interface WorkspaceBlockSettings {
   assetDataBase64?: string;
   assetCompression?: 'gzip' | 'none';
   systemDataMode?: SystemDataMode;
+  promptTitle?: string;
   promptMessage?: string;
   promptPlaceholder?: string;
   promptDefaultValue?: string;
@@ -512,9 +513,11 @@ export type GraphVmInstruction =
       op: 'DISPLAY';
       nodeId: string;
       input?: string;
+      titleInput?: string;
       asset?: string;
       output?: string;
       displayType: 'message' | 'image' | 'video' | 'sound' | 'input-capture';
+      title?: string;
       message: string;
       mode: DisplayMode;
       stopMode?: ShowImageStopMode;

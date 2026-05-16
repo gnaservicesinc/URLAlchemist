@@ -505,6 +505,11 @@ function renderBlockSettings(
     case 'ShowMessage':
       return (
         <div className="mt-3 grid gap-2">
+          {!isConnected('title') ? (
+            <SettingField help="Heading used when the Title input is not connected." label="Title">
+              <input className={inputClass} placeholder="URL Alchemist" value={settingText(node.settings.promptTitle ?? 'URL Alchemist')} onChange={(event) => onSettingsChange({ promptTitle: event.target.value })} />
+            </SettingField>
+          ) : connectedNote('Title')}
           {!isConnected('message') ? (
             <SettingField help="Message text used when the Message input is not connected." label="Message">
               <textarea className={`${inputClass} min-h-14`} placeholder="Message" value={settingText(node.settings.promptMessage)} onChange={(event) => onSettingsChange({ promptMessage: event.target.value })} />

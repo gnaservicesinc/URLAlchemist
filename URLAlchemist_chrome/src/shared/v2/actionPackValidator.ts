@@ -779,12 +779,13 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'DISPLAY': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'displayType', 'message', 'mode'], ['input', 'asset', 'output', 'stopMode', 'timeoutMs', 'captureKeyboard', 'captureMouse'])) {
+      if (!hasExactKeys(instruction, ['op', 'nodeId', 'displayType', 'message', 'mode'], ['input', 'titleInput', 'asset', 'output', 'title', 'stopMode', 'timeoutMs', 'captureKeyboard', 'captureMouse'])) {
         addError(errors, prefix, 'DISPLAY instruction has invalid keys');
         return null;
       }
 
       assertReference(errors, symbolTable, instruction.input, `${prefix}.input`);
+      assertReference(errors, symbolTable, instruction.titleInput, `${prefix}.titleInput`);
       assertReference(errors, symbolTable, instruction.asset, `${prefix}.asset`);
       assertReference(errors, symbolTable, instruction.output, `${prefix}.output`);
 
@@ -794,6 +795,10 @@ function validateInstruction(
 
       if (!isString(instruction.message) || instruction.message.length > 2000) {
         addError(errors, prefix, 'message must be a string of 2000 characters or less');
+      }
+
+      if (instruction.title !== undefined && (!isString(instruction.title) || instruction.title.length > 200)) {
+        addError(errors, prefix, 'title must be a string of 200 characters or less when provided');
       }
 
       if (!isEnumValue(DISPLAY_MODES, instruction.mode)) {

@@ -316,10 +316,11 @@ export const BLOCK_REGISTRY: Record<BlockKind, BlockDefinition> = {
     typeId: BLOCK_TYPE_IDS.ShowMessage,
     label: 'Show Message',
     category: 'interaction',
-    inputs: [port('message', 'Message', 'string')],
+    inputs: [port('title', 'Title', 'string'), port('message', 'Message', 'string')],
     outputs: [port('result', 'Result', 'dict', { risk: 'extended' })],
     flags: defaultFlags,
     defaultSettings: {
+      promptTitle: 'URL Alchemist',
       promptMessage: 'Message',
       displayMode: 'OVERLAY',
     },

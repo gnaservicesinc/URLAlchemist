@@ -33,6 +33,7 @@ export interface UserInteractionRequest {
 
 export interface DisplayRequest {
   type: Extract<GraphVmInstruction, { op: 'DISPLAY' }>['displayType'];
+  title?: string;
   message: string;
   mode: Extract<GraphVmInstruction, { op: 'DISPLAY' }>['mode'];
   stopMode?: Extract<GraphVmInstruction, { op: 'DISPLAY' }>['stopMode'];
@@ -793,10 +794,12 @@ async function executeInstruction(
       break;
     }
     case 'DISPLAY': {
+      const title = instruction.titleInput ? asString(getValue(state, instruction.titleInput)) : instruction.title;
       const message = instruction.input ? asString(getValue(state, instruction.input)) : instruction.message;
       const assetValue = instruction.asset ? getValue(state, instruction.asset) : undefined;
       const value = await (runtime.displayOverlay ?? defaultDisplay)({
         type: instruction.displayType,
+        title,
         message,
         mode: instruction.mode,
         stopMode: instruction.stopMode,

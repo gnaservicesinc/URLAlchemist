@@ -189,6 +189,51 @@ describe('v2 workspace compiler and VM', () => {
     }));
   });
 
+  it('keeps Show Message title and body separate', async () => {
+    const workspace = createDefaultWorkspace();
+    const dataIn = workspace.nodes.find((node) => node.type === 'DataFlowIn')!;
+    const title = createWorkspaceNode('Constant', { x: 260, y: 40 }, {
+      literalValue: 'Page notice',
+      literalDataType: 'string',
+    });
+    const message = createWorkspaceNode('ShowMessage', { x: 520, y: 120 }, {
+      promptTitle: 'Fallback title',
+      promptMessage: 'Fallback message',
+    });
+    const compiled = compileWorkspace({
+      ...workspace,
+      nodes: [...workspace.nodes.filter((node) => node.type !== 'DataFlowOut'), title, message],
+      edges: [
+        createEdge(title.id, 'value', message.id, 'title'),
+        createEdge(dataIn.id, 'pageTitle', message.id, 'message'),
+      ],
+    });
+
+    expect(compiled.ok, compiled.validation.errors.join('; ')).toBe(true);
+    expect(compiled.pack!.vm.instructions).toContainEqual(expect.objectContaining({
+      op: 'DISPLAY',
+      titleInput: `${title.id}.value`,
+      input: `${dataIn.id}.pageTitle`,
+    }));
+
+    const seen: Array<{ title?: string; message: string }> = [];
+    await executeCompiledActionPackV2(
+      'https://example.com/',
+      compiled.pack!,
+      {
+        ...runtime,
+        readSource: async (source) => source === 'pageTitle' ? { type: 'string', value: 'Example Body' } : undefined,
+        displayOverlay: async (request) => {
+          seen.push({ title: request.title, message: request.message });
+          return { type: 'dict', value: {} };
+        },
+      },
+      DEFAULT_SETTINGS,
+    );
+
+    expect(seen).toEqual([{ title: 'Page notice', message: 'Example Body' }]);
+  });
+
   it('allows Declare to initialize strings', async () => {
     const workspace = createDefaultWorkspace();
     const declaration = createWorkspaceNode('Declarations', { x: 260, y: 120 }, {

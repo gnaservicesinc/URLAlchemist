@@ -847,7 +847,7 @@ async function handleDisplay(message: Extract<ContentRuntimeMessage, { type: typ
   const ui = overlayShell();
   const start = performance.now();
   const title = document.createElement('div');
-  title.textContent = request.message || 'URL Alchemist';
+  title.textContent = request.title || (request.type === 'message' ? 'URL Alchemist' : request.message) || 'URL Alchemist';
   title.style.cssText = 'font-size:16px;font-weight:700;margin-bottom:12px;white-space:pre-wrap';
   ui.panel.append(title);
 
