@@ -904,9 +904,7 @@ function validateInstruction(
         addError(errors, prefix, 'name must be a non-empty string');
       }
 
-      if (!isString(instruction.fallbackValue)) {
-        addError(errors, prefix, 'fallbackValue must be a string');
-      }
+      validateGraphValue(instruction.fallbackValue, `${prefix}.fallbackValue`, errors);
 
       return instruction as GraphVmInstruction;
     }
@@ -1492,6 +1490,51 @@ function defaultSafetyForCandidate(candidate: Record<string, unknown>): GraphVmS
   };
 }
 
+function migrateDeclareFallback(value: string): GraphValue {
+  const trimmed = value.trim();
+  const parsedNumber = Number.parseFloat(trimmed);
+  if (trimmed && Number.isFinite(parsedNumber) && String(parsedNumber) === trimmed) {
+    return {
+      type: Number.isInteger(parsedNumber) ? 'number' : 'floatingPoint',
+      value: parsedNumber,
+    } as GraphValue;
+  }
+
+  return { type: 'string', value };
+}
+
+function migrateVmInstructionCandidate(instruction: unknown): unknown {
+  if (!isRecord(instruction)) {
+    return instruction;
+  }
+
+  if (instruction.op === 'DECLARE' && isString(instruction.fallbackValue)) {
+    return {
+      ...instruction,
+      fallbackValue: migrateDeclareFallback(instruction.fallbackValue),
+    };
+  }
+
+  return instruction;
+}
+
+function migrateVmInstructionListCandidate(instructions: unknown): unknown {
+  return Array.isArray(instructions) ? instructions.map(migrateVmInstructionCandidate) : instructions;
+}
+
+function migrateEventHandlersCandidate(eventHandlers: unknown): unknown {
+  if (!isRecord(eventHandlers)) {
+    return eventHandlers;
+  }
+
+  return Object.fromEntries(
+    Object.entries(eventHandlers).map(([handler, instructions]) => [
+      handler,
+      migrateVmInstructionListCandidate(instructions),
+    ]),
+  );
+}
+
 export function migrateCompiledActionPackV2Candidate(candidate: unknown): unknown {
   if (!isRecord(candidate) || candidate.kind !== 'action-pack.v2') {
     return candidate;
@@ -1502,6 +1545,7 @@ export function migrateCompiledActionPackV2Candidate(candidate: unknown): unknow
   }
 
   const manifest = isRecord(candidate.manifest) ? candidate.manifest : {};
+  const vm = isRecord(candidate.vm) ? candidate.vm : {};
   const trigger = isRecord(manifest.trigger) ? manifest.trigger : {};
   const triggerType = trigger.type === 'ALWAYS' ? 'INPUT_DATA' : trigger.type;
   const inputSources = Array.isArray(trigger.inputSources) && trigger.inputSources.length > 0
@@ -1546,19 +1590,20 @@ export function migrateCompiledActionPackV2Candidate(candidate: unknown): unknow
     },
     triggerPlan: isRecord(candidate.triggerPlan) ? candidate.triggerPlan : triggerPlan,
     vm: {
-      ...(isRecord(candidate.vm) ? candidate.vm : {}),
-      eventHandlers: isRecord(isRecord(candidate.vm) ? candidate.vm.eventHandlers : undefined)
-        ? (candidate.vm as Record<string, unknown>).eventHandlers
+      ...vm,
+      instructions: migrateVmInstructionListCandidate(vm.instructions),
+      eventHandlers: isRecord(vm.eventHandlers)
+        ? migrateEventHandlersCandidate(vm.eventHandlers)
         : {
-            trigger: Array.isArray(isRecord(candidate.vm) ? candidate.vm.instructions : undefined)
-              ? (candidate.vm as Record<string, unknown>).instructions
+            trigger: Array.isArray(vm.instructions)
+              ? migrateVmInstructionListCandidate(vm.instructions)
               : [],
             keyboard: [],
             mouse: [],
             tick: [],
           },
-      safety: isRecord(isRecord(candidate.vm) ? candidate.vm.safety : undefined)
-        ? (candidate.vm as Record<string, unknown>).safety
+      safety: isRecord(vm.safety)
+        ? vm.safety
         : defaultSafetyForCandidate(candidate),
     },
   };

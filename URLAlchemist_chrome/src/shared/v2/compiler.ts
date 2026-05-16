@@ -55,7 +55,16 @@ const EVENT_SOURCE_BLOCKS = new Map<BlockKind, GraphEventHandler>([
   ['MouseIn', 'mouse'],
   ['OverlayTickIn', 'tick'],
 ]);
-const SIDE_EFFECT_BLOCKS = new Set<BlockKind>(['OverlayControl', 'OverlayDraw', 'Sleep']);
+const SIDE_EFFECT_BLOCKS = new Set<BlockKind>([
+  'ShowMessage',
+  'ShowImage',
+  'ShowVideo',
+  'PlaySound',
+  'OverlayInput',
+  'OverlayControl',
+  'OverlayDraw',
+  'Sleep',
+]);
 const WORKSPACE_INPUT_SOURCE_IDS = new Set<WorkspaceInputSource>([
   'url',
   'linkUrl',
@@ -976,7 +985,7 @@ function instructionForNode(
           nodeId: node.id,
           name: node.settings.variableName,
           value: connectedInput(edgesByTarget, node.id, 'value'),
-          fallbackValue: node.settings.literalValue ?? '0',
+          fallbackValue: literalGraphValue(node.settings.literalValue, node.settings.literalDataType ?? 'string'),
         });
       }
       break;

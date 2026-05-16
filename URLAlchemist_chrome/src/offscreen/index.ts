@@ -6,6 +6,31 @@ import type { RegexJobResponse } from '../shared/types';
 
 const regexExecutor = createPageRegexExecutor();
 
+function fallbackWriteText(text: string): void {
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('aria-hidden', 'true');
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-9999px';
+  textarea.style.top = '0';
+  document.body.append(textarea);
+  textarea.focus();
+  textarea.select();
+  const copied = document.execCommand('copy');
+  textarea.remove();
+  if (!copied) {
+    throw new Error('Clipboard write fallback failed');
+  }
+}
+
+async function writeTextToClipboard(text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    fallbackWriteText(text);
+  }
+}
+
 chrome.runtime.onMessage.addListener((message: OffscreenMessage, _sender, sendResponse) => {
   if (message.type === OFFSCREEN_REGEX_MESSAGE) {
     void (async () => {
@@ -68,7 +93,7 @@ chrome.runtime.onMessage.addListener((message: OffscreenMessage, _sender, sendRe
   if (message.type === OFFSCREEN_CLIPBOARD_WRITE_MESSAGE) {
     void (async () => {
       try {
-        await navigator.clipboard.writeText(message.text);
+        await writeTextToClipboard(message.text);
 
         sendResponse({
           ok: true,

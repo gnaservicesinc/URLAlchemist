@@ -555,7 +555,7 @@ export type GraphVmInstruction =
       nodeId: string;
       name: string;
       value?: string;
-      fallbackValue: string;
+      fallbackValue: GraphValue;
     }
   | {
       op: 'SAVELOAD';

@@ -157,6 +157,109 @@ describe('v2 workspace compiler and VM', () => {
     expect(compiled.pack!.vm.instructions.some((instruction) => instruction.op === 'SAVELOAD')).toBe(true);
   });
 
+  it('allows display-only workspaces as terminal side effects', async () => {
+    const workspace = createDefaultWorkspace();
+    const dataIn = workspace.nodes.find((node) => node.type === 'DataFlowIn')!;
+    const message = createWorkspaceNode('ShowMessage', { x: 260, y: 120 }, {
+      promptMessage: 'Fallback message',
+    });
+    const compiled = compileWorkspace({
+      ...workspace,
+      nodes: [...workspace.nodes.filter((node) => node.type !== 'DataFlowOut'), message],
+      edges: [createEdge(dataIn.id, 'pageTitle', message.id, 'message')],
+    });
+
+    expect(compiled.ok, compiled.validation.errors.join('; ')).toBe(true);
+
+    const result = await executeCompiledActionPackV2(
+      'https://example.com/',
+      compiled.pack!,
+      {
+        ...runtime,
+        readSource: async (source) => source === 'pageTitle' ? { type: 'string', value: 'Example Title' } : undefined,
+        displayOverlay: async (request) => ({ type: 'dict', value: { displayed: { type: 'string', value: request.message } } }),
+      },
+      DEFAULT_SETTINGS,
+    );
+
+    expect(result.issues).toEqual([]);
+    expect(result.trace).toContainEqual(expect.objectContaining({
+      op: 'DISPLAY',
+      message: 'Display completed',
+    }));
+  });
+
+  it('allows Declare to initialize strings', async () => {
+    const workspace = createDefaultWorkspace();
+    const declaration = createWorkspaceNode('Declarations', { x: 260, y: 120 }, {
+      variableName: 'greeting',
+      literalValue: 'hello',
+      literalDataType: 'string',
+    });
+    const message = createWorkspaceNode('ShowMessage', { x: 520, y: 120 }, {
+      promptMessage: 'Terminal display',
+    });
+    const compiled = compileWorkspace({
+      ...workspace,
+      nodes: [...workspace.nodes.filter((node) => node.type !== 'DataFlowOut'), declaration, message],
+      edges: [],
+    });
+
+    expect(compiled.ok, compiled.validation.errors.join('; ')).toBe(true);
+    expect(compiled.pack!.vm.instructions).toContainEqual(expect.objectContaining({
+      op: 'DECLARE',
+      fallbackValue: { type: 'string', value: 'hello' },
+    }));
+
+    const result = await executeCompiledActionPackV2(
+      'https://example.com/',
+      compiled.pack!,
+      {
+        ...runtime,
+        displayOverlay: async () => ({ type: 'dict', value: {} }),
+      },
+      DEFAULT_SETTINGS,
+    );
+
+    expect(result.trace).toContainEqual(expect.objectContaining({
+      op: 'DECLARE',
+      message: 'Declared greeting',
+      valueType: 'string',
+      preview: 'hello',
+    }));
+  });
+
+  it('migrates older Declare fallback literals during import validation', () => {
+    const workspace = createDefaultWorkspace();
+    const declaration = createWorkspaceNode('Declarations', { x: 260, y: 120 }, {
+      variableName: 'uppercaseOffset',
+      literalValue: '32',
+      literalDataType: 'number',
+    });
+    const message = createWorkspaceNode('ShowMessage', { x: 520, y: 120 }, {
+      promptMessage: 'Terminal display',
+    });
+    const compiled = compileWorkspace({
+      ...workspace,
+      nodes: [...workspace.nodes.filter((node) => node.type !== 'DataFlowOut'), declaration, message],
+      edges: [],
+    });
+
+    expect(compiled.ok, compiled.validation.errors.join('; ')).toBe(true);
+
+    const legacyCandidate = structuredClone(compiled.pack!) as CompiledActionPackV2;
+    const declareInstruction = legacyCandidate.vm.instructions.find((instruction) => instruction.op === 'DECLARE');
+    const declareHandlerInstruction = legacyCandidate.vm.eventHandlers?.trigger?.find((instruction) => instruction.op === 'DECLARE');
+    if (declareInstruction?.op === 'DECLARE') {
+      (declareInstruction as unknown as { fallbackValue: string }).fallbackValue = '32';
+    }
+    if (declareHandlerInstruction?.op === 'DECLARE') {
+      (declareHandlerInstruction as unknown as { fallbackValue: string }).fallbackValue = '32';
+    }
+
+    expect(validateCompiledActionPackV2(legacyCandidate)).toEqual(expect.objectContaining({ ok: true }));
+  });
+
   it('compiles a basic URL regex flow and executes it', async () => {
     const result = await executeCompiledActionPackV2(
       'https://example.com/?utm_source=newsletter&keep=1',

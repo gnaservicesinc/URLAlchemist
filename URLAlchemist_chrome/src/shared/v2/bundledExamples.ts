@@ -672,6 +672,7 @@ function uppercaseSelectionClipboard(): WorkspaceFileV2 {
     label: 'Declare ASCII offset',
     variableName: 'uppercaseOffset',
     literalValue: '32',
+    literalDataType: 'number',
   });
   const logic = node(slug, 'logic', 'Logical', { x: 260, y: 240 }, {
     label: 'Selection exists',

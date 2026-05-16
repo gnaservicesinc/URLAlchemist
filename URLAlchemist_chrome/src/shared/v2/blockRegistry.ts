@@ -144,7 +144,7 @@ export const BLOCK_REGISTRY: Record<BlockKind, BlockDefinition> = {
     typeId: BLOCK_TYPE_IDS.Declarations,
     label: 'Declare',
     category: 'data',
-    inputs: [port('value', 'Value', 'number')],
+    inputs: [port('value', 'Value', 'Any')],
     outputs: [],
     flags: {
       alwaysProcess: true,
@@ -153,7 +153,8 @@ export const BLOCK_REGISTRY: Record<BlockKind, BlockDefinition> = {
     },
     defaultSettings: {
       variableName: '',
-      literalValue: '0',
+      literalValue: '',
+      literalDataType: 'string',
       processBeforeRun: true,
       alwaysProcess: true,
     },

@@ -903,7 +903,7 @@ async function executeInstruction(
       break;
     }
     case 'DECLARE': {
-      const rawValue = instruction.value ? getValue(state, instruction.value) : parseVariableOrLiteral(state, instruction.fallbackValue);
+      const rawValue = instruction.value ? getValue(state, instruction.value) : instruction.fallbackValue;
       if (instruction.name.startsWith('_')) {
         state.locals.set(instruction.name, rawValue ?? { type: 'number', value: 0 });
       } else {

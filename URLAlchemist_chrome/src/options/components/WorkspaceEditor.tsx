@@ -350,8 +350,21 @@ function renderBlockSettings(
           <SettingField help="Names starting with _ are local to this run. Other names are shared within the pack execution." label="Variable name">
             <input className={inputClass} placeholder="Global or _local" value={settingText(node.settings.variableName)} onChange={(event) => onSettingsChange({ variableName: event.target.value })} />
           </SettingField>
+          {!isConnected('value') ? <SettingField help="Controls how the initial value is parsed." label="Initial value type">
+            <select className={inputClass} value={node.settings.literalDataType ?? 'string'} onChange={(event) => onSettingsChange({ literalDataType: event.target.value as WorkspaceBlockSettings['literalDataType'] })}>
+              <option value="bool">Bool</option>
+              <option value="number">Number</option>
+              <option value="floatingPoint">Floating Point</option>
+              <option value="string">String</option>
+              <option value="URL">URL</option>
+              <option value="JSON">JSON</option>
+              <option value="data">Data</option>
+              <option value="dict">Dict</option>
+              <option value="Any">Any</option>
+            </select>
+          </SettingField> : null}
           {!isConnected('value') ? <SettingField help="Initial value used when the value input is not connected." label="Initial value">
-            <input className={inputClass} value={settingText(node.settings.literalValue ?? '0')} onChange={(event) => onSettingsChange({ literalValue: event.target.value })} />
+            <textarea className={`${inputClass} min-h-14`} value={settingText(node.settings.literalValue)} onChange={(event) => onSettingsChange({ literalValue: event.target.value })} />
           </SettingField> : connectedNote('Initial value')}
         </div>
       );
@@ -1740,10 +1753,15 @@ export function WorkspaceEditor({
           event: debugEventForHandler(debugHandler, debugUrl),
         },
       );
+      const sideEffects = execution.trace
+        .filter((entry) => ['OUTPUT', 'DISPLAY', 'USER_INTERACTION', 'OVERLAY_CONTROL', 'OVERLAY_DRAW', 'SLEEP', 'SAVELOAD', 'SHARED_STATE'].includes(entry.op))
+        .map((entry) => entry.message)
+        .filter((message, index, messages) => messages.indexOf(message) === index);
 
       setDebugOutput([
         `Final URL: ${execution.finalUrl}`,
-        `Changed: ${execution.changed ? 'yes' : 'no'}`,
+        `URL changed: ${execution.changed ? 'yes' : 'no'}`,
+        `Side effects: ${sideEffects.length > 0 ? sideEffects.join('; ') : 'none'}`,
         execution.issues.length > 0 ? `Issues: ${execution.issues.map((entry) => entry.message).join('; ')}` : 'Issues: none',
       ].join('\n'));
       setDebugTrace(execution.trace);
