@@ -132,12 +132,29 @@ function omitUndefinedFields(value: unknown): unknown {
 }
 
 describe('v2 workspace compiler and VM', () => {
-  it('blocks build until Data Out is connected', () => {
+  it('blocks build until a terminal effect exists', () => {
     const workspace = createDefaultWorkspace();
     const result = compileWorkspace(workspace);
 
     expect(result.ok).toBe(false);
-    expect(result.validation.errors.join(' ')).toContain('Data Out');
+    expect(result.validation.errors.join(' ')).toContain('terminal side-effect');
+  });
+
+  it('allows storage-only workspaces without URL Data Out', () => {
+    const workspace = createDefaultWorkspace();
+    const dataIn = workspace.nodes.find((node) => node.type === 'DataFlowIn')!;
+    const save = createWorkspaceNode('SaveLoad', { x: 260, y: 120 }, {
+      saveLoadMode: 'SAVE',
+      literalValue: 'debug:last-url',
+    });
+    const compiled = compileWorkspace({
+      ...workspace,
+      nodes: [...workspace.nodes.filter((node) => node.type !== 'DataFlowOut'), save],
+      edges: [createEdge(dataIn.id, 'url', save.id, 'value')],
+    });
+
+    expect(compiled.ok, compiled.validation.errors.join('; ')).toBe(true);
+    expect(compiled.pack!.vm.instructions.some((instruction) => instruction.op === 'SAVELOAD')).toBe(true);
   });
 
   it('compiles a basic URL regex flow and executes it', async () => {
@@ -381,6 +398,29 @@ describe('v2 workspace compiler and VM', () => {
     expect(compiled.pack!.risk.highest).toBe('high');
     expect(compiled.pack!.risk.usesHighRiskInput).toBe(true);
     expect(compiled.pack!.risk.usesHighRiskOutput).toBe(true);
+  });
+
+  it('allows JSON values to feed string outputs without a pointless conversion block', () => {
+    const workspace = createDefaultWorkspace();
+    const input = workspace.nodes.find((node) => node.type === 'DataFlowIn')!;
+    const dict = createWorkspaceNode('DataStructure', { x: 260, y: 120 }, {
+      dictKey: 'title',
+    });
+    const convert = createWorkspaceNode('Convert', { x: 520, y: 120 }, {
+      convertMode: 'DICT_TO_JSON',
+    });
+    const extendedOut = createWorkspaceNode('ExtendedDataOut', { x: 780, y: 120 });
+    const compiled = compileWorkspace({
+      ...workspace,
+      nodes: [...workspace.nodes.filter((node) => node.type !== 'DataFlowOut'), dict, convert, extendedOut],
+      edges: [
+        createEdge(input.id, 'pageTitle', dict.id, 'value'),
+        createEdge(dict.id, 'result', convert.id, 'input'),
+        createEdge(convert.id, 'result', extendedOut.id, 'clipboard'),
+      ],
+    });
+
+    expect(compiled.ok, compiled.validation.errors.join('; ')).toBe(true);
   });
 
   it('allows strings into number slots and requires explicit conversion back to string', async () => {
@@ -1314,6 +1354,8 @@ describe('v2 workspace compiler and VM', () => {
     });
     expect(overlayEvents).toContain('START');
     expect(session.get('snake:direction')).toEqual({ type: 'string', value: 'ArrowRight' });
+    expect(session.get('snake:alive')).toEqual({ type: 'number', value: 1 });
+    expect(session.get('snake:paused')).toEqual({ type: 'number', value: 0 });
 
     for (let tick = 1; tick <= 6; tick += 1) {
       await executeCompiledActionPackV2('https://example.com/', compiled.pack!, snakeRuntime, DEFAULT_SETTINGS, {
@@ -1470,6 +1512,10 @@ describe('v2 workspace compiler and VM', () => {
 
     await executeCompiledActionPackV2('https://example.com/page', packs.get('Remember Current Page')!, contextRuntime, DEFAULT_SETTINGS);
     expect(saved['last-url']).toBe('https://example.com/page');
+    expect(written.clipboard).toContain('currentUrl');
+
+    await executeCompiledActionPackV2('https://example.com/page', packs.get('Copy Page Title')!, contextRuntime, DEFAULT_SETTINGS);
+    expect(written.clipboard).toBe('Example Title');
 
     await executeCompiledActionPackV2('https://example.com/page', packs.get('Research Note Snapshot')!, contextRuntime, DEFAULT_SETTINGS);
     expect(written.clipboard).toContain('Example Title');

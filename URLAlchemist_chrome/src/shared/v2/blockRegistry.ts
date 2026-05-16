@@ -748,6 +748,10 @@ export function isTypeCompatible(source: GraphDataType, target: GraphDataType): 
     return true;
   }
 
+  if (target === 'string') {
+    return ['URL', 'JSON', 'dict', 'data'].includes(source);
+  }
+
   if (source === 'bool') {
     return ['number', 'floatingPoint'].includes(target);
   }
@@ -758,10 +762,6 @@ export function isTypeCompatible(source: GraphDataType, target: GraphDataType): 
 
   if (source === 'floatingPoint') {
     return false;
-  }
-
-  if (source === 'URL') {
-    return target === 'string';
   }
 
   if (source === 'string') {

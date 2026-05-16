@@ -34,13 +34,17 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
+import { DEFAULT_SETTINGS } from '../../shared/constants';
 import { getHotkeyValidationError } from '../../shared/hotkeys';
 import type { Activity } from '../../shared/types';
 import { BLOCK_DEFINITIONS, getBlockDefinition, getEffectivePortDefinitions } from '../../shared/v2/blockRegistry';
 import { compileWorkspace, getConnectionValidationError } from '../../shared/v2/compiler';
+import { createSandboxGraphRuntime } from '../../shared/v2/sandboxRuntime';
 import { createEdge, createWorkspaceNode } from '../../shared/v2/workspace';
-import type { BlockDefinition, BlockKind, GraphPortDefinition, WorkspaceBlockSettings, WorkspaceFileV2, WorkspaceNodeV2 } from '../../shared/v2/types';
+import type { BlockDefinition, BlockKind, GraphEventHandler, GraphPortDefinition, GraphValue, WorkspaceBlockSettings, WorkspaceFileV2, WorkspaceNodeV2 } from '../../shared/v2/types';
+import { executeCompiledActionPackV2 } from '../../shared/v2/vm';
 import { toActivityDraft, updateActivityDraft, type ActivityDraft } from '../drafts';
+import { createPageRegexExecutor } from '../../shared/regex/pageRunner';
 import { buildRegexFromBuilder, validateEditorRegexPattern } from '../regexBuilder';
 import { HelpTooltip } from './HelpTooltip';
 import { HotkeyRecorder } from './HotkeyRecorder';
@@ -217,6 +221,12 @@ function renderBlockSettings(
   onOpenRegexBuilder: (() => void) | undefined,
 ) {
   const inputClass = blockInputClass;
+  const isConnected = (portId: string): boolean => connectedInputs.has(portId);
+  const connectedNote = (label: string) => (
+    <p className="mt-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-500">
+      {label} is provided by a connected input.
+    </p>
+  );
 
   switch (node.type) {
     case 'RegExpression': {
@@ -302,12 +312,12 @@ function renderBlockSettings(
               <option value="MODULO">Modulo</option>
             </select>
           </SettingField>
-          <SettingField help="Used for input A when the A port is not connected." label="Fallback A">
+          {!isConnected('left') ? <SettingField help="Used for input A when the A port is not connected." label="A value">
             <input className={inputClass} value={settingText(node.settings.literalValue ?? '0')} onChange={(event) => onSettingsChange({ literalValue: event.target.value })} />
-          </SettingField>
-          <SettingField help="Used for input B when the B port is not connected." label="Fallback B">
+          </SettingField> : connectedNote('A value')}
+          {!isConnected('right') ? <SettingField help="Used for input B when the B port is not connected." label="B value">
             <input className={inputClass} value={settingText(node.settings.compareValue ?? '0')} onChange={(event) => onSettingsChange({ compareValue: event.target.value })} />
-          </SettingField>
+          </SettingField> : connectedNote('B value')}
         </div>
       );
     case 'Convert':
@@ -340,9 +350,9 @@ function renderBlockSettings(
           <SettingField help="Names starting with _ are local to this run. Other names are shared within the pack execution." label="Variable name">
             <input className={inputClass} placeholder="Global or _local" value={settingText(node.settings.variableName)} onChange={(event) => onSettingsChange({ variableName: event.target.value })} />
           </SettingField>
-          <SettingField help="Initial value used when the value input is not connected." label="Initial value">
+          {!isConnected('value') ? <SettingField help="Initial value used when the value input is not connected." label="Initial value">
             <input className={inputClass} value={settingText(node.settings.literalValue ?? '0')} onChange={(event) => onSettingsChange({ literalValue: event.target.value })} />
-          </SettingField>
+          </SettingField> : connectedNote('Initial value')}
         </div>
       );
     case 'SaveLoad':
@@ -355,20 +365,20 @@ function renderBlockSettings(
               <option value="GET">Get</option>
             </select>
           </SettingField>
-          <SettingField help="Used when the Key input is not connected. Empty keys are skipped at runtime." label="Fallback key">
+          {!isConnected('key') ? <SettingField help="Used when the Key input is not connected. Empty keys are skipped at runtime." label="Storage key">
             <input className={inputClass} placeholder="session-key" value={settingText(node.settings.literalValue)} onChange={(event) => onSettingsChange({ literalValue: event.target.value })} />
-          </SettingField>
+          </SettingField> : connectedNote('Storage key')}
         </div>
       );
     case 'DataStructure':
       return (
         <div className="mt-3 grid gap-2">
-          <SettingField help="Optional global dictionary to read or update when the Dict input is not connected." label="Global dict name">
+          {!isConnected('dict') ? <SettingField help="Optional global dictionary to read or update when the Dict input is not connected." label="Global dict name">
             <input className={inputClass} placeholder="notes" value={settingText(node.settings.variableName)} onChange={(event) => onSettingsChange({ variableName: event.target.value })} />
-          </SettingField>
-          <SettingField help="Used when the Key input is not connected." label="Fallback key">
+          </SettingField> : connectedNote('Dictionary')}
+          {!isConnected('key') ? <SettingField help="Used when the Key input is not connected." label="Key">
             <input className={inputClass} placeholder="title" value={settingText(node.settings.dictKey)} onChange={(event) => onSettingsChange({ dictKey: event.target.value })} />
-          </SettingField>
+          </SettingField> : connectedNote('Key')}
         </div>
       );
     case 'Loop':
@@ -382,9 +392,11 @@ function renderBlockSettings(
     case 'FetchData':
       return (
         <div className="mt-3 grid gap-2">
-          <SettingField help="HTTPS-only fallback URL used when the URL input is not connected." label="Remote URL">
-            <input className={inputClass} disabled={connectedInputs.has('url')} placeholder="https://example.com/data.json" value={connectedInputs.has('url') ? '' : settingText(node.settings.remoteUrl)} onChange={(event) => onSettingsChange({ remoteUrl: event.target.value })} />
-          </SettingField>
+          {!isConnected('url') ? (
+            <SettingField help="HTTPS-only URL used when the URL input is not connected." label="Remote URL">
+              <input className={inputClass} placeholder="https://example.com/data.json" value={settingText(node.settings.remoteUrl)} onChange={(event) => onSettingsChange({ remoteUrl: event.target.value })} />
+            </SettingField>
+          ) : connectedNote('Remote URL')}
           <SettingField help="Controls how the remote response is typed inside the graph." label="Response type">
             <select className={inputClass} value={node.settings.remoteDataType ?? 'data'} onChange={(event) => onSettingsChange({ remoteDataType: event.target.value as WorkspaceBlockSettings['remoteDataType'] })}>
               <option value="data">Data</option>
@@ -410,9 +422,11 @@ function renderBlockSettings(
               <option value="POST">POST</option>
             </select>
           </SettingField>
-          <SettingField help="HTTPS-only fallback URL used when the URL input is not connected." label="Remote URL">
-            <input className={inputClass} disabled={connectedInputs.has('url')} placeholder="https://example.com/api" value={connectedInputs.has('url') ? '' : settingText(node.settings.remoteUrl)} onChange={(event) => onSettingsChange({ remoteUrl: event.target.value })} />
-          </SettingField>
+          {!isConnected('url') ? (
+            <SettingField help="HTTPS-only URL used when the URL input is not connected." label="Remote URL">
+              <input className={inputClass} placeholder="https://example.com/api" value={settingText(node.settings.remoteUrl)} onChange={(event) => onSettingsChange({ remoteUrl: event.target.value })} />
+            </SettingField>
+          ) : connectedNote('Remote URL')}
           <SettingField help="Controls how the remote response is typed inside the graph." label="Response type">
             <select className={inputClass} value={node.settings.remoteDataType ?? 'data'} onChange={(event) => onSettingsChange({ remoteDataType: event.target.value as WorkspaceBlockSettings['remoteDataType'] })}>
               <option value="data">Data</option>
@@ -450,9 +464,9 @@ function renderBlockSettings(
     case 'PickFileOrUrl':
       return (
         <div className="mt-3 grid gap-2">
-          <SettingField help="Text shown to the user in the page overlay prompt." label="Prompt message">
+          {!isConnected('message') ? <SettingField help="Text shown to the user in the page overlay prompt." label="Prompt message">
             <input className={inputClass} placeholder="Prompt message" value={settingText(node.settings.promptMessage)} onChange={(event) => onSettingsChange({ promptMessage: event.target.value })} />
-          </SettingField>
+          </SettingField> : connectedNote('Prompt message')}
           {node.type === 'PromptText' || node.type === 'PromptNumber' ? (
             <>
               <SettingField help="Pre-filled value shown in the input before the user edits it." label="Default value">
@@ -478,9 +492,11 @@ function renderBlockSettings(
     case 'ShowMessage':
       return (
         <div className="mt-3 grid gap-2">
-          <SettingField help="Message text used when the Message input is not connected." label="Message">
-            <textarea className={`${inputClass} min-h-14`} disabled={connectedInputs.has('message')} placeholder={connectedInputs.has('message') ? 'Connected message input' : 'Message'} value={connectedInputs.has('message') ? '' : settingText(node.settings.promptMessage)} onChange={(event) => onSettingsChange({ promptMessage: event.target.value })} />
-          </SettingField>
+          {!isConnected('message') ? (
+            <SettingField help="Message text used when the Message input is not connected." label="Message">
+              <textarea className={`${inputClass} min-h-14`} placeholder="Message" value={settingText(node.settings.promptMessage)} onChange={(event) => onSettingsChange({ promptMessage: event.target.value })} />
+            </SettingField>
+          ) : connectedNote('Message')}
           <SettingField help="Controls whether the display appears as an overlay, a replacement page, or a new tab." label="Display mode">
             <select className={inputClass} value={node.settings.displayMode ?? 'OVERLAY'} onChange={(event) => onSettingsChange({ displayMode: event.target.value as WorkspaceBlockSettings['displayMode'] })}>
               <option value="OVERLAY">Page overlay</option>
@@ -525,9 +541,11 @@ function renderBlockSettings(
     case 'OverlayInput':
       return (
         <div className="mt-3 grid gap-2">
-          <SettingField help="Overlay text shown while keyboard or mouse capture is active." label="Overlay message">
-            <textarea className={`${inputClass} min-h-14`} disabled={connectedInputs.has('message')} placeholder={connectedInputs.has('message') ? 'Connected message input' : 'Overlay message'} value={connectedInputs.has('message') ? '' : settingText(node.settings.promptMessage)} onChange={(event) => onSettingsChange({ promptMessage: event.target.value })} />
-          </SettingField>
+          {!isConnected('message') ? (
+            <SettingField help="Overlay text shown while keyboard or mouse capture is active." label="Overlay message">
+              <textarea className={`${inputClass} min-h-14`} placeholder="Overlay message" value={settingText(node.settings.promptMessage)} onChange={(event) => onSettingsChange({ promptMessage: event.target.value })} />
+            </SettingField>
+          ) : connectedNote('Overlay message')}
           <SettingField help="Maximum time the capture overlay stays open." hint="0-3600000 ms" label="Timeout (ms)">
             <input className={inputClass} min={0} max={3600000} type="number" value={node.settings.displayTimeoutMs ?? 10000} onChange={(event) => onSettingsChange({ displayTimeoutMs: Number(event.target.value || '0') })} />
           </SettingField>
@@ -580,9 +598,9 @@ function renderBlockSettings(
     case 'Sleep':
       return (
         <div className="mt-3">
-          <SettingField help="Delay used when the Duration input is not connected." hint="0-60000 ms" label="Fallback delay">
+          {!isConnected('duration') ? <SettingField help="Delay used when the Duration input is not connected." hint="0-60000 ms" label="Delay">
             <input className={inputClass} min={0} max={60000} type="number" value={node.settings.sleepMs ?? 100} onChange={(event) => onSettingsChange({ sleepMs: Number.parseInt(event.target.value || '0', 10) })} />
-          </SettingField>
+          </SettingField> : connectedNote('Delay')}
         </div>
       );
     case 'SharedState':
@@ -596,13 +614,15 @@ function renderBlockSettings(
               <option value="DELETE">Delete</option>
             </select>
           </SettingField>
-          <SettingField help="Used when the Key input is not connected." label="Fallback key">
+          {!isConnected('key') ? <SettingField help="Used when the Key input is not connected." label="Key">
             <input className={inputClass} value={settingText(node.settings.literalValue)} onChange={(event) => onSettingsChange({ literalValue: event.target.value })} />
-          </SettingField>
-          <SettingField help="Fallback value for Get, or Set value when the Value input is not connected." label="Fallback value">
+          </SettingField> : connectedNote('Key')}
+          {node.settings.sharedStateMode === 'SET' && isConnected('value') ? connectedNote('Value') : (
+          <SettingField help={node.settings.sharedStateMode === 'SET' ? 'Value to save when the Value input is not connected.' : 'Default value returned when the key does not exist.'} label={node.settings.sharedStateMode === 'SET' ? 'Value' : 'Default when missing'}>
             <textarea className={`${inputClass} min-h-14`} value={settingText(node.settings.selectFalseValue)} onChange={(event) => onSettingsChange({ selectFalseValue: event.target.value })} />
           </SettingField>
-          <SettingField help="Fallback value type parser." label="Fallback type">
+          )}
+          <SettingField help="Parser for the typed value above." label="Value type">
             <select className={inputClass} value={node.settings.literalDataType ?? 'Any'} onChange={(event) => onSettingsChange({ literalDataType: event.target.value as WorkspaceBlockSettings['literalDataType'] })}>
               <option value="bool">Bool</option>
               <option value="number">Number</option>
@@ -617,10 +637,10 @@ function renderBlockSettings(
     case 'DictGet':
       return (
         <div className="mt-3 grid gap-2">
-          <SettingField help="Used when the Key input is not connected." label="Fallback key">
+          {!isConnected('key') ? <SettingField help="Used when the Key input is not connected." label="Key">
             <input className={inputClass} value={settingText(node.settings.dictKey)} onChange={(event) => onSettingsChange({ dictKey: event.target.value })} />
-          </SettingField>
-          <SettingField help="Returned when the key is not present." label="Fallback value">
+          </SettingField> : connectedNote('Key')}
+          <SettingField help="Returned when the key is not present." label="Default when missing">
             <input className={inputClass} value={settingText(node.settings.literalValue)} onChange={(event) => onSettingsChange({ literalValue: event.target.value })} />
           </SettingField>
         </div>
@@ -638,12 +658,12 @@ function renderBlockSettings(
               <option value="CONTAINS_POINT">Contains Point</option>
             </select>
           </SettingField>
-          <SettingField help="JSON fallback list used when the List input is not connected." label="Fallback list">
+          {!isConnected('list') ? <SettingField help="JSON list used when the List input is not connected." label="List value">
             <textarea className={`${inputClass} min-h-14`} value={settingText(node.settings.literalValue ?? '[]')} onChange={(event) => onSettingsChange({ literalValue: event.target.value })} />
-          </SettingField>
-          <SettingField help="Fallback item literal used when the Item input is not connected." label="Fallback item">
+          </SettingField> : connectedNote('List value')}
+          {!isConnected('item') ? <SettingField help="Item literal used when the Item input is not connected." label="Item value">
             <input className={inputClass} value={settingText(node.settings.selectTrueValue)} onChange={(event) => onSettingsChange({ selectTrueValue: event.target.value })} />
-          </SettingField>
+          </SettingField> : connectedNote('Item value')}
         </div>
       );
     case 'ConditionSelect':
@@ -659,23 +679,23 @@ function renderBlockSettings(
               <option value="Any">Any</option>
             </select>
           </SettingField>
-          <SettingField help="Used when the True input is not connected." label="True fallback">
+          {!isConnected('trueValue') ? <SettingField help="Used when the True input is not connected." label="True value">
             <input className={inputClass} value={settingText(node.settings.selectTrueValue)} onChange={(event) => onSettingsChange({ selectTrueValue: event.target.value })} />
-          </SettingField>
-          <SettingField help="Used when the False input is not connected." label="False fallback">
+          </SettingField> : connectedNote('True value')}
+          {!isConnected('falseValue') ? <SettingField help="Used when the False input is not connected." label="False value">
             <input className={inputClass} value={settingText(node.settings.selectFalseValue)} onChange={(event) => onSettingsChange({ selectFalseValue: event.target.value })} />
-          </SettingField>
+          </SettingField> : connectedNote('False value')}
         </div>
       );
     case 'RandomNumber':
       return (
         <div className="mt-3 grid grid-cols-2 gap-2">
-          <SettingField help="Inclusive fallback lower bound." label="Min">
+          {!isConnected('min') ? <SettingField help="Inclusive lower bound used when Min is not connected." label="Min">
             <input className={inputClass} type="number" value={node.settings.randomMin ?? 0} onChange={(event) => onSettingsChange({ randomMin: Number.parseInt(event.target.value || '0', 10) })} />
-          </SettingField>
-          <SettingField help="Inclusive fallback upper bound." label="Max">
+          </SettingField> : connectedNote('Min')}
+          {!isConnected('max') ? <SettingField help="Inclusive upper bound used when Max is not connected." label="Max">
             <input className={inputClass} type="number" value={node.settings.randomMax ?? 10} onChange={(event) => onSettingsChange({ randomMax: Number.parseInt(event.target.value || '10', 10) })} />
-          </SettingField>
+          </SettingField> : connectedNote('Max')}
         </div>
       );
     case 'OverlayControl':
@@ -689,9 +709,9 @@ function renderBlockSettings(
               <option value="STATUS">Status</option>
             </select>
           </SettingField>
-          <SettingField help="Text shown in the visible overlay header." label="Overlay text">
+          {!isConnected('message') ? <SettingField help="Text shown in the visible overlay header." label="Overlay text">
             <input className={inputClass} value={settingText(node.settings.overlayText ?? node.settings.promptMessage)} onChange={(event) => onSettingsChange({ overlayText: event.target.value, promptMessage: event.target.value })} />
-          </SettingField>
+          </SettingField> : connectedNote('Overlay text')}
           <div className="grid grid-cols-2 gap-2">
             <SettingField help="Grid columns." hint="1-200" label="Width">
               <input className={inputClass} min={1} max={200} type="number" value={node.settings.overlayWidth ?? 24} onChange={(event) => onSettingsChange({ overlayWidth: Number.parseInt(event.target.value || '24', 10) })} />
@@ -735,9 +755,11 @@ function renderBlockSettings(
     case 'GetAudio':
       return (
         <div className="mt-3 grid gap-2">
-          <SettingField help="HTTPS-only fallback asset URL used when the URL input is not connected." label="Asset URL">
-            <input className={inputClass} disabled={connectedInputs.has('url')} placeholder={`https://example.com/file.${node.type === 'GetVideo' ? 'mp4' : node.type === 'GetAudio' ? 'mp3' : 'png'}`} value={connectedInputs.has('url') ? '' : settingText(node.settings.assetUrl)} onChange={(event) => onSettingsChange({ assetUrl: event.target.value })} />
-          </SettingField>
+          {!isConnected('url') ? (
+            <SettingField help="HTTPS-only media URL used when the URL input is not connected." label="Media URL">
+              <input className={inputClass} placeholder={`https://example.com/file.${node.type === 'GetVideo' ? 'mp4' : node.type === 'GetAudio' ? 'mp3' : 'png'}`} value={settingText(node.settings.assetUrl)} onChange={(event) => onSettingsChange({ assetUrl: event.target.value })} />
+            </SettingField>
+          ) : connectedNote('Media URL')}
           <SettingField help="Optional MIME type hint for embedded or fetched media." label="MIME type">
             <input className={inputClass} placeholder={node.type === 'GetVideo' ? 'video/mp4' : node.type === 'GetAudio' ? 'audio/mpeg' : 'image/png'} value={settingText(node.settings.assetMimeType)} onChange={(event) => onSettingsChange({ assetMimeType: event.target.value })} />
           </SettingField>
@@ -1038,6 +1060,20 @@ function tidyWorkspaceByEventLanes(workspace: WorkspaceFileV2): WorkspaceFileV2 
       position: positionById.get(node.id) ?? node.position,
     })),
   };
+}
+
+function debugEventForHandler(handler: GraphEventHandler, url: string) {
+  switch (handler) {
+    case 'keyboard':
+      return { kind: 'keyboard' as const, eventType: 'keydown' as const, key: 'ArrowRight', code: 'ArrowRight', keyCode: 39 };
+    case 'mouse':
+      return { kind: 'mouse' as const, eventType: 'pointerdown' as const, button: 0, buttons: 1, x: 4, y: 4 };
+    case 'tick':
+      return { kind: 'tick' as const, tick: 1, deltaMs: 120 };
+    case 'trigger':
+    default:
+      return { kind: 'trigger' as const, hotkey: 'Ctrl+Shift+D', url };
+  }
 }
 
 function groupedRiskReasons(reasons: string[]): Array<{ key: string; summary: string; details: string[] }> {
@@ -1624,11 +1660,19 @@ export function WorkspaceEditor({
 }: WorkspaceEditorProps) {
   const [metadataCollapsed, setMetadataCollapsed] = useState(false);
   const [isPopout, setIsPopout] = useState(false);
+  const [debugUrl, setDebugUrl] = useState('https://example.com/path?utm_source=newsletter&id=123');
+  const [debugSelectedText, setDebugSelectedText] = useState('example selection');
+  const [debugPageTitle, setDebugPageTitle] = useState('Example Page Title');
+  const [debugClipboard, setDebugClipboard] = useState('clipboard text');
+  const [debugHandler, setDebugHandler] = useState<GraphEventHandler>('trigger');
+  const [debugBusy, setDebugBusy] = useState(false);
+  const [debugOutput, setDebugOutput] = useState<string | null>(null);
+  const [debugError, setDebugError] = useState<string | null>(null);
+  const [debugTrace, setDebugTrace] = useState<Array<{ nodeId: string; op: string; message: string; valueType?: string; preview?: string }>>([]);
   const compileResult = useMemo(() => compileWorkspace(workspace), [workspace]);
   const invalidEdgeIds = useMemo(() => new Set(compileResult.validation.invalidEdgeIds), [compileResult.validation.invalidEdgeIds]);
   const riskReasonGroups = useMemo(() => groupedRiskReasons(compileResult.validation.risk.reasons), [compileResult.validation.risk.reasons]);
   const hotkeyError = workspace.trigger.type === 'HOTKEY' ? getHotkeyValidationError(workspace.trigger.hotkey, []) : null;
-  const hasDataOut = workspace.nodes.some((node) => node.type === 'DataFlowOut');
   const urlFilter = workspace.trigger.sourceFilters?.find((filter) => filter.source === 'url')?.pattern ?? '';
 
   function updateWorkspace(updates: Partial<WorkspaceFileV2>): void {
@@ -1659,6 +1703,55 @@ export function WorkspaceEditor({
         sourceFilters: pattern.trim() ? [...otherFilters, { source: 'url', pattern }] : otherFilters,
       },
     });
+  }
+
+  async function runWorkspaceDebug(): Promise<void> {
+    setDebugBusy(true);
+    setDebugOutput(null);
+    setDebugError(null);
+    setDebugTrace([]);
+
+    try {
+      const result = compileWorkspace(workspace);
+      if (!result.ok || !result.pack) {
+        setDebugError(result.validation.errors.join('\n') || 'Workspace did not compile.');
+        return;
+      }
+
+      const sourceValues: Partial<Record<string, GraphValue>> = {
+        selectedText: { type: 'string', value: debugSelectedText },
+        pageTitle: { type: 'string', value: debugPageTitle },
+        clipboard: { type: 'string', value: debugClipboard },
+      };
+      const runtime = createSandboxGraphRuntime(
+        {
+          regex: createPageRegexExecutor(DEFAULT_SETTINGS.hardeningRegexTimeoutMs),
+          readClipboard: async () => debugClipboard,
+        },
+        sourceValues,
+      );
+      const execution = await executeCompiledActionPackV2(
+        debugUrl,
+        result.pack,
+        runtime,
+        DEFAULT_SETTINGS,
+        {
+          handler: debugHandler,
+          event: debugEventForHandler(debugHandler, debugUrl),
+        },
+      );
+
+      setDebugOutput([
+        `Final URL: ${execution.finalUrl}`,
+        `Changed: ${execution.changed ? 'yes' : 'no'}`,
+        execution.issues.length > 0 ? `Issues: ${execution.issues.map((entry) => entry.message).join('; ')}` : 'Issues: none',
+      ].join('\n'));
+      setDebugTrace(execution.trace);
+    } catch (error) {
+      setDebugError(error instanceof Error ? error.message : 'Debug run failed.');
+    } finally {
+      setDebugBusy(false);
+    }
   }
 
   useEffect(() => {
@@ -1716,7 +1809,7 @@ export function WorkspaceEditor({
           <p className="eyebrow">Workspace Editor</p>
           <h2 className="mt-2 text-2xl font-semibold text-slate-900">Node action builder</h2>
           <p className="mt-2 max-w-3xl text-sm text-slate-600">
-            Workspaces can be saved while otherwise invalid, but at least one Data Out block is required. Building a distributable Action Pack is blocked until every required connection and type check passes.
+            Workspaces can be saved while otherwise invalid. Building a distributable Action Pack is blocked until the graph has at least one terminal effect and every required connection and type check passes.
           </p>
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <select
@@ -1748,10 +1841,10 @@ export function WorkspaceEditor({
           <button className="ghost-button" type="button" onClick={() => setMetadataCollapsed((current) => !current)}>
             {metadataCollapsed ? 'Show Metadata' : 'Hide Metadata'}
           </button>
-          <button className="ghost-button" disabled={!hasDataOut} type="button" onClick={onSaveWorkspace}>
+          <button className="ghost-button" type="button" onClick={onSaveWorkspace}>
             Save Workspace
           </button>
-          <button className="ghost-button" disabled={!hasDataOut} type="button" onClick={onExportWorkspace}>
+          <button className="ghost-button" type="button" onClick={onExportWorkspace}>
             Export Workspace
           </button>
           <button className="secondary-button" disabled={!compileResult.ok} type="button" onClick={onBuildActionPack}>
@@ -1857,6 +1950,65 @@ export function WorkspaceEditor({
             Workspace surface is open in the expanded editor.
           </div>
         ) : surface()}
+      </div>
+
+      <div className="mt-5 rounded-[1.25rem] border border-slate-200 bg-white/75 px-5 py-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-slate-900">Workspace debug run</p>
+            <p className="mt-1 text-xs text-slate-500">Runs the current workspace in a sandbox with the source values below and records the VM trace.</p>
+          </div>
+          <button className="secondary-button" disabled={debugBusy} type="button" onClick={() => void runWorkspaceDebug()}>
+            {debugBusy ? 'Running...' : 'Run Debug'}
+          </button>
+        </div>
+        <div className="mt-4 grid gap-3 lg:grid-cols-5">
+          <label className="field-shell lg:col-span-2">
+            <span className="field-label">Test URL</span>
+            <input className="field-input" value={debugUrl} onChange={(event) => setDebugUrl(event.target.value)} />
+          </label>
+          <label className="field-shell">
+            <span className="field-label">Handler</span>
+            <select className="field-select" value={debugHandler} onChange={(event) => setDebugHandler(event.target.value as GraphEventHandler)}>
+              <option value="trigger">Trigger</option>
+              <option value="keyboard">Keyboard</option>
+              <option value="mouse">Mouse</option>
+              <option value="tick">Tick</option>
+            </select>
+          </label>
+          <label className="field-shell">
+            <span className="field-label">Page Title</span>
+            <input className="field-input" value={debugPageTitle} onChange={(event) => setDebugPageTitle(event.target.value)} />
+          </label>
+          <label className="field-shell">
+            <span className="field-label">Clipboard</span>
+            <input className="field-input" value={debugClipboard} onChange={(event) => setDebugClipboard(event.target.value)} />
+          </label>
+          <label className="field-shell lg:col-span-2">
+            <span className="field-label">Selected Text</span>
+            <input className="field-input" value={debugSelectedText} onChange={(event) => setDebugSelectedText(event.target.value)} />
+          </label>
+          <label className="field-shell lg:col-span-3">
+            <span className="field-label">Result</span>
+            <textarea className="field-textarea min-h-24" readOnly value={debugError ?? debugOutput ?? ''} />
+          </label>
+        </div>
+        {debugTrace.length > 0 ? (
+          <div className="mt-4 max-h-72 overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50/80">
+            <ol className="divide-y divide-slate-200 text-xs">
+              {debugTrace.map((entry, index) => (
+                <li key={`${entry.nodeId}:${index}`} className="grid gap-1 px-4 py-3 md:grid-cols-[12rem_1fr]">
+                  <span className="font-mono font-semibold text-slate-600">{entry.op}</span>
+                  <span className="text-slate-700">
+                    <span className="font-semibold">{entry.message}</span>
+                    {entry.preview ? <span className="ml-2 break-all text-slate-500">{entry.preview}</span> : null}
+                    <span className="ml-2 font-mono text-slate-400">{entry.nodeId}</span>
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        ) : null}
       </div>
 
       <div className="mt-5 grid gap-4 lg:grid-cols-2">

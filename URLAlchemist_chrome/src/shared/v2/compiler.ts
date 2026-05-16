@@ -222,9 +222,20 @@ function isTerminalNode(node: WorkspaceNodeV2): boolean {
   return (
     node.type === 'DataFlowOut' ||
     node.type === 'ExtendedDataOut' ||
+    (node.type === 'SaveLoad' && (node.settings.saveLoadMode ?? 'SAVE') === 'SAVE') ||
     SIDE_EFFECT_BLOCKS.has(node.type) ||
     (node.type === 'SharedState' && ['SET', 'DELETE'].includes(node.settings.sharedStateMode ?? 'GET'))
   );
+}
+
+function hasRunnableTerminalNode(workspace: WorkspaceFileV2, edgesByTarget: Map<string, WorkspaceEdgeV2>): boolean {
+  return workspace.nodes.some((node) => {
+    if (node.type === 'DataFlowOut' || node.type === 'ExtendedDataOut') {
+      return getEffectivePortDefinitions(node, 'input').some((input) => edgesByTarget.has(`${node.id}:${input.id}`));
+    }
+
+    return isTerminalNode(node);
+  });
 }
 
 function collectHandlerReachability(workspace: WorkspaceFileV2): Record<GraphEventHandler, Set<string>> {
@@ -371,11 +382,6 @@ function validateWorkspace(workspace: WorkspaceFileV2): WorkspaceValidationState
     errors.push('Workspace name is required.');
   }
 
-  const dataOutCount = workspace.nodes.filter((node) => node.type === 'DataFlowOut').length;
-  if (dataOutCount < 1) {
-    errors.push('At least one Data Out block is required.');
-  }
-
   const triggerType = workspace.trigger.type === 'ALWAYS' ? 'INPUT_DATA' : workspace.trigger.type;
   const hotkeyError =
     triggerType === 'HOTKEY' ? getHotkeyValidationError(workspace.trigger.hotkey, []) : null;
@@ -455,16 +461,11 @@ function validateWorkspace(workspace: WorkspaceFileV2): WorkspaceValidationState
     }
   });
 
-  const outputEdges = workspace.edges.filter((edge) => {
-    const target = findNode(workspace, edge.target);
-    return target?.type === 'DataFlowOut' || target?.type === 'ExtendedDataOut';
-  });
-
-  if (outputEdges.length < 1) {
-    errors.push('Connect at least one value to Data Out before building an Action Pack.');
+  const edgesByTarget = new Map(workspace.edges.map((edge) => [`${edge.target}:${edge.targetHandle}`, edge]));
+  if (!hasRunnableTerminalNode(workspace, edgesByTarget)) {
+    errors.push('Add a URL output, data output, storage write, overlay action, or other terminal side-effect before building an Action Pack.');
   }
 
-  const edgesByTarget = new Map(workspace.edges.map((edge) => [`${edge.target}:${edge.targetHandle}`, edge]));
   workspace.nodes.forEach((node) => {
     const definition = getBlockDefinition(node.type);
     getEffectivePortDefinitions(node, 'input').forEach((input) => {
@@ -487,10 +488,11 @@ function validateWorkspace(workspace: WorkspaceFileV2): WorkspaceValidationState
 
     if (node.type === 'FetchData' || node.type === 'HttpRequest' || node.type === 'GetImage' || node.type === 'GetVideo' || node.type === 'GetAudio') {
       const remoteDataNode = node.type === 'FetchData' || node.type === 'HttpRequest';
+      const urlInput = connectedInput(edgesByTarget, node.id, 'url');
       const hasEmbeddedAsset = !remoteDataNode && Boolean(node.settings.assetDataBase64?.trim());
       addRisk(risk, 'high', remoteDataNode ? 'Remote data access is high risk.' : hasEmbeddedAsset ? 'Embedded media access is high risk.' : 'Remote media access is high risk.', 'input');
-      const fallbackUrl = (remoteDataNode ? node.settings.remoteUrl : node.settings.assetUrl)?.trim() ?? '';
-      if (!connectedInput(edgesByTarget, node.id, 'url') && !fallbackUrl && !hasEmbeddedAsset) {
+      const fallbackUrl = urlInput ? '' : (remoteDataNode ? node.settings.remoteUrl : node.settings.assetUrl)?.trim() ?? '';
+      if (!urlInput && !fallbackUrl && !hasEmbeddedAsset) {
         errors.push(`${node.settings.label || definition.label}: remote URL or embedded asset is required unless the URL input is connected.`);
       }
 
@@ -700,30 +702,36 @@ function instructionForNode(
       });
       break;
     case 'FetchData':
-      instructions.push({
+      {
+        const urlInput = connectedInput(edgesByTarget, node.id, 'url');
+        instructions.push({
         op: 'FETCH_GET',
         nodeId: node.id,
-        url: connectedInput(edgesByTarget, node.id, 'url'),
+        url: urlInput,
         output: symbol(node.id, 'result'),
-        fallbackUrl: node.settings.remoteUrl ?? '',
+        fallbackUrl: urlInput ? '' : node.settings.remoteUrl ?? '',
         outputDataType: node.settings.remoteDataType ?? 'data',
         timeoutMs: Math.max(500, Math.min(30_000, Math.trunc(node.settings.remoteTimeoutMs ?? DEFAULT_REMOTE_TIMEOUT_MS))),
         maxBytes: Math.max(1_024, Math.min(512 * 1024, Math.trunc(node.settings.remoteMaxBytes ?? DEFAULT_REMOTE_MAX_BYTES))),
-      });
+        });
+      }
       break;
     case 'HttpRequest':
-      instructions.push({
+      {
+        const urlInput = connectedInput(edgesByTarget, node.id, 'url');
+        instructions.push({
         op: 'HTTP_REQUEST',
         nodeId: node.id,
-        url: connectedInput(edgesByTarget, node.id, 'url'),
+        url: urlInput,
         body: connectedInput(edgesByTarget, node.id, 'body'),
         output: symbol(node.id, 'result'),
         method: node.settings.remoteMethod ?? 'GET',
-        fallbackUrl: node.settings.remoteUrl ?? '',
+        fallbackUrl: urlInput ? '' : node.settings.remoteUrl ?? '',
         outputDataType: node.settings.remoteDataType ?? 'data',
         timeoutMs: Math.max(500, Math.min(30_000, Math.trunc(node.settings.remoteTimeoutMs ?? DEFAULT_REMOTE_TIMEOUT_MS))),
         maxBytes: Math.max(1_024, Math.min(512 * 1024, Math.trunc(node.settings.remoteMaxBytes ?? DEFAULT_REMOTE_MAX_BYTES))),
-      });
+        });
+      }
       break;
     case 'SystemData':
       instructions.push({
@@ -742,6 +750,7 @@ function instructionForNode(
         nodeId: node.id,
         output: symbol(node.id, 'result'),
         interaction: interactionKindForNode(node.type),
+        messageInput: connectedInput(edgesByTarget, node.id, 'message'),
         message: node.settings.promptMessage ?? getBlockDefinition(node.type).label,
         placeholder: node.settings.promptPlaceholder,
         defaultValue: node.settings.promptDefaultValue,
@@ -752,12 +761,14 @@ function instructionForNode(
     case 'GetImage':
     case 'GetVideo':
     case 'GetAudio':
-      instructions.push({
+      {
+        const urlInput = connectedInput(edgesByTarget, node.id, 'url');
+        instructions.push({
         op: 'GET_ASSET',
         nodeId: node.id,
-        url: connectedInput(edgesByTarget, node.id, 'url'),
+        url: urlInput,
         output: symbol(node.id, 'result'),
-        fallbackUrl: node.settings.assetUrl ?? '',
+        fallbackUrl: urlInput ? '' : node.settings.assetUrl ?? '',
         kind: node.settings.assetKind ?? assetKindForNode(node.type),
         embedded: node.settings.assetDataBase64
           ? {
@@ -771,7 +782,8 @@ function instructionForNode(
           : undefined,
         timeoutMs: Math.max(500, Math.min(30_000, Math.trunc(node.settings.remoteTimeoutMs ?? DEFAULT_REMOTE_TIMEOUT_MS))),
         maxBytes: Math.max(1_024, Math.min(ASSET_MAX_BYTES, Math.trunc(node.settings.remoteMaxBytes ?? ASSET_MAX_BYTES))),
-      });
+        });
+      }
       break;
     case 'ShowMessage':
       instructions.push({
@@ -898,6 +910,7 @@ function instructionForNode(
         op: 'OVERLAY_CONTROL',
         nodeId: node.id,
         enabled: connectedInput(edgesByTarget, node.id, 'enabled'),
+        messageInput: connectedInput(edgesByTarget, node.id, 'message'),
         output: symbol(node.id, 'result'),
         action: node.settings.overlayControlAction ?? 'START',
         message: node.settings.overlayText ?? node.settings.promptMessage ?? '',
@@ -1280,14 +1293,16 @@ export function compileWorkspace(workspace: WorkspaceFileV2, options: CompileOpt
     }
 
     if (instruction.op === 'GET_ASSET') {
-      addRisk(risk, 'high', 'Remote or embedded media access is high risk.', 'input');
+      addRisk(risk, 'high', instruction.embedded ? 'Embedded media access is high risk.' : 'Remote media access is high risk.', 'input');
       const host = instruction.fallbackUrl ? cleanUrl(instruction.fallbackUrl) : undefined;
-      addRisk(
-        risk,
-        'high',
-        host ? `Remote media host ${new URL(host).host} may provide displayable content.` : 'Dynamic remote media host may provide displayable content.',
-        'input',
-      );
+      if (!instruction.embedded) {
+        addRisk(
+          risk,
+          'high',
+          host ? `Remote media host ${new URL(host).host} may provide displayable content.` : 'Dynamic remote media host may provide displayable content.',
+          'input',
+        );
+      }
     }
 
     if (instruction.op === 'USER_INTERACTION') {

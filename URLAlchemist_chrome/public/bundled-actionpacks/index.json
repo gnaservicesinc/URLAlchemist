@@ -87,17 +87,33 @@
       "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200006",
       "name": "Remember Current Page",
       "slug": "remember-current-page",
-      "description": "Stores the current URL in session storage while leaving navigation unchanged.",
+      "description": "Copies a small previous/current page note to the clipboard and updates the remembered URL for the next run.",
       "category": "Storage",
       "trigger": "CONTEXT_MENU",
-      "risk": "extended",
+      "risk": "high",
       "features": [
         "Session SaveLoad",
-        "No redirect",
-        "Context menu utility"
+        "Previous page recall",
+        "Clipboard output"
       ],
       "workspacePath": "bundled-actionpacks/workspaces/remember-current-page.workspace",
       "actionPackPath": "bundled-actionpacks/action-packs/remember-current-page.actionpack"
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200016",
+      "name": "Copy Page Title",
+      "slug": "copy-page-title",
+      "description": "Copies the current tab title to the clipboard from the context menu without changing the URL.",
+      "category": "Page tools",
+      "trigger": "CONTEXT_MENU",
+      "risk": "high",
+      "features": [
+        "Page title input",
+        "Clipboard output",
+        "No redirect"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/copy-page-title.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/copy-page-title.actionpack"
     },
     {
       "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200007",

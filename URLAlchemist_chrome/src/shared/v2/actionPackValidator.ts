@@ -701,12 +701,13 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'USER_INTERACTION': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'interaction', 'message'], ['placeholder', 'defaultValue', 'minValue', 'maxValue'])) {
+      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'interaction', 'message'], ['messageInput', 'placeholder', 'defaultValue', 'minValue', 'maxValue'])) {
         addError(errors, prefix, 'USER_INTERACTION instruction has invalid keys');
         return null;
       }
 
       assertReference(errors, symbolTable, instruction.output, `${prefix}.output`, true);
+      assertReference(errors, symbolTable, instruction.messageInput, `${prefix}.messageInput`);
       if (!isEnumValue(USER_INTERACTIONS, instruction.interaction)) {
         addError(errors, prefix, 'interaction is invalid');
       }
@@ -774,7 +775,7 @@ function validateInstruction(
         addError(errors, prefix, 'maxBytes must be between 1024 and 524288');
       }
 
-      addRisk(derivedRisk, 'high', 'Remote or embedded media access is high risk.', 'input');
+      addRisk(derivedRisk, 'high', instruction.embedded === undefined ? 'Remote media access is high risk.' : 'Embedded media access is high risk.', 'input');
       return instruction as GraphVmInstruction;
     }
     case 'DISPLAY': {
@@ -1069,12 +1070,13 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'OVERLAY_CONTROL': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'action', 'message', 'width', 'height', 'cellSize', 'tickMs', 'background'], ['enabled', 'output'])) {
+      if (!hasExactKeys(instruction, ['op', 'nodeId', 'action', 'message', 'width', 'height', 'cellSize', 'tickMs', 'background'], ['enabled', 'messageInput', 'output'])) {
         addError(errors, prefix, 'OVERLAY_CONTROL instruction has invalid keys');
         return null;
       }
 
       assertReference(errors, symbolTable, instruction.enabled, `${prefix}.enabled`);
+      assertReference(errors, symbolTable, instruction.messageInput, `${prefix}.messageInput`);
       assertReference(errors, symbolTable, instruction.output, `${prefix}.output`);
 
       if (!isEnumValue(OVERLAY_CONTROL_ACTIONS, instruction.action)) {

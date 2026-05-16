@@ -490,6 +490,7 @@ export type GraphVmInstruction =
       nodeId: string;
       output: string;
       interaction: UserInteractionKind;
+      messageInput?: string;
       message: string;
       placeholder?: string;
       defaultValue?: string;
@@ -645,6 +646,7 @@ export type GraphVmInstruction =
 	      op: 'OVERLAY_CONTROL';
 	      nodeId: string;
 	      enabled?: string;
+	      messageInput?: string;
 	      output?: string;
 	      action: OverlayControlAction;
 	      message: string;

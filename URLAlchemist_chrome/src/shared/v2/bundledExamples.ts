@@ -90,13 +90,25 @@ export const BUNDLED_ACTION_PACK_EXAMPLES: BundledActionPackExample[] = [
     id: '0f6b6d50-9d44-4a86-9d0f-80a9e8200006',
     name: 'Remember Current Page',
     slug: 'remember-current-page',
-    description: 'Stores the current URL in session storage while leaving navigation unchanged.',
+    description: 'Copies a small previous/current page note to the clipboard and updates the remembered URL for the next run.',
     category: 'Storage',
     trigger: 'CONTEXT_MENU',
-    risk: 'extended',
-    features: ['Session SaveLoad', 'No redirect', 'Context menu utility'],
+    risk: 'high',
+    features: ['Session SaveLoad', 'Previous page recall', 'Clipboard output'],
     workspacePath: 'bundled-actionpacks/workspaces/remember-current-page.workspace',
     actionPackPath: 'bundled-actionpacks/action-packs/remember-current-page.actionpack',
+  },
+  {
+    id: '0f6b6d50-9d44-4a86-9d0f-80a9e8200016',
+    name: 'Copy Page Title',
+    slug: 'copy-page-title',
+    description: 'Copies the current tab title to the clipboard from the context menu without changing the URL.',
+    category: 'Page tools',
+    trigger: 'CONTEXT_MENU',
+    risk: 'high',
+    features: ['Page title input', 'Clipboard output', 'No redirect'],
+    workspacePath: 'bundled-actionpacks/workspaces/copy-page-title.workspace',
+    actionPackPath: 'bundled-actionpacks/action-packs/copy-page-title.actionpack',
   },
   {
     id: '0f6b6d50-9d44-4a86-9d0f-80a9e8200007',
@@ -533,22 +545,73 @@ function clipboardSearchLauncher(): WorkspaceFileV2 {
 function rememberCurrentPage(): WorkspaceFileV2 {
   const slug = 'remember-current-page';
   const input = node(slug, 'input', 'DataFlowIn', { x: 0, y: 120 }, { locked: true });
-  const save = node(slug, 'save', 'SaveLoad', { x: 300, y: 40 }, {
-    label: 'Save last URL',
+  const loadPrevious = node(slug, 'load-previous', 'SaveLoad', { x: 300, y: 20 }, {
+    label: 'Load previous URL',
+    saveLoadMode: 'GET',
+    literalValue: 'last-url',
+  });
+  const notePrevious = node(slug, 'note-previous', 'DataStructure', { x: 600, y: 20 }, {
+    label: 'Set previous URL',
+    variableName: 'rememberedPage',
+    dictKey: 'previousUrl',
+  });
+  const noteCurrent = node(slug, 'note-current', 'DataStructure', { x: 900, y: 20 }, {
+    label: 'Set current URL',
+    variableName: 'rememberedPage',
+    dictKey: 'currentUrl',
+  });
+  const noteTitle = node(slug, 'note-title', 'DataStructure', { x: 1200, y: 20 }, {
+    label: 'Set current title',
+    variableName: 'rememberedPage',
+    dictKey: 'currentTitle',
+  });
+  const convert = node(slug, 'convert', 'Convert', { x: 1500, y: 20 }, {
+    label: 'Dict to JSON text',
+    convertMode: 'DICT_TO_JSON',
+  });
+  const extendedOutput = node(slug, 'extended-output', 'ExtendedDataOut', { x: 1800, y: 40 });
+  const saveCurrent = node(slug, 'save-current', 'SaveLoad', { x: 600, y: 260 }, {
+    label: 'Remember current URL',
     saveLoadMode: 'SAVE',
     literalValue: 'last-url',
     alwaysProcess: true,
   });
-  const output = node(slug, 'output', 'DataFlowOut', { x: 620, y: 160 }, { locked: true });
 
   return baseWorkspace(
     getExample(slug),
-    [input, save, output],
-    [edge(input, 'url', save, 'value'), edge(input, 'url', output, 'url')],
+    [input, loadPrevious, notePrevious, noteCurrent, noteTitle, convert, extendedOutput, saveCurrent],
+    [
+      edge(loadPrevious, 'result', notePrevious, 'value'),
+      edge(notePrevious, 'result', noteCurrent, 'dict'),
+      edge(input, 'url', noteCurrent, 'value'),
+      edge(noteCurrent, 'result', noteTitle, 'dict'),
+      edge(input, 'pageTitle', noteTitle, 'value'),
+      edge(noteTitle, 'result', convert, 'input'),
+      edge(convert, 'result', extendedOutput, 'clipboard'),
+      edge(input, 'url', saveCurrent, 'value'),
+    ],
     {
       type: 'CONTEXT_MENU',
       hotkey: 'Ctrl+Shift+U',
-      inputSources: ['url'],
+      inputSources: ['url', 'pageTitle'],
+      sourceFilters: [{ source: 'url', pattern: '^https?://' }],
+    },
+  );
+}
+
+function copyPageTitle(): WorkspaceFileV2 {
+  const slug = 'copy-page-title';
+  const input = node(slug, 'input', 'DataFlowIn', { x: 0, y: 120 }, { locked: true });
+  const extendedOutput = node(slug, 'extended-output', 'ExtendedDataOut', { x: 320, y: 100 });
+
+  return baseWorkspace(
+    getExample(slug),
+    [input, extendedOutput],
+    [edge(input, 'pageTitle', extendedOutput, 'clipboard')],
+    {
+      type: 'CONTEXT_MENU',
+      hotkey: 'Ctrl+Shift+U',
+      inputSources: ['pageTitle'],
       sourceFilters: [{ source: 'url', pattern: '^https?://' }],
     },
   );
@@ -977,7 +1040,7 @@ function snakeOverlayArcade(): WorkspaceFileV2 {
     overlayWidth: 24,
     overlayHeight: 18,
     overlayCellSize: 24,
-    overlayTickMs: 135,
+    overlayTickMs: 220,
     overlayBackground: '#ffffff',
   });
   const active = add('overlay-active', 'DictGet', 520, 240, { dictKey: 'active', literalValue: '0', literalDataType: 'bool' });
@@ -989,7 +1052,7 @@ function snakeOverlayArcade(): WorkspaceFileV2 {
     overlayWidth: 24,
     overlayHeight: 18,
     overlayCellSize: 24,
-    overlayTickMs: 135,
+    overlayTickMs: 220,
     overlayBackground: '#ffffff',
   });
   const stop = add('overlay-stop', 'OverlayControl', 1010, 330, {
@@ -1010,11 +1073,13 @@ function snakeOverlayArcade(): WorkspaceFileV2 {
   const initialDirection = constant('initial-direction', 1010, 780, 'ArrowRight', 'string');
   const initialScore = constant('initial-score', 1010, 910, '0', 'number');
   const initialPaused = constant('initial-paused', 1010, 1040, '0', 'number');
+  const initialAlive = constant('initial-alive', 1010, 1170, '1', 'number');
   const saveInitialBody = shared('save-initial-body', 1280, 520, 'SET', 'snake:body', '[]', 'data');
   const saveInitialFood = shared('save-initial-food', 1280, 650, 'SET', 'snake:food', '{}', 'dict');
   const saveInitialDirection = shared('save-initial-direction', 1280, 780, 'SET', 'snake:direction', 'ArrowRight', 'string');
   const saveInitialScore = shared('save-initial-score', 1280, 910, 'SET', 'snake:score', '0', 'number');
   const saveInitialPaused = shared('save-initial-paused', 1280, 1040, 'SET', 'snake:paused', '0', 'number');
+  const saveInitialAlive = shared('save-initial-alive', 1280, 1170, 'SET', 'snake:alive', '1', 'number');
   const initialCells = list('initial-cells', 1540, 590, 'APPEND');
   const initialTitle = constant('initial-title', 1540, 720, 'Snake Overlay Arcade', 'string');
   const initialDraw = add('initial-draw', 'OverlayDraw', 1780, 620, {
@@ -1029,6 +1094,7 @@ function snakeOverlayArcade(): WorkspaceFileV2 {
     [initialDirection, saveInitialDirection],
     [initialScore, saveInitialScore],
     [initialPaused, saveInitialPaused],
+    [initialAlive, saveInitialAlive],
   ].forEach(([value, target]) => {
     connect(value, 'value', target, 'value');
     connect(notActive, 'result', target, 'enabled');
@@ -1326,6 +1392,7 @@ export function createBundledExampleWorkspaces(): WorkspaceFileV2[] {
     searchSelectedText(),
     clipboardSearchLauncher(),
     rememberCurrentPage(),
+    copyPageTitle(),
     researchNoteSnapshot(),
     uppercaseSelectionClipboard(),
     remoteTextFetchPreview(),

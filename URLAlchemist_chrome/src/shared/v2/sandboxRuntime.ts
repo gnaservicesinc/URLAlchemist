@@ -28,14 +28,17 @@ const SANDBOX_SOURCE_VALUES: Record<string, GraphValue> = {
   tickEvent: { type: 'dict', value: { kind: { type: 'string', value: 'tick' } } },
 };
 
-export function createSandboxGraphRuntime(runtime: GraphRuntime): GraphRuntime {
+export function createSandboxGraphRuntime(runtime: GraphRuntime, sourceValues: Partial<Record<string, GraphValue>> = {}): GraphRuntime {
   const sessionValues = new Map<string, GraphValue>();
 
   return {
     regex: runtime.regex,
-    readClipboard: async () => 'sandbox-clipboard',
+    readClipboard: async () => {
+      const clipboard = sourceValues.clipboard;
+      return clipboard && typeof clipboard.value === 'string' ? clipboard.value : 'sandbox-clipboard';
+    },
     now: runtime.now,
-    readSource: async (source) => SANDBOX_SOURCE_VALUES[source],
+    readSource: async (source) => sourceValues[source] ?? SANDBOX_SOURCE_VALUES[source],
     loadSessionValue: async (key) => sessionValues.get(key),
     saveSessionValue: async (key, value) => {
       sessionValues.set(key, value);

@@ -170,21 +170,7 @@ function getPackImportValidationErrors(pack: CompiledActionPackV2 | null, instal
     errors.push(`An installed Action Pack already uses this ID (${existing.manifest.name}). Delete it before importing this file.`);
   }
 
-  if (!pack.vm.instructions.some((instruction) => instruction.op === 'OUTPUT')) {
-    errors.push('This Action Pack has no output instruction.');
-  }
-
   return errors;
-}
-
-function workspaceHasConnectedDataOut(workspace: WorkspaceFileV2): boolean {
-  const outputNodeIds = new Set(
-    workspace.nodes.filter((node) => node.type === 'DataFlowOut' || node.type === 'ExtendedDataOut').map((n) => n.id),
-  );
-  if (outputNodeIds.size === 0) {
-    return false;
-  }
-  return workspace.edges.some((edge) => outputNodeIds.has(edge.target));
 }
 
 function createOptionsRuntimes(settings: GlobalSettings): { graph: GraphRuntime; legacy: EngineRuntime } {
@@ -499,11 +485,6 @@ function App() {
   }
 
   async function saveWorkspace(): Promise<void> {
-    if (!workspaceHasConnectedDataOut(workspace)) {
-      setWorkspaceMessage('Add a Data Out block before saving this workspace.');
-      return;
-    }
-
     const savedWorkspace = { ...workspace, validationState: compiledWorkspace.validation };
     await applyState(upsertWorkspaceV2(savedWorkspace));
     setWorkspace(savedWorkspace);
@@ -528,11 +509,6 @@ function App() {
   }
 
   async function exportWorkspaceFile(targetWorkspace = workspace): Promise<void> {
-    if (!workspaceHasConnectedDataOut(targetWorkspace)) {
-      setWorkspaceMessage('Add a Data Out block before exporting this workspace.');
-      return;
-    }
-
     const result = compileWorkspace(targetWorkspace, { builderUuid: state.settings.builderUuid });
     await downloadBytes(
       await exportWorkspaceBinary({ ...targetWorkspace, validationState: result.validation }),

@@ -57,6 +57,10 @@ function remoteInstructionHost(instruction: Extract<CompiledActionPackV2['vm']['
   }
 }
 
+function isRemoteInstruction(instruction: CompiledActionPackV2['vm']['instructions'][number]): instruction is Extract<CompiledActionPackV2['vm']['instructions'][number], { op: 'FETCH_GET' | 'HTTP_REQUEST' | 'GET_ASSET' }> {
+  return instruction.op === 'FETCH_GET' || instruction.op === 'HTTP_REQUEST' || (instruction.op === 'GET_ASSET' && !instruction.embedded);
+}
+
 export function StagingModal({
   checksumHex,
   pack,
@@ -76,7 +80,7 @@ export function StagingModal({
   }
 
   const confirmUnlocked = (hasSandboxRun || reviewAcknowledged) && validationErrors.length === 0;
-  const remoteInstructions = pack.vm.instructions.filter((instruction) => instruction.op === 'FETCH_GET' || instruction.op === 'HTTP_REQUEST' || instruction.op === 'GET_ASSET');
+  const remoteInstructions = pack.vm.instructions.filter(isRemoteInstruction);
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/55 px-4 py-10 backdrop-blur-md">

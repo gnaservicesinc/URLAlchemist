@@ -762,7 +762,7 @@ async function executeInstruction(
       break;
     }
     case 'USER_INTERACTION': {
-      const message = instruction.message || 'URL Alchemist needs input';
+      const message = instruction.messageInput ? asString(getValue(state, instruction.messageInput)) : instruction.message || 'URL Alchemist needs input';
       const value = await (runtime.requestUserInteraction ?? defaultUserInteraction)({
         kind: instruction.interaction,
         message,
@@ -1096,9 +1096,10 @@ async function executeInstruction(
         break;
       }
 
+      const message = instruction.messageInput ? asString(getValue(state, instruction.messageInput)) : instruction.message;
       const value = await (runtime.overlayControl ?? defaultOverlayControl)({
         action: instruction.action,
-        message: instruction.message,
+        message,
         width: instruction.width,
         height: instruction.height,
         cellSize: instruction.cellSize,

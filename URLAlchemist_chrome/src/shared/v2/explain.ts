@@ -13,6 +13,12 @@ export function explainRiskReason(reason: string): string {
   if (lower.includes('clipboard')) {
     return 'Can read from or write to your clipboard.';
   }
+  if (lower.includes('embedded media')) {
+    return 'Can load bundled media included inside the Action Pack.';
+  }
+  if (lower.includes('remote media')) {
+    return 'Can load displayable media from the internet.';
+  }
   if (lower.includes('remote host') || lower.includes('remote data') || lower.includes('remote request')) {
     return 'Can contact a website or receive data from the internet.';
   }
@@ -25,8 +31,11 @@ export function explainRiskReason(reason: string): string {
   if (lower.includes('file selection')) {
     return 'Can ask you to choose a file or enter a web address.';
   }
-  if (lower.includes('overlay input') || lower.includes('keyboard') || lower.includes('mouse') || lower.includes('interactive overlay')) {
-    return 'Can open a visible URL Alchemist overlay and process keyboard, mouse, or tick events while that overlay is open.';
+  if (lower.includes('overlay input') || lower.includes('keyboard') || lower.includes('mouse')) {
+    return 'Can open a visible URL Alchemist overlay and process keyboard or mouse input while that overlay is open.';
+  }
+  if (lower.includes('interactive overlay')) {
+    return 'Can start, stop, check, or draw into a visible URL Alchemist overlay.';
   }
   if (lower.includes('session storage') || lower.includes('shared state')) {
     return 'Can save temporary values for other handlers in the same session.';
@@ -109,6 +118,9 @@ export function explainInstruction(instruction: GraphVmInstruction): string {
       }
       return 'Asks you for typed input.';
     case 'GET_ASSET':
+      if (instruction.embedded) {
+        return `Loads bundled ${instruction.kind} media from inside the Action Pack.`;
+      }
       return instruction.fallbackUrl
         ? `Loads ${instruction.kind} media from ${hostFromUrl(instruction.fallbackUrl)}.`
         : `Loads ${instruction.kind} media from a web address chosen while the pack runs.`;
@@ -158,17 +170,33 @@ export function explainInstruction(instruction: GraphVmInstruction): string {
 }
 
 export function summarizePackBehavior(pack: CompiledActionPackV2): string {
-  const hasRemote = pack.vm.instructions.some((instruction) => instruction.op === 'FETCH_GET' || instruction.op === 'HTTP_REQUEST' || instruction.op === 'GET_ASSET');
+  const hasRemote = pack.vm.instructions.some((instruction) => instruction.op === 'FETCH_GET' || instruction.op === 'HTTP_REQUEST' || (instruction.op === 'GET_ASSET' && !instruction.embedded));
+  const hasEmbeddedMedia = pack.vm.instructions.some((instruction) => instruction.op === 'GET_ASSET' && instruction.embedded);
   const hasClipboard = pack.requiredPermissions.some((permission) => permission.toLowerCase().includes('clipboard'));
   const hasOverlayInput = pack.vm.instructions.some((instruction) => instruction.op === 'DISPLAY' && instruction.displayType === 'input-capture');
   const hasInteractiveOverlay = pack.vm.instructions.some((instruction) => instruction.op === 'OVERLAY_CONTROL' || instruction.op === 'OVERLAY_DRAW');
   const outputs = pack.vm.instructions.filter((instruction): instruction is Extract<GraphVmInstruction, { op: 'OUTPUT' }> => instruction.op === 'OUTPUT');
+  const activeHandlers = Object.entries(pack.vm.eventHandlers ?? {})
+    .filter(([, instructions]) => (instructions?.length ?? 0) > 0)
+    .map(([handler]) => handler)
+    .filter((handler) => handler !== 'trigger');
 
   if (hasInteractiveOverlay) {
-    return 'This pack can open a visible URL Alchemist overlay and process keyboard, mouse, or tick events only while that overlay is active.';
+    return activeHandlers.length > 0
+      ? `This pack can use a visible URL Alchemist overlay and respond to ${activeHandlers.join(', ')} events only while that overlay is active.`
+      : 'This pack can start, stop, check, or draw into a visible URL Alchemist overlay.';
   }
   if (hasOverlayInput) {
-    return 'This pack opens an overlay that can capture keyboard or mouse input only while the overlay is open.';
+    const captures = pack.vm.instructions
+      .filter((instruction): instruction is Extract<GraphVmInstruction, { op: 'DISPLAY' }> => instruction.op === 'DISPLAY' && instruction.displayType === 'input-capture')
+      .flatMap((instruction) => [
+        instruction.captureKeyboard ? 'keyboard' : '',
+        instruction.captureMouse ? 'mouse' : '',
+      ])
+      .filter(Boolean);
+    return captures.length > 0
+      ? `This pack opens an overlay that can capture ${Array.from(new Set(captures)).join(' and ')} input only while the overlay is open.`
+      : 'This pack opens a visible input overlay without keyboard or mouse capture enabled.';
   }
   if (hasRemote && hasClipboard) {
     return 'This pack can use clipboard data and contact the internet. Review the steps before enabling it.';
@@ -178,6 +206,9 @@ export function summarizePackBehavior(pack: CompiledActionPackV2): string {
   }
   if (hasClipboard) {
     return 'This pack can use your clipboard. Enable it only if that matches what you expect.';
+  }
+  if (hasEmbeddedMedia) {
+    return 'This pack can load bundled media included inside the Action Pack.';
   }
   if (outputs.some((output) => output.destination !== 'url')) {
     return 'This pack can change browser data outside the URL, such as page text or temporary storage.';
