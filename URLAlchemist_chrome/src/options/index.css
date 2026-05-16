@@ -105,6 +105,23 @@ body {
     @apply rounded-2xl border border-slate-200 bg-white/70 p-3;
   }
 
+  .tooltip-root {
+    @apply relative inline-flex align-middle;
+  }
+
+  .tooltip-trigger {
+    @apply inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 bg-white text-[11px] font-bold leading-none text-slate-500 transition hover:border-amber-300 hover:bg-amber-50 hover:text-amber-700 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-200;
+  }
+
+  .tooltip-bubble {
+    @apply pointer-events-none absolute left-1/2 top-7 z-50 hidden w-64 -translate-x-1/2 rounded-xl border border-slate-200 bg-slate-950 px-3 py-2 text-left text-xs font-medium normal-case leading-5 tracking-normal text-white shadow-[0_18px_46px_rgba(15,23,42,0.28)];
+  }
+
+  .tooltip-root:hover .tooltip-bubble,
+  .tooltip-root:focus-within .tooltip-bubble {
+    @apply block;
+  }
+
   .help-document {
     @apply mx-auto max-w-3xl px-6 py-8 text-base leading-7 text-slate-700 sm:px-8 sm:py-10;
   }

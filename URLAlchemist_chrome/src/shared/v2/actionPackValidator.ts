@@ -7,6 +7,7 @@ import type {
   CompiledTriggerPlan,
   CompiledRiskSummary,
   GraphDataType,
+  GraphEventHandler,
   GraphValue,
   GraphVmInstruction,
   GraphVmSafetyPolicy,
@@ -20,8 +21,8 @@ import {
   INPUT_TRIGGER_BURST_LIMIT,
   INPUT_TRIGGER_BURST_WINDOW_MS,
   INPUT_TRIGGER_HISTORY_LIMIT,
-  LEGACY_ACTION_PACK_SCHEMA_VERSION,
   MIN_INTERVAL_TRIGGER_MS,
+  SUPPORTED_ACTION_PACK_SCHEMA_VERSIONS,
 } from './types';
 
 const GRAPH_DATA_TYPES = ['bool', 'number', 'floatingPoint', 'string', 'URL', 'JSON', 'data', 'dict', 'asset', 'Any'] as const;
@@ -44,6 +45,10 @@ const USER_INTERACTIONS = ['PROMPT_TEXT', 'PROMPT_NUMBER', 'CONFIRM', 'PICK_FILE
 const DISPLAY_TYPES = ['message', 'image', 'video', 'sound', 'input-capture'] as const;
 const DISPLAY_MODES = ['OVERLAY', 'REPLACE_PAGE', 'NEW_TAB'] as const;
 const SHOW_IMAGE_STOP_MODES = ['CLOSE_BUTTON', 'CLICK', 'TIMEOUT', 'CONFIRM'] as const;
+const GRAPH_EVENT_HANDLERS = ['trigger', 'keyboard', 'mouse', 'tick'] as const;
+const OVERLAY_CONTROL_ACTIONS = ['START', 'STOP', 'TOGGLE', 'STATUS'] as const;
+const SHARED_STATE_MODES = ['GET', 'SET', 'DELETE', 'EXISTS'] as const;
+const LIST_OPERATIONS = ['APPEND', 'PREPEND', 'DROP_LAST', 'GET', 'LENGTH', 'CONTAINS_POINT'] as const;
 const ASSET_KINDS = ['image', 'video', 'audio', 'unknown'] as const;
 const ASSET_SOURCES = ['remote', 'embedded', 'picked-file'] as const;
 const ASSET_COMPRESSION = ['gzip', 'none'] as const;
@@ -82,13 +87,22 @@ type SourcePort = {
 type DestinationPort = SourcePort;
 
 const SOURCE_PORTS: ReadonlyMap<string, SourcePort> = new Map(
-  [...BLOCK_REGISTRY.DataFlowIn.outputs, ...BLOCK_REGISTRY.ExtendedDataIn.outputs].map((port) => [
-    port.id,
-    {
-      dataType: port.dataType,
-      risk: port.risk ?? 'safe',
-    },
-  ]),
+  [
+    BLOCK_REGISTRY.DataFlowIn,
+    BLOCK_REGISTRY.ExtendedDataIn,
+    BLOCK_REGISTRY.OnTriggerEvent,
+    BLOCK_REGISTRY.KeyboardIn,
+    BLOCK_REGISTRY.MouseIn,
+    BLOCK_REGISTRY.OverlayTickIn,
+  ].flatMap((definition) =>
+    definition.outputs.map((port) => [
+      port.id,
+      {
+        dataType: port.dataType,
+        risk: port.risk ?? definition.risk,
+      },
+    ] as const),
+  ),
 );
 
 const DESTINATION_PORTS: ReadonlyMap<string, DestinationPort> = new Map(
@@ -517,8 +531,9 @@ function validateInstruction(
   symbolTable: Record<string, GraphDataType>,
   derivedRisk: CompiledRiskSummary,
   errors: string[],
+  listPrefix = 'vm.instructions',
 ): GraphVmInstruction | null {
-  const prefix = `vm.instructions[${index}]`;
+  const prefix = `${listPrefix}[${index}]`;
   if (!isRecord(instruction) || !isString(instruction.op)) {
     addError(errors, prefix, 'instruction must be an object with an op');
     return null;
@@ -553,6 +568,16 @@ function validateInstruction(
       }
 
       addRisk(derivedRisk, port.risk, `${instruction.source} is ${port.risk} risk.`, 'input');
+      return instruction as GraphVmInstruction;
+    }
+    case 'CONSTANT': {
+      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'value'])) {
+        addError(errors, prefix, 'CONSTANT instruction has invalid keys');
+        return null;
+      }
+
+      assertReference(errors, symbolTable, instruction.output, `${prefix}.output`, true);
+      validateGraphValue(instruction.value, `${prefix}.value`, errors);
       return instruction as GraphVmInstruction;
     }
     case 'REGEX_TRANSFORM': {
@@ -938,6 +963,169 @@ function validateInstruction(
 
       return instruction as GraphVmInstruction;
     }
+    case 'SLEEP': {
+      if (!hasExactKeys(instruction, ['op', 'nodeId', 'fallbackMs'], ['duration', 'enabled', 'output'])) {
+        addError(errors, prefix, 'SLEEP instruction has invalid keys');
+        return null;
+      }
+
+      assertReference(errors, symbolTable, instruction.duration, `${prefix}.duration`);
+      assertReference(errors, symbolTable, instruction.enabled, `${prefix}.enabled`);
+      assertReference(errors, symbolTable, instruction.output, `${prefix}.output`);
+
+      if (!isNonNegativeInteger(instruction.fallbackMs) || instruction.fallbackMs > 60_000) {
+        addError(errors, prefix, 'fallbackMs must be between 0 and 60000');
+      }
+
+      return instruction as GraphVmInstruction;
+    }
+    case 'SHARED_STATE': {
+      if (!hasExactKeys(instruction, ['op', 'nodeId', 'mode', 'fallbackKey', 'fallbackValue'], ['key', 'value', 'enabled', 'output'])) {
+        addError(errors, prefix, 'SHARED_STATE instruction has invalid keys');
+        return null;
+      }
+
+      assertReference(errors, symbolTable, instruction.key, `${prefix}.key`);
+      assertReference(errors, symbolTable, instruction.value, `${prefix}.value`);
+      assertReference(errors, symbolTable, instruction.enabled, `${prefix}.enabled`);
+      assertReference(errors, symbolTable, instruction.output, `${prefix}.output`);
+
+      if (!isEnumValue(SHARED_STATE_MODES, instruction.mode)) {
+        addError(errors, prefix, 'mode is invalid');
+      }
+
+      if (!isString(instruction.fallbackKey) || instruction.fallbackKey.length > 256) {
+        addError(errors, prefix, 'fallbackKey must be a string of 256 characters or less');
+      }
+
+      validateGraphValue(instruction.fallbackValue, `${prefix}.fallbackValue`, errors);
+      addRisk(derivedRisk, 'extended', 'Session-scoped shared state is extended risk.', 'output');
+      return instruction as GraphVmInstruction;
+    }
+    case 'DICT_GET': {
+      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'fallbackKey', 'fallbackValue'], ['dict', 'key'])) {
+        addError(errors, prefix, 'DICT_GET instruction has invalid keys');
+        return null;
+      }
+
+      assertReference(errors, symbolTable, instruction.dict, `${prefix}.dict`);
+      assertReference(errors, symbolTable, instruction.key, `${prefix}.key`);
+      assertReference(errors, symbolTable, instruction.output, `${prefix}.output`, true);
+
+      if (!isString(instruction.fallbackKey) || instruction.fallbackKey.length > 256) {
+        addError(errors, prefix, 'fallbackKey must be a string of 256 characters or less');
+      }
+
+      validateGraphValue(instruction.fallbackValue, `${prefix}.fallbackValue`, errors);
+      return instruction as GraphVmInstruction;
+    }
+    case 'LIST_OP': {
+      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'operation', 'fallbackList', 'fallbackItem'], ['list', 'item', 'index'])) {
+        addError(errors, prefix, 'LIST_OP instruction has invalid keys');
+        return null;
+      }
+
+      assertReference(errors, symbolTable, instruction.list, `${prefix}.list`);
+      assertReference(errors, symbolTable, instruction.item, `${prefix}.item`);
+      assertReference(errors, symbolTable, instruction.index, `${prefix}.index`);
+      assertReference(errors, symbolTable, instruction.output, `${prefix}.output`, true);
+
+      if (!isEnumValue(LIST_OPERATIONS, instruction.operation)) {
+        addError(errors, prefix, 'operation is invalid');
+      }
+
+      validateGraphValue(instruction.fallbackList, `${prefix}.fallbackList`, errors);
+      validateGraphValue(instruction.fallbackItem, `${prefix}.fallbackItem`, errors);
+      return instruction as GraphVmInstruction;
+    }
+    case 'SELECT': {
+      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'fallbackTrue', 'fallbackFalse'], ['condition', 'trueValue', 'falseValue'])) {
+        addError(errors, prefix, 'SELECT instruction has invalid keys');
+        return null;
+      }
+
+      assertReference(errors, symbolTable, instruction.condition, `${prefix}.condition`);
+      assertReference(errors, symbolTable, instruction.trueValue, `${prefix}.trueValue`);
+      assertReference(errors, symbolTable, instruction.falseValue, `${prefix}.falseValue`);
+      assertReference(errors, symbolTable, instruction.output, `${prefix}.output`, true);
+      validateGraphValue(instruction.fallbackTrue, `${prefix}.fallbackTrue`, errors);
+      validateGraphValue(instruction.fallbackFalse, `${prefix}.fallbackFalse`, errors);
+      return instruction as GraphVmInstruction;
+    }
+    case 'RANDOM_INT': {
+      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'fallbackMin', 'fallbackMax'], ['min', 'max'])) {
+        addError(errors, prefix, 'RANDOM_INT instruction has invalid keys');
+        return null;
+      }
+
+      assertReference(errors, symbolTable, instruction.min, `${prefix}.min`);
+      assertReference(errors, symbolTable, instruction.max, `${prefix}.max`);
+      assertReference(errors, symbolTable, instruction.output, `${prefix}.output`, true);
+
+      if (!Number.isInteger(instruction.fallbackMin) || !Number.isInteger(instruction.fallbackMax)) {
+        addError(errors, prefix, 'fallback bounds must be integers');
+      }
+
+      return instruction as GraphVmInstruction;
+    }
+    case 'OVERLAY_CONTROL': {
+      if (!hasExactKeys(instruction, ['op', 'nodeId', 'action', 'message', 'width', 'height', 'cellSize', 'tickMs', 'background'], ['enabled', 'output'])) {
+        addError(errors, prefix, 'OVERLAY_CONTROL instruction has invalid keys');
+        return null;
+      }
+
+      assertReference(errors, symbolTable, instruction.enabled, `${prefix}.enabled`);
+      assertReference(errors, symbolTable, instruction.output, `${prefix}.output`);
+
+      if (!isEnumValue(OVERLAY_CONTROL_ACTIONS, instruction.action)) {
+        addError(errors, prefix, 'action is invalid');
+      }
+
+      if (!isString(instruction.message) || instruction.message.length > 2000 || !isString(instruction.background) || instruction.background.length > 128) {
+        addError(errors, prefix, 'message/background fields are invalid');
+      }
+
+      if (!isPositiveInteger(instruction.width) || instruction.width > 200 || !isPositiveInteger(instruction.height) || instruction.height > 200) {
+        addError(errors, prefix, 'overlay dimensions must be between 1 and 200');
+      }
+
+      if (!isPositiveInteger(instruction.cellSize) || instruction.cellSize < 4 || instruction.cellSize > 96) {
+        addError(errors, prefix, 'cellSize must be between 4 and 96');
+      }
+
+      if (!isPositiveInteger(instruction.tickMs) || instruction.tickMs < 16 || instruction.tickMs > 5_000) {
+        addError(errors, prefix, 'tickMs must be between 16 and 5000');
+      }
+
+      addRisk(derivedRisk, 'extended', 'Interactive overlay display is extended risk.', 'output');
+      return instruction as GraphVmInstruction;
+    }
+    case 'OVERLAY_DRAW': {
+      if (!hasExactKeys(instruction, ['op', 'nodeId', 'width', 'height', 'cellSize', 'background'], ['enabled', 'cells', 'text', 'output'])) {
+        addError(errors, prefix, 'OVERLAY_DRAW instruction has invalid keys');
+        return null;
+      }
+
+      assertReference(errors, symbolTable, instruction.enabled, `${prefix}.enabled`);
+      assertReference(errors, symbolTable, instruction.cells, `${prefix}.cells`);
+      assertReference(errors, symbolTable, instruction.text, `${prefix}.text`);
+      assertReference(errors, symbolTable, instruction.output, `${prefix}.output`);
+
+      if (!isString(instruction.background) || instruction.background.length > 128) {
+        addError(errors, prefix, 'background is invalid');
+      }
+
+      if (!isPositiveInteger(instruction.width) || instruction.width > 200 || !isPositiveInteger(instruction.height) || instruction.height > 200) {
+        addError(errors, prefix, 'overlay dimensions must be between 1 and 200');
+      }
+
+      if (!isPositiveInteger(instruction.cellSize) || instruction.cellSize < 4 || instruction.cellSize > 96) {
+        addError(errors, prefix, 'cellSize must be between 4 and 96');
+      }
+
+      addRisk(derivedRisk, 'extended', 'Interactive overlay display is extended risk.', 'output');
+      return instruction as GraphVmInstruction;
+    }
     case 'OUTPUT': {
       if (!hasExactKeys(instruction, ['op', 'nodeId', 'input', 'destination', 'dataType', 'risk'])) {
         addError(errors, prefix, 'OUTPUT instruction has invalid keys');
@@ -1152,8 +1340,8 @@ function validateSafetyPolicy(value: unknown, errors: string[]): GraphVmSafetyPo
   return errors.length === 0 ? value as unknown as GraphVmSafetyPolicy : null;
 }
 
-function validateVm(value: unknown, errors: string[]): { vm: CompiledActionPackV2['vm']; risk: CompiledRiskSummary } | null {
-  if (!isRecord(value) || !hasExactKeys(value, ['instructions', 'constants', 'symbolTable', 'stepBudget', 'loopBudget', 'valueByteLimit', 'safety'])) {
+function validateVm(value: unknown, errors: string[]): { vm: CompiledActionPackV2['vm']; risk: CompiledRiskSummary; allInstructions: GraphVmInstruction[] } | null {
+  if (!isRecord(value) || !hasExactKeys(value, ['instructions', 'constants', 'symbolTable', 'stepBudget', 'loopBudget', 'valueByteLimit', 'safety'], ['eventHandlers'])) {
     errors.push('vm must be an exact VM program object');
     return null;
   }
@@ -1196,9 +1384,57 @@ function validateVm(value: unknown, errors: string[]): { vm: CompiledActionPackV
     return null;
   }
 
+  const eventHandlers: Partial<Record<GraphEventHandler, GraphVmInstruction[]>> = {};
+  if (value.eventHandlers !== undefined) {
+    const eventHandlerCandidate = value.eventHandlers;
+    if (!isRecord(eventHandlerCandidate) || !hasNoDangerousKeys(eventHandlerCandidate)) {
+      errors.push('vm.eventHandlers must be a plain object');
+      return null;
+    }
+
+    Object.keys(eventHandlerCandidate).forEach((handler) => {
+      if (!isEnumValue(GRAPH_EVENT_HANDLERS, handler)) {
+        errors.push(`vm.eventHandlers contains unsupported handler "${handler}"`);
+      }
+    });
+
+    GRAPH_EVENT_HANDLERS.forEach((handler) => {
+      const handlerValue = eventHandlerCandidate[handler];
+      if (handlerValue === undefined) {
+        return;
+      }
+
+      if (!Array.isArray(handlerValue)) {
+        errors.push(`vm.eventHandlers.${handler} must be an array`);
+        return;
+      }
+
+      if (handlerValue.length > MAX_VM_INSTRUCTIONS) {
+        errors.push(`vm.eventHandlers.${handler} cannot contain more than ${MAX_VM_INSTRUCTIONS} instructions`);
+      }
+
+      const validated = handlerValue
+        .map((instruction, index) => validateInstruction(instruction, index, symbolTable, derivedRisk, errors, `vm.eventHandlers.${handler}`))
+        .filter((instruction): instruction is GraphVmInstruction => Boolean(instruction));
+      if (validated.length === handlerValue.length) {
+        eventHandlers[handler] = validated;
+      }
+    });
+  }
+
+  if (errors.length > 0) {
+    return null;
+  }
+
+  const allInstructions = [
+    ...instructions,
+    ...GRAPH_EVENT_HANDLERS.flatMap((handler) => eventHandlers[handler] ?? []),
+  ];
+
   return {
     vm: {
       instructions,
+      eventHandlers,
       constants,
       symbolTable,
       stepBudget: value.stepBudget as number,
@@ -1207,6 +1443,7 @@ function validateVm(value: unknown, errors: string[]): { vm: CompiledActionPackV
       safety,
     },
     risk: derivedRisk,
+    allInstructions,
   };
 }
 
@@ -1258,7 +1495,7 @@ export function migrateCompiledActionPackV2Candidate(candidate: unknown): unknow
     return candidate;
   }
 
-  if (candidate.schemaVersion !== LEGACY_ACTION_PACK_SCHEMA_VERSION && candidate.schemaVersion !== ACTION_PACK_SCHEMA_VERSION) {
+  if (!(SUPPORTED_ACTION_PACK_SCHEMA_VERSIONS as readonly number[]).includes(Number(candidate.schemaVersion))) {
     return candidate;
   }
 
@@ -1308,6 +1545,16 @@ export function migrateCompiledActionPackV2Candidate(candidate: unknown): unknow
     triggerPlan: isRecord(candidate.triggerPlan) ? candidate.triggerPlan : triggerPlan,
     vm: {
       ...(isRecord(candidate.vm) ? candidate.vm : {}),
+      eventHandlers: isRecord(isRecord(candidate.vm) ? candidate.vm.eventHandlers : undefined)
+        ? (candidate.vm as Record<string, unknown>).eventHandlers
+        : {
+            trigger: Array.isArray(isRecord(candidate.vm) ? candidate.vm.instructions : undefined)
+              ? (candidate.vm as Record<string, unknown>).instructions
+              : [],
+            keyboard: [],
+            mouse: [],
+            tick: [],
+          },
       safety: isRecord(isRecord(candidate.vm) ? candidate.vm.safety : undefined)
         ? (candidate.vm as Record<string, unknown>).safety
         : defaultSafetyForCandidate(candidate),
@@ -1341,7 +1588,7 @@ export function validateCompiledActionPackV2(candidate: unknown): ValidationResu
   const vmValidation = validateVm(candidate.vm, errors);
 
   if (vmValidation) {
-    const requiredPermissions = deriveRequiredPermissions(vmValidation.vm.instructions);
+    const requiredPermissions = deriveRequiredPermissions(vmValidation.allInstructions);
     validateRiskSummary(candidate.risk, vmValidation.risk, errors);
     validateRequiredPermissions(candidate.requiredPermissions, requiredPermissions, errors);
 

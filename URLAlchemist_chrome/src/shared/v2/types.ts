@@ -1,9 +1,21 @@
 import type { ActionPack, ActionType, MatchMode, WorkspaceTriggerType } from '../types';
 
-export const WORKSPACE_SCHEMA_VERSION = 4;
-export const LEGACY_WORKSPACE_SCHEMA_VERSION = 3;
-export const ACTION_PACK_SCHEMA_VERSION = 4;
-export const LEGACY_ACTION_PACK_SCHEMA_VERSION = 3;
+export const WORKSPACE_SCHEMA_VERSION = 5;
+export const LEGACY_WORKSPACE_SCHEMA_VERSION = 4;
+export const OLDER_WORKSPACE_SCHEMA_VERSION = 3;
+export const ACTION_PACK_SCHEMA_VERSION = 5;
+export const LEGACY_ACTION_PACK_SCHEMA_VERSION = 4;
+export const OLDER_ACTION_PACK_SCHEMA_VERSION = 3;
+export const SUPPORTED_WORKSPACE_SCHEMA_VERSIONS = [
+  WORKSPACE_SCHEMA_VERSION,
+  LEGACY_WORKSPACE_SCHEMA_VERSION,
+  OLDER_WORKSPACE_SCHEMA_VERSION,
+] as const;
+export const SUPPORTED_ACTION_PACK_SCHEMA_VERSIONS = [
+  ACTION_PACK_SCHEMA_VERSION,
+  LEGACY_ACTION_PACK_SCHEMA_VERSION,
+  OLDER_ACTION_PACK_SCHEMA_VERSION,
+] as const;
 export const INPUT_TRIGGER_HISTORY_LIMIT = 25;
 export const INPUT_TRIGGER_BURST_LIMIT = 10;
 export const INPUT_TRIGGER_BURST_WINDOW_MS = 1_000;
@@ -80,6 +92,19 @@ export const BLOCK_TYPE_IDS = {
   GetVideo: 24,
   GetAudio: 25,
   OverlayInput: 26,
+  OnTriggerEvent: 27,
+  KeyboardIn: 28,
+  MouseIn: 29,
+  OverlayTickIn: 30,
+  OverlayControl: 31,
+  OverlayDraw: 32,
+  Sleep: 33,
+  SharedState: 34,
+  DictGet: 35,
+  ListOperation: 36,
+  ConditionSelect: 37,
+  RandomNumber: 38,
+  Constant: 39,
 } as const;
 
 export type BlockKind = keyof typeof BLOCK_TYPE_IDS;
@@ -200,6 +225,42 @@ export type UserInteractionKind = 'PROMPT_TEXT' | 'PROMPT_NUMBER' | 'CONFIRM' | 
 export type DisplayMode = 'OVERLAY' | 'REPLACE_PAGE' | 'NEW_TAB';
 export type ShowImageStopMode = 'CLOSE_BUTTON' | 'CLICK' | 'TIMEOUT' | 'CONFIRM';
 export type AssetFetchKind = 'image' | 'video' | 'audio';
+export type GraphEventHandler = 'trigger' | 'keyboard' | 'mouse' | 'tick';
+export type OverlayControlAction = 'START' | 'STOP' | 'TOGGLE' | 'STATUS';
+export type SharedStateMode = 'GET' | 'SET' | 'DELETE' | 'EXISTS';
+export type ListOperationMode = 'APPEND' | 'PREPEND' | 'DROP_LAST' | 'GET' | 'LENGTH' | 'CONTAINS_POINT';
+
+export type OverlayRuntimeEvent =
+  | {
+      kind: 'trigger';
+      hotkey?: string;
+      url?: string;
+    }
+  | {
+      kind: 'keyboard';
+      eventType: 'keydown' | 'keyup';
+      key: string;
+      code: string;
+      keyCode: number;
+      repeat?: boolean;
+    }
+  | {
+      kind: 'mouse';
+      eventType: 'pointermove' | 'pointerdown' | 'pointerup' | 'pointerleave';
+      button: number;
+      buttons: number;
+      x: number;
+      y: number;
+    }
+  | {
+      kind: 'tick';
+      tick: number;
+      deltaMs: number;
+    }
+  | {
+      kind: 'close';
+      reason: string;
+    };
 
 export interface WorkspaceBlockSettings {
   label?: string;
@@ -253,10 +314,25 @@ export interface WorkspaceBlockSettings {
   rounding?: 'FLOOR' | 'CEIL' | 'ROUND';
   variableName?: string;
   literalValue?: string;
+  literalDataType?: GraphDataType;
   saveLoadMode?: 'SAVE' | 'EXISTS' | 'GET';
   dictKey?: string;
   loopLimit?: number;
   outputDestination?: string;
+  sharedStateMode?: SharedStateMode;
+  listOperation?: ListOperationMode;
+  overlayControlAction?: OverlayControlAction;
+  overlayWidth?: number;
+  overlayHeight?: number;
+  overlayCellSize?: number;
+  overlayTickMs?: number;
+  overlayBackground?: string;
+  overlayText?: string;
+  sleepMs?: number;
+  randomMin?: number;
+  randomMax?: number;
+  selectTrueValue?: string;
+  selectFalseValue?: string;
 }
 
 export interface WorkspaceNodeV2 {
@@ -361,9 +437,15 @@ export type GraphVmInstruction =
       dataType: GraphDataType;
       risk: RiskLevel;
     }
-  | {
-      op: 'REGEX_TRANSFORM';
-      nodeId: string;
+	  | {
+	      op: 'CONSTANT';
+	      nodeId: string;
+	      output: string;
+	      value: GraphValue;
+	    }
+	  | {
+	      op: 'REGEX_TRANSFORM';
+	      nodeId: string;
       input?: string;
       output: string;
       pattern: string;
@@ -500,9 +582,92 @@ export type GraphVmInstruction =
       output: string;
       loopLimit: number;
     }
-  | {
-      op: 'OUTPUT';
-      nodeId: string;
+	  | {
+	      op: 'SLEEP';
+	      nodeId: string;
+	      duration?: string;
+	      enabled?: string;
+	      output?: string;
+	      fallbackMs: number;
+	    }
+	  | {
+	      op: 'SHARED_STATE';
+	      nodeId: string;
+	      key?: string;
+	      value?: string;
+	      enabled?: string;
+	      output?: string;
+	      mode: SharedStateMode;
+	      fallbackKey: string;
+	      fallbackValue: GraphValue;
+	    }
+	  | {
+	      op: 'DICT_GET';
+	      nodeId: string;
+	      dict?: string;
+	      key?: string;
+	      output: string;
+	      fallbackKey: string;
+	      fallbackValue: GraphValue;
+	    }
+	  | {
+	      op: 'LIST_OP';
+	      nodeId: string;
+	      list?: string;
+	      item?: string;
+	      index?: string;
+	      output: string;
+	      operation: ListOperationMode;
+	      fallbackList: GraphValue;
+	      fallbackItem: GraphValue;
+	    }
+	  | {
+	      op: 'SELECT';
+	      nodeId: string;
+	      condition?: string;
+	      trueValue?: string;
+	      falseValue?: string;
+	      output: string;
+	      fallbackTrue: GraphValue;
+	      fallbackFalse: GraphValue;
+	    }
+	  | {
+	      op: 'RANDOM_INT';
+	      nodeId: string;
+	      min?: string;
+	      max?: string;
+	      output: string;
+	      fallbackMin: number;
+	      fallbackMax: number;
+	    }
+	  | {
+	      op: 'OVERLAY_CONTROL';
+	      nodeId: string;
+	      enabled?: string;
+	      output?: string;
+	      action: OverlayControlAction;
+	      message: string;
+	      width: number;
+	      height: number;
+	      cellSize: number;
+	      tickMs: number;
+	      background: string;
+	    }
+	  | {
+	      op: 'OVERLAY_DRAW';
+	      nodeId: string;
+	      enabled?: string;
+	      cells?: string;
+	      text?: string;
+	      output?: string;
+	      width: number;
+	      height: number;
+	      cellSize: number;
+	      background: string;
+	    }
+	  | {
+	      op: 'OUTPUT';
+	      nodeId: string;
       input?: string;
       destination: string;
       dataType: GraphDataType;
@@ -528,6 +693,7 @@ export interface GraphVmSafetyPolicy {
 
 export interface GraphVmProgram {
   instructions: GraphVmInstruction[];
+  eventHandlers?: Partial<Record<GraphEventHandler, GraphVmInstruction[]>>;
   constants: Record<string, GraphValue>;
   symbolTable: Record<string, GraphDataType>;
   stepBudget: number;

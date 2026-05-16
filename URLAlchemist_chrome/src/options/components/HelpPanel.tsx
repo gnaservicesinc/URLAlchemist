@@ -13,6 +13,7 @@ const HELP_DOCUMENTS: HelpDocument[] = [
   { path: 'help/security.html', title: 'Security', summary: 'Transparency, sandboxing, tracing, hardening, and audits.' },
   { path: 'help/regex-builder.html', title: 'Regex Builder', summary: 'Use the visual regex helper and advanced manual mode.' },
   { path: 'help/overlay-input.html', title: 'Overlay Input', summary: 'Capture keyboard and mouse input while an overlay is active.' },
+  { path: 'help/interactive-overlays.html', title: 'Interactive Overlays', summary: 'Build event-driven overlay apps with generic blocks.' },
 ];
 
 function getHelpUrl(path: string): string {

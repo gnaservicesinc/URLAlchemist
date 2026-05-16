@@ -59,9 +59,10 @@
   <li><strong>About</strong> &mdash; Version info, license, repository links, and reset options.</li>
 </ul>
 
-<h2>Overlay Input Workflows</h2>
-<p>The Workspace Editor includes an <strong>Overlay Input</strong> block. It opens a temporary overlay from a normal trigger, such as a hotkey, and returns a bounded summary of keyboard and mouse events captured while that overlay is open.</p>
-<p>The bundled <strong>Overlay Input Capture</strong> example shows the expected pattern: press the hotkey, interact with the overlay, close it, and inspect the stored event summary. Keyboard and mouse capture stop when the overlay closes.</p>
+<h2>Overlay Workflows</h2>
+<p><strong>Overlay Input</strong> opens a temporary overlay and returns a bounded summary of keyboard and mouse events captured while that overlay is open.</p>
+<p>For real-time applications, use the event-handler blocks: <strong>On Trigger Event</strong>, <strong>Keyboard In</strong>, <strong>Mouse In</strong>, and <strong>Overlay Tick In</strong>. Pair them with <strong>Overlay Control</strong>, <strong>Overlay Draw</strong>, and shared state blocks to build interactive overlay workflows without custom JavaScript.</p>
+<p>The bundled <strong>Snake Overlay Arcade</strong> example demonstrates a classic arcade game built from those generic workspace blocks.</p>
 
 </body>
 </html>

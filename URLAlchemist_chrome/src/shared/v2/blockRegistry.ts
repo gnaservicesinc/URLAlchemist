@@ -429,6 +429,204 @@ export const BLOCK_REGISTRY: Record<BlockKind, BlockDefinition> = {
     },
     risk: 'extended',
   },
+  OnTriggerEvent: {
+    kind: 'OnTriggerEvent',
+    typeId: BLOCK_TYPE_IDS.OnTriggerEvent,
+    label: 'On Trigger Event',
+    category: 'flow',
+    inputs: [],
+    outputs: [
+      port('triggered', 'Triggered', 'bool', { description: 'True when the pack runs from its official trigger.' }),
+      port('event', 'Event', 'dict', { description: 'Trigger details such as URL and hotkey.' }),
+    ],
+    flags: defaultFlags,
+    defaultSettings: {},
+    risk: 'safe',
+  },
+  KeyboardIn: {
+    kind: 'KeyboardIn',
+    typeId: BLOCK_TYPE_IDS.KeyboardIn,
+    label: 'Keyboard In',
+    category: 'flow',
+    inputs: [],
+    outputs: [
+      port('keyboardKey', 'Key', 'string', { description: 'The last trusted key captured by the active overlay.' }),
+      port('keyboardCode', 'Code', 'string', { description: 'The browser key code for the captured key.' }),
+      port('keyboardCodePoint', 'Char Code', 'number', { description: 'The first character code for the captured key, or 0 for named keys.' }),
+      port('keyboardEvent', 'Event', 'dict', { description: 'Keyboard event metadata.' }),
+    ],
+    flags: defaultFlags,
+    defaultSettings: {},
+    risk: 'extended',
+  },
+  MouseIn: {
+    kind: 'MouseIn',
+    typeId: BLOCK_TYPE_IDS.MouseIn,
+    label: 'Mouse In',
+    category: 'flow',
+    inputs: [],
+    outputs: [
+      port('mouseEvent', 'Event', 'dict', { description: 'Mouse event metadata from the active overlay.' }),
+      port('mouseKind', 'Kind', 'string', { description: 'The pointer event type.' }),
+      port('mouseButton', 'Button', 'number', { description: 'The changed mouse button.' }),
+      port('mouseX', 'X', 'number', { description: 'Overlay-local X coordinate, or -1 outside the overlay.' }),
+      port('mouseY', 'Y', 'number', { description: 'Overlay-local Y coordinate, or -1 outside the overlay.' }),
+    ],
+    flags: defaultFlags,
+    defaultSettings: {},
+    risk: 'extended',
+  },
+  OverlayTickIn: {
+    kind: 'OverlayTickIn',
+    typeId: BLOCK_TYPE_IDS.OverlayTickIn,
+    label: 'Overlay Tick In',
+    category: 'flow',
+    inputs: [],
+    outputs: [
+      port('tick', 'Tick', 'number', { description: 'A monotonically increasing tick number from the active overlay.' }),
+      port('deltaMs', 'Delta ms', 'number', { description: 'Milliseconds since the previous overlay tick.' }),
+      port('tickEvent', 'Event', 'dict', { description: 'Tick event metadata.' }),
+    ],
+    flags: defaultFlags,
+    defaultSettings: {},
+    risk: 'extended',
+  },
+  OverlayControl: {
+    kind: 'OverlayControl',
+    typeId: BLOCK_TYPE_IDS.OverlayControl,
+    label: 'Overlay Control',
+    category: 'interaction',
+    inputs: [port('enabled', 'Enabled', 'bool'), port('message', 'Message', 'string')],
+    outputs: [port('result', 'Result', 'dict', { risk: 'extended' })],
+    flags: defaultFlags,
+    defaultSettings: {
+      overlayControlAction: 'START',
+      promptMessage: 'URL Alchemist overlay is active.',
+      overlayWidth: 24,
+      overlayHeight: 18,
+      overlayCellSize: 24,
+      overlayTickMs: 120,
+      overlayBackground: '#ffffff',
+    },
+    risk: 'extended',
+  },
+  OverlayDraw: {
+    kind: 'OverlayDraw',
+    typeId: BLOCK_TYPE_IDS.OverlayDraw,
+    label: 'Overlay Draw',
+    category: 'interaction',
+    inputs: [port('cells', 'Cells', 'data'), port('text', 'Text', 'Any'), port('enabled', 'Enabled', 'bool')],
+    outputs: [port('result', 'Result', 'dict', { risk: 'extended' })],
+    flags: defaultFlags,
+    defaultSettings: {
+      overlayWidth: 24,
+      overlayHeight: 18,
+      overlayCellSize: 24,
+      overlayBackground: '#ffffff',
+      overlayText: '',
+    },
+    risk: 'extended',
+  },
+  Sleep: {
+    kind: 'Sleep',
+    typeId: BLOCK_TYPE_IDS.Sleep,
+    label: 'Sleep',
+    category: 'logic',
+    inputs: [port('duration', 'Duration', 'number'), port('enabled', 'Enabled', 'bool')],
+    outputs: [port('result', 'Result', 'bool')],
+    flags: defaultFlags,
+    defaultSettings: {
+      sleepMs: 100,
+    },
+    risk: 'safe',
+  },
+  SharedState: {
+    kind: 'SharedState',
+    typeId: BLOCK_TYPE_IDS.SharedState,
+    label: 'Shared State',
+    category: 'storage',
+    inputs: [port('key', 'Key', 'string'), port('value', 'Value', 'Any'), port('enabled', 'Enabled', 'bool')],
+    outputs: [port('result', 'Result', 'Any', { risk: 'extended' })],
+    flags: defaultFlags,
+    defaultSettings: {
+      sharedStateMode: 'GET',
+      literalValue: '',
+    },
+    risk: 'extended',
+  },
+  DictGet: {
+    kind: 'DictGet',
+    typeId: BLOCK_TYPE_IDS.DictGet,
+    label: 'Dict Get',
+    category: 'data',
+    inputs: [port('dict', 'Dict', 'dict'), port('key', 'Key', 'string')],
+    outputs: [port('result', 'Result', 'Any')],
+    flags: defaultFlags,
+    defaultSettings: {
+      dictKey: '',
+      literalValue: '',
+      literalDataType: 'Any',
+    },
+    risk: 'safe',
+  },
+  ListOperation: {
+    kind: 'ListOperation',
+    typeId: BLOCK_TYPE_IDS.ListOperation,
+    label: 'List Operation',
+    category: 'data',
+    inputs: [port('list', 'List', 'data'), port('item', 'Item', 'Any'), port('index', 'Index', 'number')],
+    outputs: [port('result', 'Result', 'Any')],
+    flags: defaultFlags,
+    defaultSettings: {
+      listOperation: 'APPEND',
+      literalValue: '[]',
+      literalDataType: 'data',
+    },
+    risk: 'safe',
+  },
+  ConditionSelect: {
+    kind: 'ConditionSelect',
+    typeId: BLOCK_TYPE_IDS.ConditionSelect,
+    label: 'Condition Select',
+    category: 'logic',
+    inputs: [port('condition', 'Condition', 'bool'), port('trueValue', 'True', 'Any'), port('falseValue', 'False', 'Any')],
+    outputs: [port('result', 'Result', 'Any')],
+    flags: defaultFlags,
+    defaultSettings: {
+      selectTrueValue: '1',
+      selectFalseValue: '0',
+      literalDataType: 'number',
+    },
+    risk: 'safe',
+  },
+  RandomNumber: {
+    kind: 'RandomNumber',
+    typeId: BLOCK_TYPE_IDS.RandomNumber,
+    label: 'Random Number',
+    category: 'math',
+    inputs: [port('min', 'Min', 'number'), port('max', 'Max', 'number')],
+    outputs: [port('result', 'Result', 'number')],
+    flags: defaultFlags,
+    defaultSettings: {
+      randomMin: 0,
+      randomMax: 10,
+    },
+    risk: 'safe',
+  },
+  Constant: {
+    kind: 'Constant',
+    typeId: BLOCK_TYPE_IDS.Constant,
+    label: 'Constant',
+    category: 'data',
+    inputs: [],
+    outputs: [port('value', 'Value', 'Any')],
+    flags: defaultFlags,
+    defaultSettings: {
+      literalValue: '',
+      literalDataType: 'string',
+    },
+    risk: 'safe',
+  },
 };
 
 export const BLOCK_DEFINITIONS = Object.values(BLOCK_REGISTRY);
@@ -488,6 +686,29 @@ export function getEffectivePortDefinitions(
 
   if ((node.type === 'FetchData' || node.type === 'HttpRequest') && direction === 'output') {
     return [port('result', 'Result', node.settings.remoteDataType ?? 'data', { risk: 'high' })];
+  }
+
+  if (node.type === 'Constant' && direction === 'output') {
+    return [port('value', 'Value', node.settings.literalDataType ?? 'string')];
+  }
+
+  if (node.type === 'SharedState' && direction === 'output') {
+    return [port('result', 'Result', node.settings.sharedStateMode === 'EXISTS' ? 'bool' : 'Any', { risk: 'extended' })];
+  }
+
+  if (node.type === 'ListOperation' && direction === 'output') {
+    const operation = node.settings.listOperation ?? 'APPEND';
+    if (operation === 'LENGTH') {
+      return [port('result', 'Result', 'number')];
+    }
+    if (operation === 'CONTAINS_POINT') {
+      return [port('result', 'Result', 'bool')];
+    }
+    return [port('result', 'Result', operation === 'GET' ? 'Any' : 'data')];
+  }
+
+  if (node.type === 'Logical' && direction === 'output' && node.settings.booleanOutput !== false) {
+    return [port('result', 'Result', 'bool')];
   }
 
   const definition = getBlockDefinition(node.type);

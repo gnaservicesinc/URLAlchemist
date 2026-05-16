@@ -25,11 +25,11 @@ export function explainRiskReason(reason: string): string {
   if (lower.includes('file selection')) {
     return 'Can ask you to choose a file or enter a web address.';
   }
-  if (lower.includes('overlay input') || lower.includes('keyboard') || lower.includes('mouse')) {
-    return 'Can open a page overlay and capture keyboard or mouse input while that overlay is open.';
+  if (lower.includes('overlay input') || lower.includes('keyboard') || lower.includes('mouse') || lower.includes('interactive overlay')) {
+    return 'Can open a visible URL Alchemist overlay and process keyboard, mouse, or tick events while that overlay is open.';
   }
-  if (lower.includes('session storage')) {
-    return 'Can save temporary values for later runs.';
+  if (lower.includes('session storage') || lower.includes('shared state')) {
+    return 'Can save temporary values for other handlers in the same session.';
   }
   if (lower.includes('overlay') || lower.includes('display')) {
     return 'Can show an overlay on top of the current page.';
@@ -42,6 +42,18 @@ export function explainInstruction(instruction: GraphVmInstruction): string {
     case 'SOURCE':
       if (instruction.source === 'url') {
         return 'Reads the current page URL.';
+      }
+      if (instruction.source === 'triggered' || instruction.source === 'event') {
+        return 'Reads details from the normal workspace trigger event.';
+      }
+      if (instruction.source.startsWith('keyboard')) {
+        return 'Reads a keyboard event from the active URL Alchemist overlay.';
+      }
+      if (instruction.source.startsWith('mouse')) {
+        return 'Reads a mouse event from the active URL Alchemist overlay.';
+      }
+      if (instruction.source === 'tick' || instruction.source === 'deltaMs' || instruction.source === 'tickEvent') {
+        return 'Reads a timing event from the active URL Alchemist overlay.';
       }
       if (instruction.source === 'clipboard') {
         return 'Reads text from your clipboard.';
@@ -119,6 +131,24 @@ export function explainInstruction(instruction: GraphVmInstruction): string {
       return 'Adds a field to a small data record.';
     case 'LOOP':
       return `Repeats a step, capped at ${instruction.loopLimit} times.`;
+    case 'CONSTANT':
+      return 'Provides a configured literal value to the graph.';
+    case 'SLEEP':
+      return `Waits up to ${instruction.fallbackMs}ms before continuing.`;
+    case 'SHARED_STATE':
+      return `${instruction.mode === 'SET' ? 'Writes' : instruction.mode === 'DELETE' ? 'Clears' : 'Reads'} session-scoped shared state.`;
+    case 'DICT_GET':
+      return 'Reads one field from a dictionary value.';
+    case 'LIST_OP':
+      return `Runs the ${instruction.operation.toLowerCase().replaceAll('_', ' ')} list operation.`;
+    case 'SELECT':
+      return 'Chooses between two values from a boolean condition.';
+    case 'RANDOM_INT':
+      return `Generates a random integer from ${instruction.fallbackMin} to ${instruction.fallbackMax}.`;
+    case 'OVERLAY_CONTROL':
+      return `${instruction.action === 'STATUS' ? 'Checks' : instruction.action.toLowerCase()} the visible URL Alchemist overlay session.`;
+    case 'OVERLAY_DRAW':
+      return 'Draws cells and text into the active URL Alchemist overlay.';
     default:
       return 'Runs a compiled step.';
   }
@@ -128,8 +158,12 @@ export function summarizePackBehavior(pack: CompiledActionPackV2): string {
   const hasRemote = pack.vm.instructions.some((instruction) => instruction.op === 'FETCH_GET' || instruction.op === 'HTTP_REQUEST' || instruction.op === 'GET_ASSET');
   const hasClipboard = pack.requiredPermissions.some((permission) => permission.toLowerCase().includes('clipboard'));
   const hasOverlayInput = pack.vm.instructions.some((instruction) => instruction.op === 'DISPLAY' && instruction.displayType === 'input-capture');
+  const hasInteractiveOverlay = pack.vm.instructions.some((instruction) => instruction.op === 'OVERLAY_CONTROL' || instruction.op === 'OVERLAY_DRAW');
   const outputs = pack.vm.instructions.filter((instruction): instruction is Extract<GraphVmInstruction, { op: 'OUTPUT' }> => instruction.op === 'OUTPUT');
 
+  if (hasInteractiveOverlay) {
+    return 'This pack can open a visible URL Alchemist overlay and process keyboard, mouse, or tick events only while that overlay is active.';
+  }
   if (hasOverlayInput) {
     return 'This pack opens an overlay that can capture keyboard or mouse input only while the overlay is open.';
   }

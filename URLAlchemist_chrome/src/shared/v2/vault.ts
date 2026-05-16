@@ -6,8 +6,8 @@ import { importActionPackBinary } from '../vault';
 import type { CompiledActionPackV2, ImportedV2Artifact, WorkspaceFileV2 } from './types';
 import {
   ACTION_PACK_SCHEMA_VERSION,
-  LEGACY_ACTION_PACK_SCHEMA_VERSION,
-  LEGACY_WORKSPACE_SCHEMA_VERSION,
+  SUPPORTED_ACTION_PACK_SCHEMA_VERSIONS,
+  SUPPORTED_WORKSPACE_SCHEMA_VERSIONS,
   WORKSPACE_SCHEMA_VERSION,
 } from './types';
 import { migrateCompiledActionPackV2Candidate, validateCompiledActionPackV2 } from './actionPackValidator';
@@ -104,7 +104,7 @@ export async function exportCompiledActionPackV2Binary(pack: CompiledActionPackV
 
 export async function importWorkspaceBinary(bytes: Uint8Array): Promise<{ workspace: WorkspaceFileV2; checksumHex: string; schemaVersion: number }> {
   const imported = await importWithHeader(bytes, WORKSPACE_MAGIC);
-  if (![WORKSPACE_SCHEMA_VERSION, LEGACY_WORKSPACE_SCHEMA_VERSION].includes(imported.schemaVersion)) {
+  if (!(SUPPORTED_WORKSPACE_SCHEMA_VERSIONS as readonly number[]).includes(imported.schemaVersion)) {
     throw new Error(`Unsupported workspace schema version: ${imported.schemaVersion}`);
   }
 
@@ -122,7 +122,7 @@ export async function importWorkspaceBinary(bytes: Uint8Array): Promise<{ worksp
 
 export async function importCompiledActionPackV2Binary(bytes: Uint8Array): Promise<{ pack: CompiledActionPackV2; checksumHex: string; schemaVersion: number }> {
   const imported = await importWithHeader(bytes, ACTION_PACK_MAGIC);
-  if (![ACTION_PACK_SCHEMA_VERSION, LEGACY_ACTION_PACK_SCHEMA_VERSION].includes(imported.schemaVersion)) {
+  if (!(SUPPORTED_ACTION_PACK_SCHEMA_VERSIONS as readonly number[]).includes(imported.schemaVersion)) {
     throw new Error(`Unsupported Action Pack schema version: ${imported.schemaVersion}`);
   }
 

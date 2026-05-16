@@ -1,4 +1,6 @@
 import {
+  cloneElement,
+  isValidElement,
   memo,
   useCallback,
   useEffect,
@@ -6,6 +8,8 @@ import {
   useState,
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
+  type ReactElement,
+  type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -37,6 +41,7 @@ import { createEdge, createWorkspaceNode } from '../../shared/v2/workspace';
 import type { BlockDefinition, BlockKind, GraphPortDefinition, WorkspaceBlockSettings, WorkspaceFileV2, WorkspaceNodeV2 } from '../../shared/v2/types';
 import { toActivityDraft, updateActivityDraft, type ActivityDraft } from '../drafts';
 import { buildRegexFromBuilder, validateEditorRegexPattern } from '../regexBuilder';
+import { HelpTooltip } from './HelpTooltip';
 import { HotkeyRecorder } from './HotkeyRecorder';
 import { RegexBuilderPanel } from './RegexBuilderPanel';
 
@@ -84,6 +89,7 @@ const DATA_TYPE_COLORS: Record<string, string> = {
   JSON: '#16a34a',
   data: '#64748b',
   dict: '#db2777',
+  asset: '#ea580c',
   Any: '#334155',
 };
 
@@ -95,6 +101,50 @@ function handleStyle(color: string): CSSProperties {
   return {
     '--handle-color': color,
   } as CSSProperties;
+}
+
+const blockInputClass = 'nodrag rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-800 outline-none focus:border-amber-400';
+const blockLabelClass = 'nodrag grid gap-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500';
+
+function BoundsText({ children }: { children: string }) {
+  return <span className="normal-case tracking-normal text-slate-400">{children}</span>;
+}
+
+function SettingLabel({ children, help }: { children: string; help?: string }) {
+  return (
+    <span className="flex items-center gap-1.5">
+      <span>{children}</span>
+      {help ? <HelpTooltip label={children} text={help} /> : null}
+    </span>
+  );
+}
+
+function SettingField({
+  children,
+  className = '',
+  help,
+  hint,
+  label,
+}: {
+  children: ReactNode;
+  className?: string;
+  help?: string;
+  hint?: string;
+  label: string;
+}) {
+  const labelledChildren = isValidElement(children)
+    ? cloneElement(children as ReactElement<{ 'aria-label'?: string }>, {
+        'aria-label': (children.props as { 'aria-label'?: string })['aria-label'] ?? label,
+      })
+    : children;
+
+  return (
+    <div className={`${blockLabelClass} ${className}`}>
+      <SettingLabel help={help}>{label}</SettingLabel>
+      {labelledChildren}
+      {hint ? <BoundsText>{hint}</BoundsText> : null}
+    </div>
+  );
 }
 
 function updateNodeSettings(workspace: WorkspaceFileV2, nodeId: string, settings: Partial<WorkspaceBlockSettings>): WorkspaceFileV2 {
@@ -124,8 +174,7 @@ function renderBlockSettings(
   onSettingsChange: (settings: Partial<WorkspaceBlockSettings>) => void,
   onOpenRegexBuilder: (() => void) | undefined,
 ) {
-  const inputClass = 'nodrag rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-800 outline-none focus:border-amber-400';
-  const labelClass = 'nodrag grid gap-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500';
+  const inputClass = blockInputClass;
 
   switch (node.type) {
     case 'RegExpression': {
@@ -133,29 +182,51 @@ function renderBlockSettings(
       return (
         <div className="mt-3 grid gap-2">
           <div className="grid grid-cols-[1fr_auto] gap-2">
-            <input className={inputClass} placeholder="Pattern" value={settingText(node.settings.pattern)} onChange={(event) => onSettingsChange({ pattern: event.target.value, regexSourceMode: 'MANUAL', regexHelperInput: event.target.value })} />
-            <button className="nodrag rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:border-amber-300 hover:bg-amber-50" type="button" onClick={onOpenRegexBuilder}>
+            <SettingField
+              help="The JavaScript regular expression used to find text in the input value."
+              label="Regex pattern"
+            >
+              <input className={inputClass} placeholder="utm_source=[^&]+" value={settingText(node.settings.pattern)} onChange={(event) => onSettingsChange({ pattern: event.target.value, regexSourceMode: 'MANUAL', regexHelperInput: event.target.value })} />
+            </SettingField>
+            <button aria-label="Open regex builder" className="nodrag self-end rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:border-amber-300 hover:bg-amber-50" type="button" onClick={onOpenRegexBuilder}>
               Builder
             </button>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <select className={inputClass} value={node.settings.action ?? 'SUBSTITUTE'} onChange={(event) => onSettingsChange({ action: event.target.value as WorkspaceBlockSettings['action'] })}>
-              <option value="SUBSTITUTE">Substitute</option>
-              <option value="REMOVE">Remove</option>
-              <option value="APPEND">Append</option>
-              <option value="PREPEND">Prepend</option>
-            </select>
-            <select className={inputClass} value={node.settings.matchMode ?? 'STANDARD'} onChange={(event) => onSettingsChange({ matchMode: event.target.value as WorkspaceBlockSettings['matchMode'] })}>
-              <option value="STANDARD">Standard</option>
-              <option value="BEFORE_PATTERN">Before</option>
-              <option value="AFTER_PATTERN">After</option>
-              <option value="NTH_OCCURRENCE">Nth</option>
-            </select>
+            <SettingField help="Controls how matched text is transformed." label="Action">
+              <select className={inputClass} value={node.settings.action ?? 'SUBSTITUTE'} onChange={(event) => onSettingsChange({ action: event.target.value as WorkspaceBlockSettings['action'] })}>
+                <option value="SUBSTITUTE">Substitute</option>
+                <option value="REMOVE">Remove</option>
+                <option value="APPEND">Append</option>
+                <option value="PREPEND">Prepend</option>
+              </select>
+            </SettingField>
+            <SettingField help="Controls which part of the match is transformed." label="Match mode">
+              <select className={inputClass} value={node.settings.matchMode ?? 'STANDARD'} onChange={(event) => onSettingsChange({ matchMode: event.target.value as WorkspaceBlockSettings['matchMode'] })}>
+                <option value="STANDARD">Standard</option>
+                <option value="BEFORE_PATTERN">Before</option>
+                <option value="AFTER_PATTERN">After</option>
+                <option value="NTH_OCCURRENCE">Nth</option>
+              </select>
+            </SettingField>
           </div>
-          <textarea className={`${inputClass} min-h-14 disabled:bg-slate-100 disabled:text-slate-400`} disabled={payloadConnected} placeholder={payloadConnected ? 'Connected payload input' : 'Payload'} value={payloadConnected ? '' : settingText(node.settings.payload)} onChange={(event) => onSettingsChange({ payload: event.target.value })} />
+          {node.settings.matchMode === 'NTH_OCCURRENCE' ? (
+            <SettingField help="The 1-based occurrence to transform when match mode is Nth." hint="1 or greater" label="Occurrence number">
+              <input className={inputClass} min={1} type="number" value={node.settings.nthOccurrence ?? 1} onChange={(event) => onSettingsChange({ nthOccurrence: Math.max(1, Number.parseInt(event.target.value || '1', 10)) })} />
+            </SettingField>
+          ) : null}
+          <SettingField
+            help="Replacement text. It is ignored for Remove and disabled when a payload input is connected."
+            label="Payload"
+          >
+            <textarea className={`${inputClass} min-h-14 disabled:bg-slate-100 disabled:text-slate-400`} disabled={payloadConnected} placeholder={payloadConnected ? 'Connected payload input' : 'Replacement text'} value={payloadConnected ? '' : settingText(node.settings.payload)} onChange={(event) => onSettingsChange({ payload: event.target.value })} />
+          </SettingField>
           <label className="nodrag flex items-center gap-2 text-[11px] text-slate-600">
             <input checked={Boolean(node.settings.payloadVars)} type="checkbox" onChange={(event) => onSettingsChange({ payloadVars: event.target.checked })} />
-            Use replacement tokens
+            <span className="flex items-center gap-1.5">
+              Use replacement tokens
+              <HelpTooltip label="Replacement tokens" text="Allows regex groups like $1 plus safe placeholders such as {date}. Clipboard placeholders request clipboard permission." />
+            </span>
           </label>
         </div>
       );
@@ -163,45 +234,60 @@ function renderBlockSettings(
     case 'Logical':
       return (
         <div className="mt-3 grid grid-cols-[1fr_0.8fr] gap-2">
-          <select className={inputClass} value={node.settings.operator ?? 'EQ'} onChange={(event) => onSettingsChange({ operator: event.target.value as WorkspaceBlockSettings['operator'] })}>
-            <option value="LT">Less</option>
-            <option value="LTE">Less/Equal</option>
-            <option value="EQ">Equal</option>
-            <option value="GT">Greater</option>
-            <option value="GTE">Greater/Equal</option>
-          </select>
-          <input className={inputClass} value={settingText(node.settings.compareValue ?? '1')} onChange={(event) => onSettingsChange({ compareValue: event.target.value })} />
+          <SettingField help="Comparison operator for the numeric input." label="Operator">
+            <select className={inputClass} value={node.settings.operator ?? 'EQ'} onChange={(event) => onSettingsChange({ operator: event.target.value as WorkspaceBlockSettings['operator'] })}>
+              <option value="LT">Less</option>
+              <option value="LTE">Less/Equal</option>
+              <option value="EQ">Equal</option>
+              <option value="GT">Greater</option>
+              <option value="GTE">Greater/Equal</option>
+            </select>
+          </SettingField>
+          <SettingField help="Fallback value used when the comparison side is not connected." label="Compare value">
+            <input className={inputClass} value={settingText(node.settings.compareValue ?? '1')} onChange={(event) => onSettingsChange({ compareValue: event.target.value })} />
+          </SettingField>
         </div>
       );
     case 'Math':
       return (
         <div className="mt-3 grid gap-2">
-          <select className={inputClass} value={node.settings.mathOperation ?? 'ADD'} onChange={(event) => onSettingsChange({ mathOperation: event.target.value as WorkspaceBlockSettings['mathOperation'] })}>
-            <option value="ADD">Add</option>
-            <option value="SUBTRACT">Subtract</option>
-            <option value="MULTIPLY">Multiply</option>
-            <option value="DIVIDE">Divide</option>
-            <option value="MODULO">Modulo</option>
-          </select>
-          <input className={inputClass} placeholder="Fallback A" value={settingText(node.settings.literalValue ?? '0')} onChange={(event) => onSettingsChange({ literalValue: event.target.value })} />
-          <input className={inputClass} placeholder="Fallback B" value={settingText(node.settings.compareValue ?? '0')} onChange={(event) => onSettingsChange({ compareValue: event.target.value })} />
+          <SettingField help="Numeric operation applied to A and B." label="Operation">
+            <select className={inputClass} value={node.settings.mathOperation ?? 'ADD'} onChange={(event) => onSettingsChange({ mathOperation: event.target.value as WorkspaceBlockSettings['mathOperation'] })}>
+              <option value="ADD">Add</option>
+              <option value="SUBTRACT">Subtract</option>
+              <option value="MULTIPLY">Multiply</option>
+              <option value="DIVIDE">Divide</option>
+              <option value="MODULO">Modulo</option>
+            </select>
+          </SettingField>
+          <SettingField help="Used for input A when the A port is not connected." label="Fallback A">
+            <input className={inputClass} value={settingText(node.settings.literalValue ?? '0')} onChange={(event) => onSettingsChange({ literalValue: event.target.value })} />
+          </SettingField>
+          <SettingField help="Used for input B when the B port is not connected." label="Fallback B">
+            <input className={inputClass} value={settingText(node.settings.compareValue ?? '0')} onChange={(event) => onSettingsChange({ compareValue: event.target.value })} />
+          </SettingField>
         </div>
       );
     case 'Convert':
       return (
         <div className="mt-3 grid gap-2">
-          <select className={inputClass} value={node.settings.convertMode ?? 'STRING_TO_URL'} onChange={(event) => onSettingsChange({ convertMode: event.target.value as WorkspaceBlockSettings['convertMode'] })}>
-            <option value="STRING_TO_URL">String to URL</option>
-            <option value="FLOAT_TO_NUMBER">Float to Number</option>
-            <option value="DICT_TO_JSON">Dict to JSON</option>
-            <option value="JSON_TO_DICT">JSON to Dict</option>
-            <option value="NUMBER_TO_STRING">Number to String</option>
-            <option value="DATA_TO_STRING">Data to String</option>
-          </select>
+          <SettingField help="Changes the value type before it flows to the next block." label="Conversion mode">
+            <select className={inputClass} value={node.settings.convertMode ?? 'STRING_TO_URL'} onChange={(event) => onSettingsChange({ convertMode: event.target.value as WorkspaceBlockSettings['convertMode'] })}>
+              <option value="STRING_TO_URL">String to URL</option>
+              <option value="FLOAT_TO_NUMBER">Float to Number</option>
+              <option value="DICT_TO_JSON">Dict to JSON</option>
+              <option value="JSON_TO_DICT">JSON to Dict</option>
+              <option value="NUMBER_TO_STRING">Number to String</option>
+              <option value="DATA_TO_STRING">Data to String</option>
+            </select>
+          </SettingField>
           {node.settings.convertMode === 'NUMBER_TO_STRING' ? (
             <label className="nodrag flex items-center gap-2 text-[11px] text-slate-600">
               <input checked={node.settings.convertOrd ?? true} type="checkbox" onChange={(event) => onSettingsChange({ convertOrd: event.target.checked })} />
-              ORD
+              <span className="flex items-center gap-1.5">
+                ORD digit mode
+                <HelpTooltip label="ORD digit mode" text="When enabled, numbers are converted through their digit character codes before printable text cleanup." />
+              </span>
             </label>
           ) : null}
         </div>
@@ -209,93 +295,111 @@ function renderBlockSettings(
     case 'Declarations':
       return (
         <div className="mt-3 grid gap-2">
-          <input className={inputClass} placeholder="Global or _local" value={settingText(node.settings.variableName)} onChange={(event) => onSettingsChange({ variableName: event.target.value })} />
-          <input className={inputClass} placeholder="Default value" value={settingText(node.settings.literalValue ?? '0')} onChange={(event) => onSettingsChange({ literalValue: event.target.value })} />
+          <SettingField help="Names starting with _ are local to this run. Other names are shared within the pack execution." label="Variable name">
+            <input className={inputClass} placeholder="Global or _local" value={settingText(node.settings.variableName)} onChange={(event) => onSettingsChange({ variableName: event.target.value })} />
+          </SettingField>
+          <SettingField help="Initial value used when the value input is not connected." label="Initial value">
+            <input className={inputClass} value={settingText(node.settings.literalValue ?? '0')} onChange={(event) => onSettingsChange({ literalValue: event.target.value })} />
+          </SettingField>
         </div>
       );
     case 'SaveLoad':
       return (
         <div className="mt-3 grid gap-2">
-          <select className={inputClass} value={node.settings.saveLoadMode ?? 'SAVE'} onChange={(event) => onSettingsChange({ saveLoadMode: event.target.value as WorkspaceBlockSettings['saveLoadMode'] })}>
-            <option value="SAVE">Save</option>
-            <option value="EXISTS">Exists</option>
-            <option value="GET">Get</option>
-          </select>
-          <input className={inputClass} placeholder="Fallback key" value={settingText(node.settings.literalValue)} onChange={(event) => onSettingsChange({ literalValue: event.target.value })} />
+          <SettingField help="Save writes a value, Exists returns true or false, and Get reads the saved value." label="Storage mode">
+            <select className={inputClass} value={node.settings.saveLoadMode ?? 'SAVE'} onChange={(event) => onSettingsChange({ saveLoadMode: event.target.value as WorkspaceBlockSettings['saveLoadMode'] })}>
+              <option value="SAVE">Save</option>
+              <option value="EXISTS">Exists</option>
+              <option value="GET">Get</option>
+            </select>
+          </SettingField>
+          <SettingField help="Used when the Key input is not connected. Empty keys are skipped at runtime." label="Fallback key">
+            <input className={inputClass} placeholder="session-key" value={settingText(node.settings.literalValue)} onChange={(event) => onSettingsChange({ literalValue: event.target.value })} />
+          </SettingField>
         </div>
       );
     case 'DataStructure':
       return (
         <div className="mt-3 grid gap-2">
-          <input className={inputClass} placeholder="Global dict name" value={settingText(node.settings.variableName)} onChange={(event) => onSettingsChange({ variableName: event.target.value })} />
-          <input className={inputClass} placeholder="Fallback key" value={settingText(node.settings.dictKey)} onChange={(event) => onSettingsChange({ dictKey: event.target.value })} />
+          <SettingField help="Optional global dictionary to read or update when the Dict input is not connected." label="Global dict name">
+            <input className={inputClass} placeholder="notes" value={settingText(node.settings.variableName)} onChange={(event) => onSettingsChange({ variableName: event.target.value })} />
+          </SettingField>
+          <SettingField help="Used when the Key input is not connected." label="Fallback key">
+            <input className={inputClass} placeholder="title" value={settingText(node.settings.dictKey)} onChange={(event) => onSettingsChange({ dictKey: event.target.value })} />
+          </SettingField>
         </div>
       );
     case 'Loop':
       return (
         <div className="mt-3">
-          <input className={inputClass} min={1} max={100} type="number" value={node.settings.loopLimit ?? 10} onChange={(event) => onSettingsChange({ loopLimit: Number.parseInt(event.target.value || '1', 10) })} />
+          <SettingField help="Maximum iterations this block can consume before VM loop budgets stop execution." hint="1-100 iterations" label="Loop limit">
+            <input className={inputClass} min={1} max={100} type="number" value={node.settings.loopLimit ?? 10} onChange={(event) => onSettingsChange({ loopLimit: Number.parseInt(event.target.value || '1', 10) })} />
+          </SettingField>
         </div>
       );
     case 'FetchData':
       return (
         <div className="mt-3 grid gap-2">
-          <input className={inputClass} disabled={connectedInputs.has('url')} placeholder="https://example.com/data.json" value={connectedInputs.has('url') ? '' : settingText(node.settings.remoteUrl)} onChange={(event) => onSettingsChange({ remoteUrl: event.target.value })} />
-          <select className={inputClass} value={node.settings.remoteDataType ?? 'data'} onChange={(event) => onSettingsChange({ remoteDataType: event.target.value as WorkspaceBlockSettings['remoteDataType'] })}>
-            <option value="data">Data</option>
-            <option value="string">String</option>
-            <option value="JSON">JSON</option>
-            <option value="dict">Dict</option>
-          </select>
-          <label className={labelClass}>
-            Timeout (ms)
+          <SettingField help="HTTPS-only fallback URL used when the URL input is not connected." label="Remote URL">
+            <input className={inputClass} disabled={connectedInputs.has('url')} placeholder="https://example.com/data.json" value={connectedInputs.has('url') ? '' : settingText(node.settings.remoteUrl)} onChange={(event) => onSettingsChange({ remoteUrl: event.target.value })} />
+          </SettingField>
+          <SettingField help="Controls how the remote response is typed inside the graph." label="Response type">
+            <select className={inputClass} value={node.settings.remoteDataType ?? 'data'} onChange={(event) => onSettingsChange({ remoteDataType: event.target.value as WorkspaceBlockSettings['remoteDataType'] })}>
+              <option value="data">Data</option>
+              <option value="string">String</option>
+              <option value="JSON">JSON</option>
+              <option value="dict">Dict</option>
+            </select>
+          </SettingField>
+          <SettingField help="Aborts the remote request when this time budget expires." hint="500-30000 ms" label="Timeout (ms)">
             <input className={inputClass} min={500} max={30000} type="number" value={node.settings.remoteTimeoutMs ?? 5000} onChange={(event) => onSettingsChange({ remoteTimeoutMs: Number.parseInt(event.target.value || '5000', 10) })} />
-            <span className="normal-case tracking-normal text-slate-400">500-30000 ms</span>
-          </label>
-          <label className={labelClass}>
-            Max response bytes
+          </SettingField>
+          <SettingField help="Stops reading the response after this many bytes." hint="1024-524288 bytes" label="Max response bytes">
             <input className={inputClass} min={1024} max={524288} type="number" value={node.settings.remoteMaxBytes ?? 131072} onChange={(event) => onSettingsChange({ remoteMaxBytes: Number.parseInt(event.target.value || '131072', 10) })} />
-            <span className="normal-case tracking-normal text-slate-400">1024-524288 bytes</span>
-          </label>
+          </SettingField>
         </div>
       );
     case 'HttpRequest':
       return (
         <div className="mt-3 grid gap-2">
-          <select className={inputClass} value={node.settings.remoteMethod ?? 'GET'} onChange={(event) => onSettingsChange({ remoteMethod: event.target.value as WorkspaceBlockSettings['remoteMethod'] })}>
-            <option value="GET">GET</option>
-            <option value="POST">POST</option>
-          </select>
-          <input className={inputClass} disabled={connectedInputs.has('url')} placeholder="https://example.com/api" value={connectedInputs.has('url') ? '' : settingText(node.settings.remoteUrl)} onChange={(event) => onSettingsChange({ remoteUrl: event.target.value })} />
-          <select className={inputClass} value={node.settings.remoteDataType ?? 'data'} onChange={(event) => onSettingsChange({ remoteDataType: event.target.value as WorkspaceBlockSettings['remoteDataType'] })}>
-            <option value="data">Data</option>
-            <option value="string">String</option>
-            <option value="JSON">JSON</option>
-            <option value="dict">Dict</option>
-          </select>
-          <label className={labelClass}>
-            Timeout (ms)
+          <SettingField help="HTTP verb for the HTTPS request. POST sends the connected Body as JSON." label="Method">
+            <select className={inputClass} value={node.settings.remoteMethod ?? 'GET'} onChange={(event) => onSettingsChange({ remoteMethod: event.target.value as WorkspaceBlockSettings['remoteMethod'] })}>
+              <option value="GET">GET</option>
+              <option value="POST">POST</option>
+            </select>
+          </SettingField>
+          <SettingField help="HTTPS-only fallback URL used when the URL input is not connected." label="Remote URL">
+            <input className={inputClass} disabled={connectedInputs.has('url')} placeholder="https://example.com/api" value={connectedInputs.has('url') ? '' : settingText(node.settings.remoteUrl)} onChange={(event) => onSettingsChange({ remoteUrl: event.target.value })} />
+          </SettingField>
+          <SettingField help="Controls how the remote response is typed inside the graph." label="Response type">
+            <select className={inputClass} value={node.settings.remoteDataType ?? 'data'} onChange={(event) => onSettingsChange({ remoteDataType: event.target.value as WorkspaceBlockSettings['remoteDataType'] })}>
+              <option value="data">Data</option>
+              <option value="string">String</option>
+              <option value="JSON">JSON</option>
+              <option value="dict">Dict</option>
+            </select>
+          </SettingField>
+          <SettingField help="Aborts the remote request when this time budget expires." hint="500-30000 ms" label="Timeout (ms)">
             <input className={inputClass} min={500} max={30000} type="number" value={node.settings.remoteTimeoutMs ?? 5000} onChange={(event) => onSettingsChange({ remoteTimeoutMs: Number.parseInt(event.target.value || '5000', 10) })} />
-            <span className="normal-case tracking-normal text-slate-400">500-30000 ms</span>
-          </label>
-          <label className={labelClass}>
-            Max response bytes
+          </SettingField>
+          <SettingField help="Stops reading the response after this many bytes." hint="1024-524288 bytes" label="Max response bytes">
             <input className={inputClass} min={1024} max={524288} type="number" value={node.settings.remoteMaxBytes ?? 131072} onChange={(event) => onSettingsChange({ remoteMaxBytes: Number.parseInt(event.target.value || '131072', 10) })} />
-            <span className="normal-case tracking-normal text-slate-400">1024-524288 bytes</span>
-          </label>
+          </SettingField>
         </div>
       );
     case 'SystemData':
       return (
         <div className="mt-3 grid gap-2">
-          <select className={inputClass} value={node.settings.systemDataMode ?? 'NOW_MS'} onChange={(event) => onSettingsChange({ systemDataMode: event.target.value as WorkspaceBlockSettings['systemDataMode'] })}>
-            <option value="NOW_MS">Now ms</option>
-            <option value="EPOCH_SECONDS">Epoch seconds</option>
-            <option value="ISO_DATE">ISO date</option>
-            <option value="TIMEZONE_OFFSET_MINUTES">Timezone offset minutes</option>
-            <option value="LOCALE_DATE">Locale date</option>
-            <option value="LOCALE_TIME">Locale time</option>
-          </select>
+          <SettingField help="Chooses which local time value is emitted when the pack runs." label="System value">
+            <select className={inputClass} value={node.settings.systemDataMode ?? 'NOW_MS'} onChange={(event) => onSettingsChange({ systemDataMode: event.target.value as WorkspaceBlockSettings['systemDataMode'] })}>
+              <option value="NOW_MS">Now ms</option>
+              <option value="EPOCH_SECONDS">Epoch seconds</option>
+              <option value="ISO_DATE">ISO date</option>
+              <option value="TIMEZONE_OFFSET_MINUTES">Timezone offset minutes</option>
+              <option value="LOCALE_DATE">Locale date</option>
+              <option value="LOCALE_TIME">Locale time</option>
+            </select>
+          </SettingField>
         </div>
       );
     case 'PromptText':
@@ -304,17 +408,27 @@ function renderBlockSettings(
     case 'PickFileOrUrl':
       return (
         <div className="mt-3 grid gap-2">
-          <input className={inputClass} placeholder="Prompt message" value={settingText(node.settings.promptMessage)} onChange={(event) => onSettingsChange({ promptMessage: event.target.value })} />
+          <SettingField help="Text shown to the user in the page overlay prompt." label="Prompt message">
+            <input className={inputClass} placeholder="Prompt message" value={settingText(node.settings.promptMessage)} onChange={(event) => onSettingsChange({ promptMessage: event.target.value })} />
+          </SettingField>
           {node.type === 'PromptText' || node.type === 'PromptNumber' ? (
             <>
-              <input className={inputClass} placeholder="Default value" value={settingText(node.settings.promptDefaultValue)} onChange={(event) => onSettingsChange({ promptDefaultValue: event.target.value })} />
-              <input className={inputClass} placeholder="Placeholder" value={settingText(node.settings.promptPlaceholder)} onChange={(event) => onSettingsChange({ promptPlaceholder: event.target.value })} />
+              <SettingField help="Pre-filled value shown in the input before the user edits it." label="Default value">
+                <input className={inputClass} value={settingText(node.settings.promptDefaultValue)} onChange={(event) => onSettingsChange({ promptDefaultValue: event.target.value })} />
+              </SettingField>
+              <SettingField help="Hint text shown only when the prompt input is empty." label="Placeholder">
+                <input className={inputClass} value={settingText(node.settings.promptPlaceholder)} onChange={(event) => onSettingsChange({ promptPlaceholder: event.target.value })} />
+              </SettingField>
             </>
           ) : null}
           {node.type === 'PromptNumber' ? (
             <div className="grid grid-cols-2 gap-2">
-              <input className={inputClass} placeholder="Min" type="number" value={node.settings.minValue ?? ''} onChange={(event) => onSettingsChange({ minValue: event.target.value ? Number(event.target.value) : undefined })} />
-              <input className={inputClass} placeholder="Max" type="number" value={node.settings.maxValue ?? ''} onChange={(event) => onSettingsChange({ maxValue: event.target.value ? Number(event.target.value) : undefined })} />
+              <SettingField help="Optional lower bound for the number prompt." label="Minimum">
+                <input className={inputClass} type="number" value={node.settings.minValue ?? ''} onChange={(event) => onSettingsChange({ minValue: event.target.value ? Number(event.target.value) : undefined })} />
+              </SettingField>
+              <SettingField help="Optional upper bound for the number prompt." label="Maximum">
+                <input className={inputClass} type="number" value={node.settings.maxValue ?? ''} onChange={(event) => onSettingsChange({ maxValue: event.target.value ? Number(event.target.value) : undefined })} />
+              </SettingField>
             </div>
           ) : null}
         </div>
@@ -322,51 +436,256 @@ function renderBlockSettings(
     case 'ShowMessage':
       return (
         <div className="mt-3 grid gap-2">
-          <textarea className={`${inputClass} min-h-14`} disabled={connectedInputs.has('message')} placeholder={connectedInputs.has('message') ? 'Connected message input' : 'Message'} value={connectedInputs.has('message') ? '' : settingText(node.settings.promptMessage)} onChange={(event) => onSettingsChange({ promptMessage: event.target.value })} />
-          <select className={inputClass} value={node.settings.displayMode ?? 'OVERLAY'} onChange={(event) => onSettingsChange({ displayMode: event.target.value as WorkspaceBlockSettings['displayMode'] })}>
-            <option value="OVERLAY">Page overlay</option>
-            <option value="REPLACE_PAGE">Replace page</option>
-            <option value="NEW_TAB">New tab</option>
-          </select>
-          <input className={inputClass} min={0} max={3600000} placeholder="Timeout ms" type="number" value={node.settings.displayTimeoutMs ?? ''} onChange={(event) => onSettingsChange({ displayTimeoutMs: event.target.value ? Number(event.target.value) : undefined })} />
+          <SettingField help="Message text used when the Message input is not connected." label="Message">
+            <textarea className={`${inputClass} min-h-14`} disabled={connectedInputs.has('message')} placeholder={connectedInputs.has('message') ? 'Connected message input' : 'Message'} value={connectedInputs.has('message') ? '' : settingText(node.settings.promptMessage)} onChange={(event) => onSettingsChange({ promptMessage: event.target.value })} />
+          </SettingField>
+          <SettingField help="Controls whether the display appears as an overlay, a replacement page, or a new tab." label="Display mode">
+            <select className={inputClass} value={node.settings.displayMode ?? 'OVERLAY'} onChange={(event) => onSettingsChange({ displayMode: event.target.value as WorkspaceBlockSettings['displayMode'] })}>
+              <option value="OVERLAY">Page overlay</option>
+              <option value="REPLACE_PAGE">Replace page</option>
+              <option value="NEW_TAB">New tab</option>
+            </select>
+          </SettingField>
+          <SettingField help="Optional auto-close time. Leave empty for no configured timeout." hint="0-3600000 ms" label="Timeout (ms)">
+            <input className={inputClass} min={0} max={3600000} type="number" value={node.settings.displayTimeoutMs ?? ''} onChange={(event) => onSettingsChange({ displayTimeoutMs: event.target.value ? Number(event.target.value) : undefined })} />
+          </SettingField>
         </div>
       );
     case 'ShowImage':
       return (
         <div className="mt-3 grid gap-2">
-          <select className={inputClass} value={node.settings.imageStopMode ?? 'CLOSE_BUTTON'} onChange={(event) => onSettingsChange({ imageStopMode: event.target.value as WorkspaceBlockSettings['imageStopMode'] })}>
-            <option value="CLOSE_BUTTON">Close button</option>
-            <option value="CLICK">Click image</option>
-            <option value="TIMEOUT">Timeout</option>
-            <option value="CONFIRM">Require confirmation</option>
-          </select>
-          <input className={inputClass} min={0} max={3600000} placeholder="Timeout ms" type="number" value={node.settings.displayTimeoutMs ?? 5000} onChange={(event) => onSettingsChange({ displayTimeoutMs: Number(event.target.value || '0') })} />
+          <SettingField help="Determines what ends the image display and returns a result." label="Stop mode">
+            <select className={inputClass} value={node.settings.imageStopMode ?? 'CLOSE_BUTTON'} onChange={(event) => onSettingsChange({ imageStopMode: event.target.value as WorkspaceBlockSettings['imageStopMode'] })}>
+              <option value="CLOSE_BUTTON">Close button</option>
+              <option value="CLICK">Click image</option>
+              <option value="TIMEOUT">Timeout</option>
+              <option value="CONFIRM">Require confirmation</option>
+            </select>
+          </SettingField>
+          <SettingField help="Auto-close time used by timeout-style image displays." hint="0-3600000 ms" label="Timeout (ms)">
+            <input className={inputClass} min={0} max={3600000} type="number" value={node.settings.displayTimeoutMs ?? 5000} onChange={(event) => onSettingsChange({ displayTimeoutMs: Number(event.target.value || '0') })} />
+          </SettingField>
         </div>
       );
     case 'ShowVideo':
     case 'PlaySound':
       return (
         <div className="mt-3 grid gap-2">
-          <select className={inputClass} value={node.settings.displayMode ?? 'OVERLAY'} onChange={(event) => onSettingsChange({ displayMode: event.target.value as WorkspaceBlockSettings['displayMode'] })}>
-            <option value="OVERLAY">Page overlay</option>
-            <option value="REPLACE_PAGE">Replace page</option>
-            <option value="NEW_TAB">New tab</option>
-          </select>
+          <SettingField help="Controls whether media plays in an overlay, replacement page, or new tab fallback." label="Display mode">
+            <select className={inputClass} value={node.settings.displayMode ?? 'OVERLAY'} onChange={(event) => onSettingsChange({ displayMode: event.target.value as WorkspaceBlockSettings['displayMode'] })}>
+              <option value="OVERLAY">Page overlay</option>
+              <option value="REPLACE_PAGE">Replace page</option>
+              <option value="NEW_TAB">New tab</option>
+            </select>
+          </SettingField>
         </div>
       );
     case 'OverlayInput':
       return (
         <div className="mt-3 grid gap-2">
-          <textarea className={`${inputClass} min-h-14`} disabled={connectedInputs.has('message')} placeholder={connectedInputs.has('message') ? 'Connected message input' : 'Overlay message'} value={connectedInputs.has('message') ? '' : settingText(node.settings.promptMessage)} onChange={(event) => onSettingsChange({ promptMessage: event.target.value })} />
-          <input className={inputClass} min={0} max={3600000} placeholder="Timeout ms" type="number" value={node.settings.displayTimeoutMs ?? 10000} onChange={(event) => onSettingsChange({ displayTimeoutMs: Number(event.target.value || '0') })} />
+          <SettingField help="Overlay text shown while keyboard or mouse capture is active." label="Overlay message">
+            <textarea className={`${inputClass} min-h-14`} disabled={connectedInputs.has('message')} placeholder={connectedInputs.has('message') ? 'Connected message input' : 'Overlay message'} value={connectedInputs.has('message') ? '' : settingText(node.settings.promptMessage)} onChange={(event) => onSettingsChange({ promptMessage: event.target.value })} />
+          </SettingField>
+          <SettingField help="Maximum time the capture overlay stays open." hint="0-3600000 ms" label="Timeout (ms)">
+            <input className={inputClass} min={0} max={3600000} type="number" value={node.settings.displayTimeoutMs ?? 10000} onChange={(event) => onSettingsChange({ displayTimeoutMs: Number(event.target.value || '0') })} />
+          </SettingField>
           <label className="nodrag flex items-center gap-2 text-[11px] text-slate-600">
             <input checked={node.settings.captureKeyboard ?? true} type="checkbox" onChange={(event) => onSettingsChange({ captureKeyboard: event.target.checked })} />
-            Capture keyboard while overlay is open
+            <span className="flex items-center gap-1.5">
+              Capture keyboard while overlay is open
+              <HelpTooltip label="Capture keyboard" text="Captures trusted key events only while the page overlay is active and returns a bounded event summary." />
+            </span>
           </label>
           <label className="nodrag flex items-center gap-2 text-[11px] text-slate-600">
             <input checked={node.settings.captureMouse ?? true} type="checkbox" onChange={(event) => onSettingsChange({ captureMouse: event.target.checked })} />
-            Capture mouse while overlay is open
+            <span className="flex items-center gap-1.5">
+              Capture mouse while overlay is open
+              <HelpTooltip label="Capture mouse" text="Records bounded pointer summaries inside the overlay panel, not arbitrary page data." />
+            </span>
           </label>
+        </div>
+      );
+    case 'OnTriggerEvent':
+    case 'KeyboardIn':
+    case 'MouseIn':
+    case 'OverlayTickIn':
+      return (
+        <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] leading-5 text-slate-600">
+          Event source blocks run their connected chain only when the matching overlay or trigger event arrives.
+        </p>
+      );
+    case 'Constant':
+      return (
+        <div className="mt-3 grid gap-2">
+          <SettingField help="Controls the output port type and how the literal is parsed." label="Value type">
+            <select className={inputClass} value={node.settings.literalDataType ?? 'string'} onChange={(event) => onSettingsChange({ literalDataType: event.target.value as WorkspaceBlockSettings['literalDataType'] })}>
+              <option value="bool">Bool</option>
+              <option value="number">Number</option>
+              <option value="floatingPoint">Floating Point</option>
+              <option value="string">String</option>
+              <option value="URL">URL</option>
+              <option value="JSON">JSON</option>
+              <option value="data">Data</option>
+              <option value="dict">Dict</option>
+              <option value="Any">Any</option>
+            </select>
+          </SettingField>
+          <SettingField help="Literal value. Data, Dict, and Any can parse JSON." label="Literal">
+            <textarea className={`${inputClass} min-h-14`} value={settingText(node.settings.literalValue)} onChange={(event) => onSettingsChange({ literalValue: event.target.value })} />
+          </SettingField>
+        </div>
+      );
+    case 'Sleep':
+      return (
+        <div className="mt-3">
+          <SettingField help="Delay used when the Duration input is not connected." hint="0-60000 ms" label="Fallback delay">
+            <input className={inputClass} min={0} max={60000} type="number" value={node.settings.sleepMs ?? 100} onChange={(event) => onSettingsChange({ sleepMs: Number.parseInt(event.target.value || '0', 10) })} />
+          </SettingField>
+        </div>
+      );
+    case 'SharedState':
+      return (
+        <div className="mt-3 grid gap-2">
+          <SettingField help="Get reads, Set writes, Exists returns a bool, and Delete clears a session-scoped key." label="Mode">
+            <select className={inputClass} value={node.settings.sharedStateMode ?? 'GET'} onChange={(event) => onSettingsChange({ sharedStateMode: event.target.value as WorkspaceBlockSettings['sharedStateMode'] })}>
+              <option value="GET">Get</option>
+              <option value="SET">Set</option>
+              <option value="EXISTS">Exists</option>
+              <option value="DELETE">Delete</option>
+            </select>
+          </SettingField>
+          <SettingField help="Used when the Key input is not connected." label="Fallback key">
+            <input className={inputClass} value={settingText(node.settings.literalValue)} onChange={(event) => onSettingsChange({ literalValue: event.target.value })} />
+          </SettingField>
+          <SettingField help="Fallback value for Get, or Set value when the Value input is not connected." label="Fallback value">
+            <textarea className={`${inputClass} min-h-14`} value={settingText(node.settings.selectFalseValue)} onChange={(event) => onSettingsChange({ selectFalseValue: event.target.value })} />
+          </SettingField>
+          <SettingField help="Fallback value type parser." label="Fallback type">
+            <select className={inputClass} value={node.settings.literalDataType ?? 'Any'} onChange={(event) => onSettingsChange({ literalDataType: event.target.value as WorkspaceBlockSettings['literalDataType'] })}>
+              <option value="bool">Bool</option>
+              <option value="number">Number</option>
+              <option value="string">String</option>
+              <option value="data">Data</option>
+              <option value="dict">Dict</option>
+              <option value="Any">Any</option>
+            </select>
+          </SettingField>
+        </div>
+      );
+    case 'DictGet':
+      return (
+        <div className="mt-3 grid gap-2">
+          <SettingField help="Used when the Key input is not connected." label="Fallback key">
+            <input className={inputClass} value={settingText(node.settings.dictKey)} onChange={(event) => onSettingsChange({ dictKey: event.target.value })} />
+          </SettingField>
+          <SettingField help="Returned when the key is not present." label="Fallback value">
+            <input className={inputClass} value={settingText(node.settings.literalValue)} onChange={(event) => onSettingsChange({ literalValue: event.target.value })} />
+          </SettingField>
+        </div>
+      );
+    case 'ListOperation':
+      return (
+        <div className="mt-3 grid gap-2">
+          <SettingField help="Operation applied to the list input or fallback list." label="Operation">
+            <select className={inputClass} value={node.settings.listOperation ?? 'APPEND'} onChange={(event) => onSettingsChange({ listOperation: event.target.value as WorkspaceBlockSettings['listOperation'] })}>
+              <option value="APPEND">Append</option>
+              <option value="PREPEND">Prepend</option>
+              <option value="DROP_LAST">Drop Last</option>
+              <option value="GET">Get</option>
+              <option value="LENGTH">Length</option>
+              <option value="CONTAINS_POINT">Contains Point</option>
+            </select>
+          </SettingField>
+          <SettingField help="JSON fallback list used when the List input is not connected." label="Fallback list">
+            <textarea className={`${inputClass} min-h-14`} value={settingText(node.settings.literalValue ?? '[]')} onChange={(event) => onSettingsChange({ literalValue: event.target.value })} />
+          </SettingField>
+          <SettingField help="Fallback item literal used when the Item input is not connected." label="Fallback item">
+            <input className={inputClass} value={settingText(node.settings.selectTrueValue)} onChange={(event) => onSettingsChange({ selectTrueValue: event.target.value })} />
+          </SettingField>
+        </div>
+      );
+    case 'ConditionSelect':
+      return (
+        <div className="mt-3 grid gap-2">
+          <SettingField help="Fallback parser for the True and False literal values." label="Fallback type">
+            <select className={inputClass} value={node.settings.literalDataType ?? 'number'} onChange={(event) => onSettingsChange({ literalDataType: event.target.value as WorkspaceBlockSettings['literalDataType'] })}>
+              <option value="bool">Bool</option>
+              <option value="number">Number</option>
+              <option value="string">String</option>
+              <option value="data">Data</option>
+              <option value="dict">Dict</option>
+              <option value="Any">Any</option>
+            </select>
+          </SettingField>
+          <SettingField help="Used when the True input is not connected." label="True fallback">
+            <input className={inputClass} value={settingText(node.settings.selectTrueValue)} onChange={(event) => onSettingsChange({ selectTrueValue: event.target.value })} />
+          </SettingField>
+          <SettingField help="Used when the False input is not connected." label="False fallback">
+            <input className={inputClass} value={settingText(node.settings.selectFalseValue)} onChange={(event) => onSettingsChange({ selectFalseValue: event.target.value })} />
+          </SettingField>
+        </div>
+      );
+    case 'RandomNumber':
+      return (
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <SettingField help="Inclusive fallback lower bound." label="Min">
+            <input className={inputClass} type="number" value={node.settings.randomMin ?? 0} onChange={(event) => onSettingsChange({ randomMin: Number.parseInt(event.target.value || '0', 10) })} />
+          </SettingField>
+          <SettingField help="Inclusive fallback upper bound." label="Max">
+            <input className={inputClass} type="number" value={node.settings.randomMax ?? 10} onChange={(event) => onSettingsChange({ randomMax: Number.parseInt(event.target.value || '10', 10) })} />
+          </SettingField>
+        </div>
+      );
+    case 'OverlayControl':
+      return (
+        <div className="mt-3 grid gap-2">
+          <SettingField help="Start, stop, toggle, or read status for the URL Alchemist-owned overlay session." label="Action">
+            <select className={inputClass} value={node.settings.overlayControlAction ?? 'START'} onChange={(event) => onSettingsChange({ overlayControlAction: event.target.value as WorkspaceBlockSettings['overlayControlAction'] })}>
+              <option value="START">Start</option>
+              <option value="STOP">Stop</option>
+              <option value="TOGGLE">Toggle</option>
+              <option value="STATUS">Status</option>
+            </select>
+          </SettingField>
+          <SettingField help="Text shown in the visible overlay header." label="Overlay text">
+            <input className={inputClass} value={settingText(node.settings.overlayText ?? node.settings.promptMessage)} onChange={(event) => onSettingsChange({ overlayText: event.target.value, promptMessage: event.target.value })} />
+          </SettingField>
+          <div className="grid grid-cols-2 gap-2">
+            <SettingField help="Grid columns." hint="1-200" label="Width">
+              <input className={inputClass} min={1} max={200} type="number" value={node.settings.overlayWidth ?? 24} onChange={(event) => onSettingsChange({ overlayWidth: Number.parseInt(event.target.value || '24', 10) })} />
+            </SettingField>
+            <SettingField help="Grid rows." hint="1-200" label="Height">
+              <input className={inputClass} min={1} max={200} type="number" value={node.settings.overlayHeight ?? 18} onChange={(event) => onSettingsChange({ overlayHeight: Number.parseInt(event.target.value || '18', 10) })} />
+            </SettingField>
+            <SettingField help="Rendered pixel size per grid cell." hint="4-96 px" label="Cell size">
+              <input className={inputClass} min={4} max={96} type="number" value={node.settings.overlayCellSize ?? 24} onChange={(event) => onSettingsChange({ overlayCellSize: Number.parseInt(event.target.value || '24', 10) })} />
+            </SettingField>
+            <SettingField help="Overlay tick interval." hint="16-5000 ms" label="Tick ms">
+              <input className={inputClass} min={16} max={5000} type="number" value={node.settings.overlayTickMs ?? 120} onChange={(event) => onSettingsChange({ overlayTickMs: Number.parseInt(event.target.value || '120', 10) })} />
+            </SettingField>
+          </div>
+          <SettingField help="Visible full-page overlay background." label="Background">
+            <input className={inputClass} value={settingText(node.settings.overlayBackground ?? '#ffffff')} onChange={(event) => onSettingsChange({ overlayBackground: event.target.value })} />
+          </SettingField>
+        </div>
+      );
+    case 'OverlayDraw':
+      return (
+        <div className="mt-3 grid gap-2">
+          <div className="grid grid-cols-2 gap-2">
+            <SettingField help="Grid columns." hint="1-200" label="Width">
+              <input className={inputClass} min={1} max={200} type="number" value={node.settings.overlayWidth ?? 24} onChange={(event) => onSettingsChange({ overlayWidth: Number.parseInt(event.target.value || '24', 10) })} />
+            </SettingField>
+            <SettingField help="Grid rows." hint="1-200" label="Height">
+              <input className={inputClass} min={1} max={200} type="number" value={node.settings.overlayHeight ?? 18} onChange={(event) => onSettingsChange({ overlayHeight: Number.parseInt(event.target.value || '18', 10) })} />
+            </SettingField>
+            <SettingField help="Rendered pixel size per grid cell." hint="4-96 px" label="Cell size">
+              <input className={inputClass} min={4} max={96} type="number" value={node.settings.overlayCellSize ?? 24} onChange={(event) => onSettingsChange({ overlayCellSize: Number.parseInt(event.target.value || '24', 10) })} />
+            </SettingField>
+            <SettingField help="Canvas clear color." label="Background">
+              <input className={inputClass} value={settingText(node.settings.overlayBackground ?? '#ffffff')} onChange={(event) => onSettingsChange({ overlayBackground: event.target.value })} />
+            </SettingField>
+          </div>
         </div>
       );
     case 'GetImage':
@@ -374,16 +693,18 @@ function renderBlockSettings(
     case 'GetAudio':
       return (
         <div className="mt-3 grid gap-2">
-          <input className={inputClass} disabled={connectedInputs.has('url')} placeholder={`https://example.com/file.${node.type === 'GetVideo' ? 'mp4' : node.type === 'GetAudio' ? 'mp3' : 'png'}`} value={connectedInputs.has('url') ? '' : settingText(node.settings.assetUrl)} onChange={(event) => onSettingsChange({ assetUrl: event.target.value })} />
-          <input className={inputClass} placeholder="MIME type" value={settingText(node.settings.assetMimeType)} onChange={(event) => onSettingsChange({ assetMimeType: event.target.value })} />
-          <label className={labelClass}>
-            Timeout (ms)
+          <SettingField help="HTTPS-only fallback asset URL used when the URL input is not connected." label="Asset URL">
+            <input className={inputClass} disabled={connectedInputs.has('url')} placeholder={`https://example.com/file.${node.type === 'GetVideo' ? 'mp4' : node.type === 'GetAudio' ? 'mp3' : 'png'}`} value={connectedInputs.has('url') ? '' : settingText(node.settings.assetUrl)} onChange={(event) => onSettingsChange({ assetUrl: event.target.value })} />
+          </SettingField>
+          <SettingField help="Optional MIME type hint for embedded or fetched media." label="MIME type">
+            <input className={inputClass} placeholder={node.type === 'GetVideo' ? 'video/mp4' : node.type === 'GetAudio' ? 'audio/mpeg' : 'image/png'} value={settingText(node.settings.assetMimeType)} onChange={(event) => onSettingsChange({ assetMimeType: event.target.value })} />
+          </SettingField>
+          <SettingField help="Aborts the media request when this time budget expires." hint="500-30000 ms" label="Timeout (ms)">
             <input className={inputClass} min={500} max={30000} type="number" value={node.settings.remoteTimeoutMs ?? 5000} onChange={(event) => onSettingsChange({ remoteTimeoutMs: Number.parseInt(event.target.value || '5000', 10) })} />
-          </label>
-          <label className={labelClass}>
-            Max response bytes
+          </SettingField>
+          <SettingField help="Stops reading the media response after this many bytes." hint="1024-524288 bytes" label="Max response bytes">
             <input className={inputClass} min={1024} max={524288} type="number" value={node.settings.remoteMaxBytes ?? 524288} onChange={(event) => onSettingsChange({ remoteMaxBytes: Number.parseInt(event.target.value || '524288', 10) })} />
-          </label>
+          </SettingField>
         </div>
       );
     default:
@@ -429,12 +750,14 @@ const WorkspaceBlockNode = memo(function WorkspaceBlockNode({ data, selected }: 
       </div>
 
       <div className="px-4 py-3">
-        <input
-          className="nodrag w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-800 outline-none focus:border-amber-400"
-          value={node.settings.label ?? ''}
-          placeholder={definition.label}
-          onChange={(event) => onSettingsChange(node.id, { label: event.target.value })}
-        />
+        <SettingField help="Optional display name for this block. Leaving it empty uses the block type name." label="Block label">
+          <input
+            className="nodrag w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-800 outline-none focus:border-amber-400"
+            value={node.settings.label ?? ''}
+            placeholder={definition.label}
+            onChange={(event) => onSettingsChange(node.id, { label: event.target.value })}
+          />
+        </SettingField>
 
         {renderBlockSettings(
           node,
@@ -453,13 +776,19 @@ const WorkspaceBlockNode = memo(function WorkspaceBlockNode({ data, selected }: 
                 style={handleStyle(invalidInputs.includes(input.id) ? '#dc2626' : DATA_TYPE_COLORS[input.dataType])}
                 type="target"
               />
-              <span className="ml-2">{input.label}</span>
+              <span className="ml-2 flex items-center gap-1.5">
+                {input.label}
+                {input.description ? <HelpTooltip label={`${input.label} input`} text={input.description} /> : null}
+              </span>
               <span className="ml-auto font-mono text-[10px]">{input.dataType}</span>
             </div>
           ))}
           {outputs.map((output) => (
             <div key={output.id} className="relative flex min-h-7 items-center rounded-lg bg-slate-50 px-2 py-1 text-xs text-slate-600">
-              <span>{output.label}</span>
+              <span className="flex items-center gap-1.5">
+                {output.label}
+                {output.description ? <HelpTooltip label={`${output.label} output`} text={output.description} /> : null}
+              </span>
               <span className="ml-auto mr-2 font-mono text-[10px]">{output.dataType}</span>
               <Handle
                 className="workspace-port-handle workspace-port-handle-source"

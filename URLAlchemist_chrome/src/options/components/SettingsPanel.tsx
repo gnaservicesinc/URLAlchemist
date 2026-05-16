@@ -3,6 +3,7 @@ import { useEffect, useState, type ChangeEvent, type RefObject } from 'react';
 import { UI_SCALE_MAX, UI_SCALE_MIN, UI_SCALE_STEP } from '../../shared/constants';
 import { normalizeUiScale } from '../../shared/hardening';
 import type { GlobalSettings } from '../../shared/types';
+import { HelpTooltip } from './HelpTooltip';
 
 interface SettingsPanelProps {
   backupFileInputRef: RefObject<HTMLInputElement | null>;
@@ -58,43 +59,53 @@ export function SettingsPanel({
       <p className="eyebrow">Settings</p>
       <h2 className="mt-2 text-2xl font-semibold text-slate-900">Local controls</h2>
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
-        <label className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white/80 px-4 py-3">
+        <div className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white/80 px-4 py-3">
           <div>
             <p className="text-sm font-semibold text-slate-900">Engine Enabled</p>
-            <p className="text-xs text-slate-500">Allow background navigation interception.</p>
+            <p className="text-xs text-slate-500">
+              Allow background navigation interception. <HelpTooltip label="Engine enabled" text="When disabled, installed Action Packs remain saved but will not run on navigation, hotkeys, intervals, or context-menu actions." />
+            </p>
           </div>
-          <input checked={settings.globalEnabled} className="h-5 w-5 accent-amber-600" type="checkbox" onChange={onGlobalEnabledToggle} />
-        </label>
+          <input aria-label="Engine Enabled" checked={settings.globalEnabled} className="h-5 w-5 accent-amber-600" type="checkbox" onChange={onGlobalEnabledToggle} />
+        </div>
 
-        <label className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white/80 px-4 py-3">
+        <div className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white/80 px-4 py-3">
           <div>
             <p className="text-sm font-semibold text-slate-900">Allow file URLs</p>
-            <p className="text-xs text-slate-500">Disabled by default for local file safety.</p>
+            <p className="text-xs text-slate-500">
+              Disabled by default for local file safety. <HelpTooltip label="Allow file URLs" text="Allows transformed outputs to navigate to file:// URLs. Keep this off unless you explicitly need local file navigation." />
+            </p>
           </div>
-          <input checked={settings.allowLocalFiles} className="h-5 w-5 accent-amber-600" type="checkbox" onChange={onLocalFilesToggle} />
-        </label>
+          <input aria-label="Allow file URLs" checked={settings.allowLocalFiles} className="h-5 w-5 accent-amber-600" type="checkbox" onChange={onLocalFilesToggle} />
+        </div>
 
-        <label className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white/80 px-4 py-3">
+        <div className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white/80 px-4 py-3">
           <div>
             <p className="text-sm font-semibold text-slate-900">Advanced Mode</p>
-            <p className="text-xs text-slate-500">Enable manual regex editing in supported builders.</p>
+            <p className="text-xs text-slate-500">
+              Enable manual regex editing in supported builders. <HelpTooltip label="Advanced mode" text="Manual regex mode bypasses the visual helper and should be used only when you understand the pattern." />
+            </p>
           </div>
-          <input checked={settings.advancedModeEnabled} className="h-5 w-5 accent-amber-600" type="checkbox" onChange={onAdvancedModeToggle} />
-        </label>
+          <input aria-label="Advanced Mode" checked={settings.advancedModeEnabled} className="h-5 w-5 accent-amber-600" type="checkbox" onChange={onAdvancedModeToggle} />
+        </div>
 
-        <label className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white/80 px-4 py-3">
+        <div className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white/80 px-4 py-3">
           <div>
             <p className="text-sm font-semibold text-slate-900">Google Sync</p>
-            <p className="text-xs text-slate-500">Best-effort sync for settings and small workspaces or Action Packs.</p>
+            <p className="text-xs text-slate-500">
+              Best-effort sync for settings and small workspaces or Action Packs. <HelpTooltip label="Google Sync" text="Large workspaces and Action Packs stay local because Chrome sync has a small per-item quota." />
+            </p>
           </div>
-          <input checked={settings.syncEnabled} className="h-5 w-5 accent-amber-600" type="checkbox" onChange={onSyncEnabledToggle} />
-        </label>
+          <input aria-label="Google Sync" checked={settings.syncEnabled} className="h-5 w-5 accent-amber-600" type="checkbox" onChange={onSyncEnabledToggle} />
+        </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-4 lg:col-span-2">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-sm font-semibold text-slate-900">UI Scale</p>
-              <p className="mt-1 text-xs text-slate-500">Stage a scale change, then apply it when the preview looks right.</p>
+              <p className="mt-1 text-xs text-slate-500">
+                Stage a scale change, then apply it when the preview looks right. <HelpTooltip label="UI scale" text={`Allowed range is ${UI_SCALE_MIN}% to ${UI_SCALE_MAX}% in ${UI_SCALE_STEP}% steps.`} />
+              </p>
             </div>
             <div className="flex flex-wrap gap-2">
               <span className="risk-badge risk-badge-soft">{activeUiScale}% active</span>
@@ -131,7 +142,9 @@ export function SettingsPanel({
 
         <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-4">
           <p className="text-sm font-semibold text-slate-900">Clipboard Permission</p>
-          <p className="mt-1 text-xs text-slate-500">Needed for high-risk clipboard sources or outputs.</p>
+          <p className="mt-1 text-xs text-slate-500">
+            Needed for high-risk clipboard sources or outputs. <HelpTooltip label="Clipboard permission" text="Only grant clipboard access if you use packs that explicitly read from or write to the clipboard." />
+          </p>
           <div className="mt-3 flex items-center justify-between gap-3">
             <span className={`risk-badge ${clipboardGranted ? 'risk-badge-soft' : 'risk-badge-warn'}`}>
               {clipboardGranted ? 'Granted' : 'Not granted'}
@@ -144,6 +157,9 @@ export function SettingsPanel({
 
         <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-4 lg:col-span-2">
           <p className="text-sm font-semibold text-slate-900">Local Builder UUID</p>
+          <p className="mt-1 text-xs text-slate-500">
+            Identifies this browser as the workspace builder. <HelpTooltip label="Local Builder UUID" text="Export this UUID before reinstalling if you want future builds to keep the same builder identity." />
+          </p>
           <p className="mt-1 break-all font-mono text-[11px] text-slate-500">{settings.builderUuid}</p>
           <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto_auto_auto]">
             <input
@@ -168,7 +184,9 @@ export function SettingsPanel({
 
         <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-4 lg:col-span-2">
           <p className="text-sm font-semibold text-slate-900">Backup and Restore</p>
-          <p className="mt-1 text-xs text-slate-500">Exports settings, workspaces, Action Packs, metadata, and checksums into one local backup blob.</p>
+          <p className="mt-1 text-xs text-slate-500">
+            Exports settings, workspaces, Action Packs, metadata, and checksums into one local backup blob. <HelpTooltip label="Backup and restore" text="Backups are the restore path if extension storage is cleared or the extension is uninstalled." />
+          </p>
           <div className="mt-4 flex flex-wrap gap-3">
             <button className="primary-button" type="button" onClick={onExportBackup}>
               Export Backup

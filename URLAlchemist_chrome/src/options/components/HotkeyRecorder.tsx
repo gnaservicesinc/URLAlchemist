@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import { captureHotkeyFromEvent, formatHotkeyLabel, getDefaultHotkey } from '../../shared/hotkeys';
+import { HelpTooltip } from './HelpTooltip';
 
 interface HotkeyRecorderProps {
   onChange: (hotkey: string) => void;
@@ -20,7 +21,10 @@ export function HotkeyRecorder({ onChange, validationError, value }: HotkeyRecor
 
   return (
     <div className="field-shell">
-      <span className="field-label">Hotkey</span>
+      <span className="field-label flex items-center gap-2">
+        Hotkey
+        <HelpTooltip label="Hotkey" text="Chrome v2 matches this shortcut per Action Pack through the content-script key listener." />
+      </span>
       <button
         className={`w-full rounded-2xl border px-4 py-3 text-left text-sm outline-none transition ${
           isCapturing

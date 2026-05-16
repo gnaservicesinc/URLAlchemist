@@ -16,7 +16,7 @@ import { validateCompiledActionPackV2 } from './actionPackValidator';
 import { BUNDLED_ACTION_PACK_EXAMPLES, createBundledExampleActionPacks, createBundledExampleWorkspaces } from './bundledExamples';
 import { compileWorkspace } from './compiler';
 import { createSandboxGraphRuntime } from './sandboxRuntime';
-import { ACTION_PACK_SCHEMA_VERSION, BLOCK_TYPE_IDS, type BlockKind, type CompiledActionPackV2 } from './types';
+import { ACTION_PACK_SCHEMA_VERSION, BLOCK_TYPE_IDS, LEGACY_ACTION_PACK_SCHEMA_VERSION, type BlockKind, type CompiledActionPackV2 } from './types';
 import { executeCompiledActionPackV2, type GraphRuntime } from './vm';
 import { createEdge, createDefaultWorkspace, createWorkspaceNode, workspaceFromLegacyPack } from './workspace';
 import {
@@ -194,6 +194,149 @@ describe('v2 workspace compiler and VM', () => {
     );
 
     expect(result.trace.some((entry) => entry.op === 'DISPLAY' && entry.message === 'Display completed')).toBe(true);
+  });
+
+  it('routes trigger, keyboard, mouse, and tick handlers through shared state', async () => {
+    const workspace = createDefaultWorkspace();
+    const dataIn = workspace.nodes.find((node) => node.type === 'DataFlowIn')!;
+    const dataOut = workspace.nodes.find((node) => node.type === 'DataFlowOut')!;
+    const onTrigger = createWorkspaceNode('OnTriggerEvent', { x: 260, y: 80 });
+    const startOverlay = createWorkspaceNode('OverlayControl', { x: 520, y: 80 }, {
+      overlayControlAction: 'START',
+      overlayText: 'Event test',
+    });
+    const keyboard = createWorkspaceNode('KeyboardIn', { x: 260, y: 260 });
+    const saveDirection = createWorkspaceNode('SharedState', { x: 520, y: 260 }, {
+      sharedStateMode: 'SET',
+      literalValue: 'test:direction',
+      selectFalseValue: '',
+      literalDataType: 'string',
+    });
+    const mouse = createWorkspaceNode('MouseIn', { x: 260, y: 440 });
+    const saveMouse = createWorkspaceNode('SharedState', { x: 520, y: 440 }, {
+      sharedStateMode: 'SET',
+      literalValue: 'test:last-mouse',
+      selectFalseValue: '{}',
+      literalDataType: 'dict',
+    });
+    const tick = createWorkspaceNode('OverlayTickIn', { x: 260, y: 620 });
+    const loadDirection = createWorkspaceNode('SharedState', { x: 520, y: 620 }, {
+      sharedStateMode: 'GET',
+      literalValue: 'test:direction',
+      selectFalseValue: 'none',
+      literalDataType: 'string',
+    });
+    const tickReady = createWorkspaceNode('Logical', { x: 520, y: 760 }, {
+      operator: 'GTE',
+      compareValue: '0',
+      booleanOutput: true,
+    });
+    const saveTickDirection = createWorkspaceNode('SharedState', { x: 780, y: 620 }, {
+      sharedStateMode: 'SET',
+      literalValue: 'test:tick-direction',
+      selectFalseValue: '',
+      literalDataType: 'string',
+    });
+    const compiled = compileWorkspace({
+      ...workspace,
+      trigger: { ...workspace.trigger, type: 'HOTKEY', hotkey: 'Ctrl+Shift+E' },
+      nodes: [...workspace.nodes, onTrigger, startOverlay, keyboard, saveDirection, mouse, saveMouse, tick, loadDirection, tickReady, saveTickDirection],
+      edges: [
+        createEdge(dataIn.id, 'url', dataOut.id, 'url'),
+        createEdge(onTrigger.id, 'triggered', startOverlay.id, 'enabled'),
+        createEdge(keyboard.id, 'keyboardKey', saveDirection.id, 'value'),
+        createEdge(mouse.id, 'mouseEvent', saveMouse.id, 'value'),
+        createEdge(tick.id, 'tick', tickReady.id, 'input'),
+        createEdge(loadDirection.id, 'result', saveTickDirection.id, 'value'),
+        createEdge(tickReady.id, 'result', saveTickDirection.id, 'enabled'),
+      ],
+    });
+
+    expect(compiled.ok).toBe(true);
+    expect(compiled.pack!.schemaVersion).toBe(ACTION_PACK_SCHEMA_VERSION);
+    expect(compiled.pack!.vm.eventHandlers?.trigger?.some((instruction) => instruction.op === 'OVERLAY_CONTROL')).toBe(true);
+    expect(compiled.pack!.vm.eventHandlers?.keyboard?.some((instruction) => instruction.op === 'SHARED_STATE')).toBe(true);
+    expect(compiled.pack!.vm.eventHandlers?.mouse?.some((instruction) => instruction.op === 'SHARED_STATE')).toBe(true);
+    expect(compiled.pack!.vm.eventHandlers?.tick?.some((instruction) => instruction.op === 'SHARED_STATE')).toBe(true);
+
+    const session = new Map<string, import('./types').GraphValue>();
+    const eventRuntime: GraphRuntime = {
+      ...runtime,
+      loadSessionValue: async (key) => session.get(key),
+      saveSessionValue: async (key, value) => {
+        session.set(key, value);
+      },
+      deleteSessionValue: async (key) => {
+        session.delete(key);
+      },
+      overlayControl: async () => ({ type: 'dict', value: { ok: { type: 'bool', value: 1 }, active: { type: 'bool', value: 1 } } }),
+    };
+
+    await executeCompiledActionPackV2('https://example.com/', compiled.pack!, eventRuntime, DEFAULT_SETTINGS, {
+      handler: 'trigger',
+      event: { kind: 'trigger', hotkey: 'Ctrl+Shift+E', url: 'https://example.com/' },
+    });
+    expect(session.has('test:direction')).toBe(false);
+
+    await executeCompiledActionPackV2('https://example.com/', compiled.pack!, eventRuntime, DEFAULT_SETTINGS, {
+      handler: 'keyboard',
+      event: { kind: 'keyboard', eventType: 'keydown', key: 'ArrowUp', code: 'ArrowUp', keyCode: 38 },
+    });
+    expect(session.get('test:direction')).toEqual({ type: 'string', value: 'ArrowUp' });
+
+    await executeCompiledActionPackV2('https://example.com/', compiled.pack!, eventRuntime, DEFAULT_SETTINGS, {
+      handler: 'mouse',
+      event: { kind: 'mouse', eventType: 'pointerdown', button: 0, buttons: 1, x: 12, y: 16 },
+    });
+    expect(session.get('test:last-mouse')?.type).toBe('dict');
+
+    await executeCompiledActionPackV2('https://example.com/', compiled.pack!, eventRuntime, DEFAULT_SETTINGS, {
+      handler: 'tick',
+      event: { kind: 'tick', tick: 1, deltaMs: 120 },
+    });
+    expect(session.get('test:tick-direction')).toEqual({ type: 'string', value: 'ArrowUp' });
+  });
+
+  it('migrates v4 packs into v5 event handler programs', () => {
+    const pack = createBasicCompiledPack();
+    const candidate = omitUndefinedFields({
+      ...pack,
+      schemaVersion: LEGACY_ACTION_PACK_SCHEMA_VERSION,
+      vm: {
+        ...pack.vm,
+        eventHandlers: undefined,
+      },
+    });
+    const result = validateCompiledActionPackV2(candidate);
+
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.pack.schemaVersion).toBe(ACTION_PACK_SCHEMA_VERSION);
+    expect(result.ok && result.pack.vm.eventHandlers?.trigger).toEqual(result.ok ? result.pack.vm.instructions : []);
+  });
+
+  it('rejects malformed imported event handlers', () => {
+    const pack = createBasicCompiledPack();
+    const result = validateCompiledActionPackV2({
+      ...pack,
+      vm: {
+        ...pack.vm,
+        eventHandlers: {
+          keyboard: [
+            {
+              op: 'SHARED_STATE',
+              nodeId: 'bad',
+              mode: 'SET',
+              value: 'missing.symbol',
+              fallbackKey: 'bad',
+              fallbackValue: { type: 'string', value: '' },
+            },
+          ],
+        },
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? [] : result.errors.join(' ')).toContain('missing.symbol');
   });
 
   it('classifies clipboard access as high risk', () => {
@@ -522,6 +665,61 @@ describe('v2 workspace compiler and VM', () => {
 
     expect(fetchedUrl).toBe('https://example.com/data.txt');
     expect(written).toBe('remote text');
+  });
+
+  it('preserves JSON-to-dict values when sending them as request bodies', async () => {
+    const workspace = createDefaultWorkspace();
+    const dataIn = workspace.nodes.find((node) => node.type === 'DataFlowIn')!;
+    const dataOut = workspace.nodes.find((node) => node.type === 'DataFlowOut')!;
+    const fetchJson = createWorkspaceNode('FetchData', { x: 260, y: 80 }, {
+      remoteUrl: 'https://example.com/input.json',
+      remoteDataType: 'JSON',
+    });
+    const jsonToDict = createWorkspaceNode('Convert', { x: 260, y: 80 }, {
+      convertMode: 'JSON_TO_DICT',
+    });
+    const addUrl = createWorkspaceNode('DataStructure', { x: 520, y: 80 }, {
+      dictKey: 'url',
+    });
+    const post = createWorkspaceNode('HttpRequest', { x: 780, y: 80 }, {
+      remoteMethod: 'POST',
+      remoteUrl: 'https://example.com/api',
+      remoteDataType: 'string',
+    });
+    const extendedOut = createWorkspaceNode('ExtendedDataOut', { x: 1040, y: 80 });
+    let postedBody: unknown;
+    const compiled = compileWorkspace({
+      ...workspace,
+      nodes: [...workspace.nodes, fetchJson, jsonToDict, addUrl, post, extendedOut],
+      edges: [
+        createEdge(fetchJson.id, 'result', jsonToDict.id, 'input'),
+        createEdge(jsonToDict.id, 'result', addUrl.id, 'dict'),
+        createEdge(dataIn.id, 'url', addUrl.id, 'value'),
+        createEdge(addUrl.id, 'result', post.id, 'body'),
+        createEdge(post.id, 'result', extendedOut.id, 'pageText'),
+        createEdge(dataIn.id, 'url', dataOut.id, 'url'),
+      ],
+    });
+
+    expect(compiled.ok).toBe(true);
+
+    await executeCompiledActionPackV2('https://example.com/page', compiled.pack!, {
+      ...runtime,
+      fetchRemote: async (request) => {
+        if (request.method === 'GET') {
+          return { type: 'JSON', value: '{"title":"Example","nested":{"ok":true}}' };
+        }
+        postedBody = request.body;
+        return { type: 'string', value: 'ok' };
+      },
+      writeDestination: async () => undefined,
+    }, DEFAULT_SETTINGS);
+
+    expect(postedBody).toEqual({
+      title: 'Example',
+      nested: { ok: 1 },
+      url: 'https://example.com/page',
+    });
   });
 
   it('detects workspace and action pack artifacts by header instead of extension', async () => {
@@ -934,6 +1132,78 @@ describe('v2 workspace compiler and VM', () => {
     expect(Array.from(usedBlockKinds).sort()).toEqual((Object.keys(BLOCK_TYPE_IDS) as BlockKind[]).sort());
     expect(Array.from(usedActions).sort()).toEqual(['APPEND', 'PREPEND', 'REMOVE', 'SUBSTITUTE']);
     expect(Array.from(usedMatchModes).sort()).toEqual(['AFTER_PATTERN', 'BEFORE_PATTERN', 'NTH_OCCURRENCE', 'STANDARD']);
+  });
+
+  it('keeps the Snake example built from generic block and VM operation names', () => {
+    const snake = createBundledExampleWorkspaces().find((workspace) => workspace.metadata.name === 'Snake Overlay Arcade');
+    expect(snake).toBeTruthy();
+
+    const compiled = compileWorkspace(snake!);
+    expect(compiled.ok, compiled.validation.errors.join('; ')).toBe(true);
+    expect(snake!.nodes.some((node) => /snake|arcadegame/i.test(node.type))).toBe(false);
+    expect(compiled.pack!.vm.instructions.some((instruction) => /snake|arcadegame/i.test(instruction.op))).toBe(false);
+    expect(compiled.pack!.vm.eventHandlers?.trigger?.length).toBeGreaterThan(0);
+    expect(compiled.pack!.vm.eventHandlers?.keyboard?.length).toBeGreaterThan(0);
+    expect(compiled.pack!.vm.eventHandlers?.mouse?.length).toBeGreaterThan(0);
+    expect(compiled.pack!.vm.eventHandlers?.tick?.length).toBeGreaterThan(0);
+  });
+
+  it('simulates Snake gameplay through generic overlay event handlers', async () => {
+    const snake = createBundledExampleWorkspaces().find((workspace) => workspace.metadata.name === 'Snake Overlay Arcade')!;
+    const compiled = compileWorkspace(snake);
+    expect(compiled.ok, compiled.validation.errors.join('; ')).toBe(true);
+
+    const session = new Map<string, import('./types').GraphValue>();
+    const overlayEvents: string[] = [];
+    let overlayActive = false;
+    const snakeRuntime: GraphRuntime = {
+      ...runtime,
+      loadSessionValue: async (key) => session.get(key),
+      saveSessionValue: async (key, value) => {
+        session.set(key, value);
+      },
+      deleteSessionValue: async (key) => {
+        session.delete(key);
+      },
+      overlayControl: async (request) => {
+        overlayEvents.push(request.action);
+        if (request.action === 'START') {
+          overlayActive = true;
+        }
+        if (request.action === 'STOP') {
+          overlayActive = false;
+        }
+        return { type: 'dict', value: { ok: { type: 'bool', value: 1 }, active: { type: 'bool', value: overlayActive ? 1 : 0 } } };
+      },
+      overlayDraw: async () => ({ type: 'dict', value: { ok: { type: 'bool', value: 1 }, active: { type: 'bool', value: 1 } } }),
+    };
+
+    await executeCompiledActionPackV2('https://example.com/', compiled.pack!, snakeRuntime, DEFAULT_SETTINGS, {
+      handler: 'trigger',
+      event: { kind: 'trigger', hotkey: 'Ctrl+Shift+S', url: 'https://example.com/' },
+    });
+    expect(overlayEvents).toContain('START');
+    expect(session.get('snake:direction')).toEqual({ type: 'string', value: 'ArrowRight' });
+
+    for (let tick = 1; tick <= 6; tick += 1) {
+      await executeCompiledActionPackV2('https://example.com/', compiled.pack!, snakeRuntime, DEFAULT_SETTINGS, {
+        handler: 'tick',
+        event: { kind: 'tick', tick, deltaMs: 135 },
+      });
+    }
+    expect(session.get('snake:score')).toEqual({ type: 'number', value: 1 });
+
+    await executeCompiledActionPackV2('https://example.com/', compiled.pack!, snakeRuntime, DEFAULT_SETTINGS, {
+      handler: 'mouse',
+      event: { kind: 'mouse', eventType: 'pointerdown', button: 0, buttons: 1, x: 16, y: 16 },
+    });
+    expect(session.get('snake:paused')).toEqual({ type: 'number', value: 1 });
+
+    await executeCompiledActionPackV2('https://example.com/', compiled.pack!, snakeRuntime, DEFAULT_SETTINGS, {
+      handler: 'keyboard',
+      event: { kind: 'keyboard', eventType: 'keydown', key: 'Escape', code: 'Escape', keyCode: 27 },
+    });
+    expect(overlayEvents).toContain('STOP');
   });
 
   it('round-trips generated bundled workspace and action pack artifacts', async () => {

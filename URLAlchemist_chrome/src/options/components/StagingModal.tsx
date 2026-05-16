@@ -1,5 +1,6 @@
 import type { CompiledActionPackV2 } from '../../shared/v2/types';
 import { explainInstruction, explainRiskReason, summarizePackBehavior } from '../../shared/v2/explain';
+import { HelpTooltip } from './HelpTooltip';
 
 interface StagingModalProps {
   checksumHex?: string;
@@ -85,7 +86,7 @@ export function StagingModal({
             <p className="eyebrow">Staging Area</p>
             <h2 className="text-3xl font-semibold tracking-tight text-slate-900">Inspect Action Pack</h2>
             <p className="mt-2 max-w-2xl text-sm text-slate-600">
-              The pack is staged in memory only. Review the plain-language steps before installing it.
+              The pack is staged in memory only. Review the plain-language steps before installing it. <HelpTooltip label="Staged import" text="Staged packs are not saved until Confirm Import succeeds." />
             </p>
           </div>
           <button className="ghost-button" type="button" onClick={onClose}>
@@ -149,7 +150,10 @@ export function StagingModal({
                 <dd>{pack.vm.instructions.length}</dd>
               </div>
               <div className="info-chip sm:col-span-2">
-                <dt className="font-semibold text-slate-900">Input Filters</dt>
+                <dt className="flex items-center gap-2 font-semibold text-slate-900">
+                  Input Filters
+                  <HelpTooltip label="Input filters" text="Filters decide which input sources are allowed to trigger this pack." />
+                </dt>
                 <dd className="break-all">{pack.triggerPlan.sourceFilters.map((filter) => `${filter.source}: ${filter.pattern}`).join(', ') || 'No input filters'}</dd>
               </div>
               <div className="info-chip sm:col-span-2">
@@ -171,7 +175,10 @@ export function StagingModal({
 
             {checksumHex ? (
               <div className="mt-5 rounded-2xl border border-slate-200 bg-white/80 px-4 py-3">
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Checksum</p>
+                <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                  Checksum
+                  <HelpTooltip label="Checksum" text="The checksum proves file integrity, not safety. The staged validator still checks every compiled instruction." />
+                </p>
                 <p className="mt-2 break-all font-mono text-xs text-slate-700">{checksumHex}</p>
               </div>
             ) : null}
@@ -180,36 +187,48 @@ export function StagingModal({
           <section className="panel-shell">
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-teal-700">Interactive Sandbox</p>
             <div className="mt-4 space-y-4">
-              <label className="field-shell">
-                <span className="field-label">Test URL</span>
+              <div className="field-shell">
+                <span className="field-label flex items-center gap-2">
+                  Test URL
+                  <HelpTooltip label="Test URL" text="Runs this pack in memory against a sample URL without installing it." />
+                </span>
                 <input
+                  aria-label="Test URL"
                   className="field-input"
                   placeholder="https://example.com/?utm_source=newsletter"
                   value={sandboxInput}
                   onChange={(event) => onSandboxInputChange(event.target.value)}
                 />
-              </label>
+              </div>
 
-              <label className="field-shell">
-                <span className="field-label">Result</span>
+              <div className="field-shell">
+                <span className="field-label flex items-center gap-2">
+                  Result
+                  <HelpTooltip label="Sandbox result" text="Shows the in-memory output or the validation/runtime error from the sandbox run." />
+                </span>
                 <textarea
+                  aria-label="Result"
                   className="field-textarea min-h-28"
                   placeholder="Run the pack in-memory by entering a test URL."
                   readOnly
                   value={sandboxError ? sandboxError : sandboxOutput}
                 />
-              </label>
+              </div>
             </div>
 
-            <label className="mt-4 flex items-center gap-3 rounded-2xl border border-slate-200 bg-white/75 px-4 py-3 text-sm text-slate-700">
+            <div className="mt-4 flex items-center gap-3 rounded-2xl border border-slate-200 bg-white/75 px-4 py-3 text-sm text-slate-700">
               <input
+                aria-label="Review acknowledged"
                 checked={reviewAcknowledged}
                 className="h-4 w-4 accent-amber-600"
                 type="checkbox"
                 onChange={(event) => onReviewAcknowledgedChange(event.target.checked)}
               />
-              I have reviewed this logic and understand what it does.
-            </label>
+              <span className="flex items-center gap-2">
+                I have reviewed this logic and understand what it does.
+                <HelpTooltip label="Review acknowledgment" text="This unlocks import only after you manually accept the staged behavior, or after a sandbox test has run." />
+              </span>
+            </div>
 
             {validationErrors.length > 0 ? (
               <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50/90 px-4 py-3 text-sm text-rose-700">

@@ -14,7 +14,7 @@ export interface BundledActionPackExample {
   name: string;
   slug: string;
   description: string;
-  category: 'URL cleanup' | 'Search' | 'Storage' | 'Remote data' | 'Page tools' | 'Media';
+  category: 'URL cleanup' | 'Search' | 'Storage' | 'Remote data' | 'Page tools' | 'Media' | 'Interactive';
   trigger: string;
   risk: 'safe' | 'extended' | 'high';
   features: string[];
@@ -190,6 +190,18 @@ export const BUNDLED_ACTION_PACK_EXAMPLES: BundledActionPackExample[] = [
     features: ['Hotkey launch', 'Overlay input', 'Keyboard capture', 'Mouse capture'],
     workspacePath: 'bundled-actionpacks/workspaces/overlay-input-capture.workspace',
     actionPackPath: 'bundled-actionpacks/action-packs/overlay-input-capture.actionpack',
+  },
+  {
+    id: '0f6b6d50-9d44-4a86-9d0f-80a9e8200015',
+    name: 'Snake Overlay Arcade',
+    slug: 'snake-overlay-arcade',
+    description: 'Runs a playable Snake-style overlay game from generic event, state, list, random, and draw blocks.',
+    category: 'Interactive',
+    trigger: 'HOTKEY',
+    risk: 'extended',
+    features: ['Overlay session', 'Keyboard events', 'Mouse events', 'Tick loop', 'Shared state', 'Grid drawing'],
+    workspacePath: 'bundled-actionpacks/workspaces/snake-overlay-arcade.workspace',
+    actionPackPath: 'bundled-actionpacks/action-packs/snake-overlay-arcade.actionpack',
   },
 ];
 
@@ -892,6 +904,385 @@ function overlayInputCapture(): WorkspaceFileV2 {
   );
 }
 
+function snakeOverlayArcade(): WorkspaceFileV2 {
+  const slug = 'snake-overlay-arcade';
+  const nodes: WorkspaceNodeV2[] = [];
+  const edges: ReturnType<typeof edge>[] = [];
+  const add = (key: string, type: BlockKind, x: number, y: number, settings: WorkspaceBlockSettings = {}) => {
+    const created = node(slug, key, type, { x, y }, settings);
+    nodes.push(created);
+    return created;
+  };
+  const connect = (source: WorkspaceNodeV2, sourceHandle: string, target: WorkspaceNodeV2, targetHandle: string) => {
+    edges.push(edge(source, sourceHandle, target, targetHandle));
+  };
+  const constant = (key: string, x: number, y: number, literalValue: string, literalDataType: WorkspaceBlockSettings['literalDataType'] = 'string') =>
+    add(key, 'Constant', x, y, { literalValue, literalDataType });
+  const logic = (key: string, x: number, y: number, compareValue: string, operator: WorkspaceBlockSettings['operator'] = 'EQ') =>
+    add(key, 'Logical', x, y, { compareValue, operator, booleanOutput: true });
+  const addMath = (key: string, x: number, y: number, fallbackRight = '0') =>
+    add(key, 'Math', x, y, { mathOperation: 'ADD', compareValue: fallbackRight });
+  const shared = (key: string, x: number, y: number, mode: WorkspaceBlockSettings['sharedStateMode'], fallbackKey: string, fallbackValue: string, literalDataType: WorkspaceBlockSettings['literalDataType'] = 'Any') =>
+    add(key, 'SharedState', x, y, { sharedStateMode: mode, literalValue: fallbackKey, selectFalseValue: fallbackValue, literalDataType });
+  const list = (key: string, x: number, y: number, operation: WorkspaceBlockSettings['listOperation'], fallbackList = '[]', fallbackItem = '', literalDataType: WorkspaceBlockSettings['literalDataType'] = 'Any') =>
+    add(key, 'ListOperation', x, y, { listOperation: operation, literalValue: fallbackList, selectTrueValue: fallbackItem, literalDataType });
+  const dictSet = (key: string, x: number, y: number, dictKey: string) =>
+    add(key, 'DataStructure', x, y, { dictKey });
+  const select = (key: string, x: number, y: number, trueValue = '1', falseValue = '0', literalDataType: WorkspaceBlockSettings['literalDataType'] = 'number') =>
+    add(key, 'ConditionSelect', x, y, { selectTrueValue: trueValue, selectFalseValue: falseValue, literalDataType });
+
+  const input = add('input', 'DataFlowIn', 0, 80, { locked: true });
+  const output = add('output', 'DataFlowOut', 320, 80, { locked: true });
+  connect(input, 'url', output, 'url');
+
+  const trigger = add('trigger', 'OnTriggerEvent', 0, 260);
+  const status = add('overlay-status', 'OverlayControl', 260, 240, {
+    overlayControlAction: 'STATUS',
+    overlayText: 'Snake Overlay Arcade',
+    overlayWidth: 24,
+    overlayHeight: 18,
+    overlayCellSize: 24,
+    overlayTickMs: 135,
+    overlayBackground: '#ffffff',
+  });
+  const active = add('overlay-active', 'DictGet', 520, 240, { dictKey: 'active', literalValue: '0', literalDataType: 'bool' });
+  const notActive = logic('overlay-not-active', 760, 210, '0');
+  const isActive = logic('overlay-is-active', 760, 310, '1');
+  const start = add('overlay-start', 'OverlayControl', 1010, 170, {
+    overlayControlAction: 'START',
+    overlayText: 'Snake Overlay Arcade',
+    overlayWidth: 24,
+    overlayHeight: 18,
+    overlayCellSize: 24,
+    overlayTickMs: 135,
+    overlayBackground: '#ffffff',
+  });
+  const stop = add('overlay-stop', 'OverlayControl', 1010, 330, {
+    overlayControlAction: 'STOP',
+    overlayText: 'Snake Overlay Arcade',
+  });
+  const sleepy = add('sleep-before-stop', 'Sleep', 1260, 330, { sleepMs: 1 });
+  connect(trigger, 'triggered', status, 'enabled');
+  connect(status, 'result', active, 'dict');
+  connect(active, 'result', notActive, 'input');
+  connect(active, 'result', isActive, 'input');
+  connect(notActive, 'result', start, 'enabled');
+  connect(isActive, 'result', stop, 'enabled');
+  connect(isActive, 'result', sleepy, 'enabled');
+
+  const initialBody = constant('initial-body', 1010, 520, '[{"x":8,"y":8,"color":"#16a34a"},{"x":7,"y":8,"color":"#22c55e"},{"x":6,"y":8,"color":"#22c55e"}]', 'data');
+  const initialFood = constant('initial-food', 1010, 650, '{"x":14,"y":8,"color":"#dc2626"}', 'dict');
+  const initialDirection = constant('initial-direction', 1010, 780, 'ArrowRight', 'string');
+  const initialScore = constant('initial-score', 1010, 910, '0', 'number');
+  const initialPaused = constant('initial-paused', 1010, 1040, '0', 'number');
+  const saveInitialBody = shared('save-initial-body', 1280, 520, 'SET', 'snake:body', '[]', 'data');
+  const saveInitialFood = shared('save-initial-food', 1280, 650, 'SET', 'snake:food', '{}', 'dict');
+  const saveInitialDirection = shared('save-initial-direction', 1280, 780, 'SET', 'snake:direction', 'ArrowRight', 'string');
+  const saveInitialScore = shared('save-initial-score', 1280, 910, 'SET', 'snake:score', '0', 'number');
+  const saveInitialPaused = shared('save-initial-paused', 1280, 1040, 'SET', 'snake:paused', '0', 'number');
+  const initialCells = list('initial-cells', 1540, 590, 'APPEND');
+  const initialTitle = constant('initial-title', 1540, 720, 'Snake Overlay Arcade', 'string');
+  const initialDraw = add('initial-draw', 'OverlayDraw', 1780, 620, {
+    overlayWidth: 24,
+    overlayHeight: 18,
+    overlayCellSize: 24,
+    overlayBackground: '#ffffff',
+  });
+  [
+    [initialBody, saveInitialBody],
+    [initialFood, saveInitialFood],
+    [initialDirection, saveInitialDirection],
+    [initialScore, saveInitialScore],
+    [initialPaused, saveInitialPaused],
+  ].forEach(([value, target]) => {
+    connect(value, 'value', target, 'value');
+    connect(notActive, 'result', target, 'enabled');
+  });
+  connect(initialBody, 'value', initialCells, 'list');
+  connect(initialFood, 'value', initialCells, 'item');
+  connect(initialCells, 'result', initialDraw, 'cells');
+  connect(initialTitle, 'value', initialDraw, 'text');
+  connect(notActive, 'result', initialDraw, 'enabled');
+
+  const keyboard = add('keyboard', 'KeyboardIn', 0, 1240);
+  const keyUp = logic('key-up', 260, 1090, 'ArrowUp');
+  const keyW = logic('key-w', 260, 1180, 'w');
+  const keyWUpper = logic('key-w-upper', 260, 1270, 'W');
+  const upAddA = addMath('up-add-a', 500, 1135);
+  const upAddB = addMath('up-add-b', 720, 1175);
+  const upPressed = logic('up-pressed', 940, 1175, '0', 'GT');
+  const keyDown = logic('key-down', 260, 1370, 'ArrowDown');
+  const keyS = logic('key-s', 260, 1460, 's');
+  const keySUpper = logic('key-s-upper', 260, 1550, 'S');
+  const downAddA = addMath('down-add-a', 500, 1415);
+  const downAddB = addMath('down-add-b', 720, 1455);
+  const downPressed = logic('down-pressed', 940, 1455, '0', 'GT');
+  const keyLeft = logic('key-left', 260, 1650, 'ArrowLeft');
+  const keyA = logic('key-a', 260, 1740, 'a');
+  const keyAUpper = logic('key-a-upper', 260, 1830, 'A');
+  const leftAddA = addMath('left-add-a', 500, 1695);
+  const leftAddB = addMath('left-add-b', 720, 1735);
+  const leftPressed = logic('left-pressed', 940, 1735, '0', 'GT');
+  const keyRight = logic('key-right', 260, 1930, 'ArrowRight');
+  const keyD = logic('key-d', 260, 2020, 'd');
+  const keyDUpper = logic('key-d-upper', 260, 2110, 'D');
+  const rightAddA = addMath('right-add-a', 500, 1975);
+  const rightAddB = addMath('right-add-b', 720, 2015);
+  const rightPressed = logic('right-pressed', 940, 2015, '0', 'GT');
+  const keyEscape = logic('key-escape', 260, 2210, 'Escape');
+  const keyBackspace = logic('key-backspace', 260, 2300, 'Backspace');
+  const closeAdd = addMath('close-add', 500, 2250);
+  const closePressed = logic('close-pressed', 720, 2250, '0', 'GT');
+  [
+    keyUp, keyW, keyWUpper, keyDown, keyS, keySUpper, keyLeft, keyA, keyAUpper, keyRight, keyD, keyDUpper, keyEscape, keyBackspace,
+  ].forEach((compare) => connect(keyboard, 'keyboardKey', compare, 'input'));
+  connect(keyUp, 'result', upAddA, 'left');
+  connect(keyW, 'result', upAddA, 'right');
+  connect(upAddA, 'result', upAddB, 'left');
+  connect(keyWUpper, 'result', upAddB, 'right');
+  connect(upAddB, 'result', upPressed, 'input');
+  connect(keyDown, 'result', downAddA, 'left');
+  connect(keyS, 'result', downAddA, 'right');
+  connect(downAddA, 'result', downAddB, 'left');
+  connect(keySUpper, 'result', downAddB, 'right');
+  connect(downAddB, 'result', downPressed, 'input');
+  connect(keyLeft, 'result', leftAddA, 'left');
+  connect(keyA, 'result', leftAddA, 'right');
+  connect(leftAddA, 'result', leftAddB, 'left');
+  connect(keyAUpper, 'result', leftAddB, 'right');
+  connect(leftAddB, 'result', leftPressed, 'input');
+  connect(keyRight, 'result', rightAddA, 'left');
+  connect(keyD, 'result', rightAddA, 'right');
+  connect(rightAddA, 'result', rightAddB, 'left');
+  connect(keyDUpper, 'result', rightAddB, 'right');
+  connect(rightAddB, 'result', rightPressed, 'input');
+  connect(keyEscape, 'result', closeAdd, 'left');
+  connect(keyBackspace, 'result', closeAdd, 'right');
+  connect(closeAdd, 'result', closePressed, 'input');
+  const dirUp = constant('dir-up', 1180, 1160, 'ArrowUp', 'string');
+  const dirDown = constant('dir-down', 1180, 1440, 'ArrowDown', 'string');
+  const dirLeft = constant('dir-left', 1180, 1720, 'ArrowLeft', 'string');
+  const dirRight = constant('dir-right', 1180, 2000, 'ArrowRight', 'string');
+  const saveDirUp = shared('save-dir-up', 1420, 1160, 'SET', 'snake:direction', 'ArrowUp', 'string');
+  const saveDirDown = shared('save-dir-down', 1420, 1440, 'SET', 'snake:direction', 'ArrowDown', 'string');
+  const saveDirLeft = shared('save-dir-left', 1420, 1720, 'SET', 'snake:direction', 'ArrowLeft', 'string');
+  const saveDirRight = shared('save-dir-right', 1420, 2000, 'SET', 'snake:direction', 'ArrowRight', 'string');
+  [
+    [dirUp, upPressed, saveDirUp],
+    [dirDown, downPressed, saveDirDown],
+    [dirLeft, leftPressed, saveDirLeft],
+    [dirRight, rightPressed, saveDirRight],
+  ].forEach(([value, enabled, target]) => {
+    connect(value, 'value', target, 'value');
+    connect(enabled, 'result', target, 'enabled');
+  });
+  const closeOverlay = add('keyboard-close-overlay', 'OverlayControl', 1180, 2250, { overlayControlAction: 'STOP', overlayText: 'Snake Overlay Arcade' });
+  connect(closePressed, 'result', closeOverlay, 'enabled');
+
+  const mouse = add('mouse', 'MouseIn', 0, 2460);
+  const mouseDown = logic('mouse-down', 260, 2420, 'pointerdown');
+  const mouseLeft = logic('mouse-left', 260, 2530, '0');
+  const mouseAdd = addMath('mouse-add', 500, 2480);
+  const leftClick = logic('left-click', 720, 2480, '1', 'GT');
+  const loadPausedForMouse = shared('load-paused-mouse', 940, 2450, 'GET', 'snake:paused', '0', 'number');
+  const pausedIsOff = logic('paused-is-off', 1180, 2450, '0');
+  const pauseOn = constant('pause-on', 1180, 2570, '1', 'number');
+  const pauseOff = constant('pause-off', 1180, 2670, '0', 'number');
+  const pauseNext = select('pause-next', 1420, 2550);
+  const savePaused = shared('save-paused', 1660, 2550, 'SET', 'snake:paused', '0', 'number');
+  connect(mouse, 'mouseKind', mouseDown, 'input');
+  connect(mouse, 'mouseButton', mouseLeft, 'input');
+  connect(mouseDown, 'result', mouseAdd, 'left');
+  connect(mouseLeft, 'result', mouseAdd, 'right');
+  connect(mouseAdd, 'result', leftClick, 'input');
+  connect(loadPausedForMouse, 'result', pausedIsOff, 'input');
+  connect(pausedIsOff, 'result', pauseNext, 'condition');
+  connect(pauseOn, 'value', pauseNext, 'trueValue');
+  connect(pauseOff, 'value', pauseNext, 'falseValue');
+  connect(pauseNext, 'result', savePaused, 'value');
+  connect(leftClick, 'result', savePaused, 'enabled');
+
+  const tick = add('tick', 'OverlayTickIn', 0, 2900);
+  const tickReady = logic('tick-ready', 240, 2900, '0', 'GTE');
+  connect(tick, 'tick', tickReady, 'input');
+  const loadAlive = shared('load-alive', 240, 3040, 'GET', 'snake:alive', '1', 'number');
+  const loadPaused = shared('load-paused', 240, 3160, 'GET', 'snake:paused', '0', 'number');
+  const loadBody = shared('load-body', 240, 3280, 'GET', 'snake:body', '[{"x":8,"y":8,"color":"#16a34a"},{"x":7,"y":8,"color":"#22c55e"},{"x":6,"y":8,"color":"#22c55e"}]', 'data');
+  const loadDirection = shared('load-direction', 240, 3400, 'GET', 'snake:direction', 'ArrowRight', 'string');
+  const loadFood = shared('load-food', 240, 3520, 'GET', 'snake:food', '{"x":14,"y":8,"color":"#dc2626"}', 'dict');
+  const loadScore = shared('load-score', 240, 3640, 'GET', 'snake:score', '0', 'number');
+  const alive = logic('alive', 500, 3040, '1');
+  const notPausedTick = logic('not-paused-tick', 500, 3160, '0');
+  const canMoveAdd = addMath('can-move-add', 740, 3090);
+  const canMoveBase = logic('can-move-base', 960, 3090, '1', 'GT');
+  const canMoveTickAdd = addMath('can-move-tick-add', 1180, 3090);
+  const canMove = logic('can-move', 1400, 3090, '1', 'GT');
+  connect(loadAlive, 'result', alive, 'input');
+  connect(loadPaused, 'result', notPausedTick, 'input');
+  connect(alive, 'result', canMoveAdd, 'left');
+  connect(notPausedTick, 'result', canMoveAdd, 'right');
+  connect(canMoveAdd, 'result', canMoveBase, 'input');
+  connect(canMoveBase, 'result', canMoveTickAdd, 'left');
+  connect(tickReady, 'result', canMoveTickAdd, 'right');
+  connect(canMoveTickAdd, 'result', canMove, 'input');
+
+  const head = list('head', 500, 3300, 'GET');
+  const headX = add('head-x', 'DictGet', 740, 3260, { dictKey: 'x', literalValue: '8', literalDataType: 'number' });
+  const headY = add('head-y', 'DictGet', 740, 3360, { dictKey: 'y', literalValue: '8', literalDataType: 'number' });
+  connect(loadBody, 'result', head, 'list');
+  connect(head, 'result', headX, 'dict');
+  connect(head, 'result', headY, 'dict');
+  const dirRightCheck = logic('dir-right-check', 500, 3800, 'ArrowRight');
+  const dirLeftCheck = logic('dir-left-check', 500, 3900, 'ArrowLeft');
+  const dirUpCheck = logic('dir-up-check', 500, 4000, 'ArrowUp');
+  const dirDownCheck = logic('dir-down-check', 500, 4100, 'ArrowDown');
+  [dirRightCheck, dirLeftCheck, dirUpCheck, dirDownCheck].forEach((compare) => connect(loadDirection, 'result', compare, 'input'));
+  const dxPositive = select('dx-positive', 740, 3800, '1', '0', 'number');
+  const dxNegative = select('dx-negative', 740, 3900, '-1', '0', 'number');
+  const dx = addMath('dx', 960, 3850);
+  const dyNegative = select('dy-negative', 740, 4000, '-1', '0', 'number');
+  const dyPositive = select('dy-positive', 740, 4100, '1', '0', 'number');
+  const dy = addMath('dy', 960, 4050);
+  connect(dirRightCheck, 'result', dxPositive, 'condition');
+  connect(dirLeftCheck, 'result', dxNegative, 'condition');
+  connect(dxPositive, 'result', dx, 'left');
+  connect(dxNegative, 'result', dx, 'right');
+  connect(dirUpCheck, 'result', dyNegative, 'condition');
+  connect(dirDownCheck, 'result', dyPositive, 'condition');
+  connect(dyNegative, 'result', dy, 'left');
+  connect(dyPositive, 'result', dy, 'right');
+  const newX = addMath('new-x', 1180, 3260);
+  const newY = addMath('new-y', 1180, 3360);
+  connect(headX, 'result', newX, 'left');
+  connect(dx, 'result', newX, 'right');
+  connect(headY, 'result', newY, 'left');
+  connect(dy, 'result', newY, 'right');
+  const emptyHead = constant('empty-head', 1180, 3480, '{}', 'dict');
+  const snakeGreen = constant('snake-green', 1180, 3580, '#16a34a', 'string');
+  const newHeadX = dictSet('new-head-x', 1420, 3260, 'x');
+  const newHeadY = dictSet('new-head-y', 1660, 3300, 'y');
+  const newHead = dictSet('new-head-color', 1900, 3340, 'color');
+  connect(emptyHead, 'value', newHeadX, 'dict');
+  connect(newX, 'result', newHeadX, 'value');
+  connect(newHeadX, 'result', newHeadY, 'dict');
+  connect(newY, 'result', newHeadY, 'value');
+  connect(newHeadY, 'result', newHead, 'dict');
+  connect(snakeGreen, 'value', newHead, 'value');
+
+  const wallLeft = logic('wall-left', 1420, 3680, '0', 'LT');
+  const wallRight = logic('wall-right', 1420, 3780, '24', 'GTE');
+  const wallTop = logic('wall-top', 1420, 3880, '0', 'LT');
+  const wallBottom = logic('wall-bottom', 1420, 3980, '18', 'GTE');
+  connect(newX, 'result', wallLeft, 'input');
+  connect(newX, 'result', wallRight, 'input');
+  connect(newY, 'result', wallTop, 'input');
+  connect(newY, 'result', wallBottom, 'input');
+  const wallX = addMath('wall-x', 1660, 3720);
+  const wallY = addMath('wall-y', 1660, 3920);
+  const wallAll = addMath('wall-all', 1900, 3820);
+  const wallCollision = logic('wall-collision', 2140, 3820, '0', 'GT');
+  connect(wallLeft, 'result', wallX, 'left');
+  connect(wallRight, 'result', wallX, 'right');
+  connect(wallTop, 'result', wallY, 'left');
+  connect(wallBottom, 'result', wallY, 'right');
+  connect(wallX, 'result', wallAll, 'left');
+  connect(wallY, 'result', wallAll, 'right');
+  connect(wallAll, 'result', wallCollision, 'input');
+  const selfCollision = list('self-collision', 2140, 3520, 'CONTAINS_POINT');
+  connect(loadBody, 'result', selfCollision, 'list');
+  connect(newHead, 'result', selfCollision, 'item');
+  const collisionAdd = addMath('collision-add', 2380, 3660);
+  const collision = logic('collision', 2620, 3660, '0', 'GT');
+  const aliveNext = logic('alive-next', 2860, 3660, '0');
+  connect(wallCollision, 'result', collisionAdd, 'left');
+  connect(selfCollision, 'result', collisionAdd, 'right');
+  connect(collisionAdd, 'result', collision, 'input');
+  connect(collision, 'result', aliveNext, 'input');
+
+  const oneFood = list('one-food', 2140, 4100, 'APPEND');
+  const foodHit = list('food-hit', 2380, 4100, 'CONTAINS_POINT');
+  connect(loadFood, 'result', oneFood, 'item');
+  connect(oneFood, 'result', foodHit, 'list');
+  connect(newHead, 'result', foodHit, 'item');
+  const grown = list('grown-body', 2380, 3280, 'PREPEND');
+  const moved = list('moved-body', 2620, 3280, 'DROP_LAST');
+  const bodyCandidate = select('body-candidate', 2860, 3280, '[]', '[]', 'data');
+  const bodyNext = select('body-next', 3100, 3280, '[]', '[]', 'data');
+  connect(loadBody, 'result', grown, 'list');
+  connect(newHead, 'result', grown, 'item');
+  connect(grown, 'result', moved, 'list');
+  connect(foodHit, 'result', bodyCandidate, 'condition');
+  connect(grown, 'result', bodyCandidate, 'trueValue');
+  connect(moved, 'result', bodyCandidate, 'falseValue');
+  connect(aliveNext, 'result', bodyNext, 'condition');
+  connect(bodyCandidate, 'result', bodyNext, 'trueValue');
+  connect(loadBody, 'result', bodyNext, 'falseValue');
+
+  const foodRandomX = add('food-random-x', 'RandomNumber', 2620, 4240, { randomMin: 1, randomMax: 22 });
+  const foodRandomY = add('food-random-y', 'RandomNumber', 2620, 4360, { randomMin: 1, randomMax: 16 });
+  const emptyFood = constant('empty-food', 2620, 4480, '{}', 'dict');
+  const foodRed = constant('food-red', 2620, 4600, '#dc2626', 'string');
+  const randFoodX = dictSet('rand-food-x', 2860, 4240, 'x');
+  const randFoodY = dictSet('rand-food-y', 3100, 4280, 'y');
+  const randFood = dictSet('rand-food-color', 3340, 4320, 'color');
+  const foodNext = select('food-next', 3580, 4240, '{}', '{}', 'dict');
+  connect(emptyFood, 'value', randFoodX, 'dict');
+  connect(foodRandomX, 'result', randFoodX, 'value');
+  connect(randFoodX, 'result', randFoodY, 'dict');
+  connect(foodRandomY, 'result', randFoodY, 'value');
+  connect(randFoodY, 'result', randFood, 'dict');
+  connect(foodRed, 'value', randFood, 'value');
+  connect(foodHit, 'result', foodNext, 'condition');
+  connect(randFood, 'result', foodNext, 'trueValue');
+  connect(loadFood, 'result', foodNext, 'falseValue');
+
+  const scorePlus = addMath('score-plus', 2860, 3900, '1');
+  const scoreNext = select('score-next', 3100, 3900, '0', '0', 'number');
+  const scoreText = add('score-text', 'Convert', 3340, 3900, { convertMode: 'NUMBER_TO_STRING', convertOrd: true });
+  connect(loadScore, 'result', scorePlus, 'left');
+  connect(foodHit, 'result', scoreNext, 'condition');
+  connect(scorePlus, 'result', scoreNext, 'trueValue');
+  connect(loadScore, 'result', scoreNext, 'falseValue');
+  connect(scoreNext, 'result', scoreText, 'input');
+
+  const saveAlive = shared('save-alive', 3340, 3500, 'SET', 'snake:alive', '1', 'number');
+  const saveBody = shared('save-body', 3340, 3620, 'SET', 'snake:body', '[]', 'data');
+  const saveFood = shared('save-food', 3820, 4240, 'SET', 'snake:food', '{}', 'dict');
+  const saveScore = shared('save-score', 3580, 3900, 'SET', 'snake:score', '0', 'number');
+  connect(aliveNext, 'result', saveAlive, 'value');
+  connect(canMove, 'result', saveAlive, 'enabled');
+  connect(bodyNext, 'result', saveBody, 'value');
+  connect(canMove, 'result', saveBody, 'enabled');
+  connect(foodNext, 'result', saveFood, 'value');
+  connect(canMove, 'result', saveFood, 'enabled');
+  connect(scoreNext, 'result', saveScore, 'value');
+  connect(canMove, 'result', saveScore, 'enabled');
+  const cells = list('draw-cells', 3820, 3440, 'APPEND');
+  const draw = add('tick-draw', 'OverlayDraw', 4060, 3520, {
+    overlayWidth: 24,
+    overlayHeight: 18,
+    overlayCellSize: 24,
+    overlayBackground: '#ffffff',
+  });
+  connect(bodyNext, 'result', cells, 'list');
+  connect(foodNext, 'result', cells, 'item');
+  connect(cells, 'result', draw, 'cells');
+  connect(scoreText, 'result', draw, 'text');
+  connect(canMove, 'result', draw, 'enabled');
+
+  return baseWorkspace(
+    getExample(slug),
+    nodes,
+    edges,
+    {
+      type: 'HOTKEY',
+      hotkey: 'Ctrl+Shift+S',
+      inputSources: ['url'],
+      sourceFilters: [{ source: 'url', pattern: '^https?://' }],
+    },
+  );
+}
+
 export function createBundledExampleWorkspaces(): WorkspaceFileV2[] {
   return [
     cleanCampaignLinks(),
@@ -908,6 +1299,7 @@ export function createBundledExampleWorkspaces(): WorkspaceFileV2[] {
     screenTime(),
     playbackResume(),
     overlayInputCapture(),
+    snakeOverlayArcade(),
   ];
 }
 

@@ -2,7 +2,7 @@ import { getDefaultHotkey } from '../hotkeys';
 import type { ActionPack } from '../types';
 import { BLOCK_REGISTRY, getBlockDefinition } from './blockRegistry';
 import type { BlockKind, WorkspaceEdgeV2, WorkspaceFileV2, WorkspaceNodeV2, WorkspaceTrigger } from './types';
-import { BLOCK_TYPE_IDS, LEGACY_WORKSPACE_SCHEMA_VERSION, WORKSPACE_SCHEMA_VERSION } from './types';
+import { BLOCK_TYPE_IDS, SUPPORTED_WORKSPACE_SCHEMA_VERSIONS, WORKSPACE_SCHEMA_VERSION } from './types';
 
 function createNodeId(kind: BlockKind): string {
   return `${BLOCK_TYPE_IDS[kind]}-${crypto.randomUUID()}`;
@@ -151,7 +151,7 @@ export function validateWorkspaceFile(value: unknown): { ok: true; value: Worksp
     errors.push('Workspace kind is invalid');
   }
 
-  if (![WORKSPACE_SCHEMA_VERSION, LEGACY_WORKSPACE_SCHEMA_VERSION].includes(candidate.schemaVersion)) {
+  if (!(SUPPORTED_WORKSPACE_SCHEMA_VERSIONS as readonly number[]).includes(candidate.schemaVersion)) {
     errors.push(`Unsupported workspace schema version: ${String(candidate.schemaVersion)}`);
   }
 

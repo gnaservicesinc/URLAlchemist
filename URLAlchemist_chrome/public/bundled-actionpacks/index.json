@@ -229,6 +229,25 @@
       ],
       "workspacePath": "bundled-actionpacks/workspaces/overlay-input-capture.workspace",
       "actionPackPath": "bundled-actionpacks/action-packs/overlay-input-capture.actionpack"
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200015",
+      "name": "Snake Overlay Arcade",
+      "slug": "snake-overlay-arcade",
+      "description": "Runs a playable Snake-style overlay game from generic event, state, list, random, and draw blocks.",
+      "category": "Interactive",
+      "trigger": "HOTKEY",
+      "risk": "extended",
+      "features": [
+        "Overlay session",
+        "Keyboard events",
+        "Mouse events",
+        "Tick loop",
+        "Shared state",
+        "Grid drawing"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/snake-overlay-arcade.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/snake-overlay-arcade.actionpack"
     }
   ]
 }

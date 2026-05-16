@@ -3,7 +3,8 @@ import { effectiveVmInstructionLimit } from '../hardening';
 import type { EngineIssue, GlobalSettings } from '../types';
 import type { EngineRuntime } from '../engine/runtime';
 import { validateRemoteUrl } from './remoteUrl';
-import type { AssetRef, CompiledActionPackV2, GraphValue, GraphVmInstruction } from './types';
+import { readLimitedResponseBytes } from './remoteBytes';
+import type { AssetRef, CompiledActionPackV2, GraphEventHandler, GraphValue, GraphVmInstruction, OverlayRuntimeEvent } from './types';
 
 export interface RemoteRequest {
   url: string;
@@ -41,16 +42,44 @@ export interface DisplayRequest {
   captureMouse?: boolean;
 }
 
+export interface OverlayControlRequest {
+  action: Extract<GraphVmInstruction, { op: 'OVERLAY_CONTROL' }>['action'];
+  message: string;
+  width: number;
+  height: number;
+  cellSize: number;
+  tickMs: number;
+  background: string;
+}
+
+export interface OverlayDrawRequest {
+  cells?: GraphValue;
+  text?: GraphValue;
+  width: number;
+  height: number;
+  cellSize: number;
+  background: string;
+}
+
 export interface GraphRuntime extends EngineRuntime {
   readSource?: (source: string) => Promise<GraphValue | undefined>;
   writeDestination?: (destination: string, value: GraphValue) => Promise<void>;
   loadSessionValue?: (key: string) => Promise<GraphValue | undefined>;
   saveSessionValue?: (key: string, value: GraphValue) => Promise<void>;
+  deleteSessionValue?: (key: string) => Promise<void>;
   fetchRemote?: (request: RemoteRequest) => Promise<GraphValue>;
   resolveAsset?: (request: AssetRequest) => Promise<AssetRef>;
   requestUserInteraction?: (request: UserInteractionRequest) => Promise<GraphValue>;
   displayOverlay?: (request: DisplayRequest) => Promise<GraphValue>;
+  overlayControl?: (request: OverlayControlRequest) => Promise<GraphValue>;
+  overlayDraw?: (request: OverlayDrawRequest) => Promise<GraphValue>;
+  sleep?: (durationMs: number) => Promise<void>;
   mutatePageText?: (value: GraphValue) => Promise<void>;
+}
+
+export interface GraphExecutionOptions {
+  handler?: GraphEventHandler;
+  event?: OverlayRuntimeEvent;
 }
 
 export interface GraphExecutionResult {
@@ -152,11 +181,33 @@ function graphValueFromUnknown(value: unknown, preferredType: GraphValue['type']
     return { type: 'string', value };
   }
 
+  if (Array.isArray(value)) {
+    return { type: 'data', value };
+  }
+
   if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-    return { type: 'dict', value: value as Record<string, GraphValue> };
+    return {
+      type: 'dict',
+      value: Object.fromEntries(
+        Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
+          key,
+          graphValueFromUnknown(entry),
+        ]),
+      ),
+    };
   }
 
   return { type: preferredType, value } as GraphValue;
+}
+
+function isGraphValue(value: unknown): value is GraphValue {
+  return Boolean(
+    value &&
+    typeof value === 'object' &&
+    'type' in value &&
+    'value' in value &&
+    typeof (value as { type?: unknown }).type === 'string'
+  );
 }
 
 function dictValue(entries: Record<string, GraphValue | string | number | boolean | null | undefined>): GraphValue {
@@ -178,10 +229,18 @@ function plainValue(value: GraphValue | undefined): unknown {
     return undefined;
   }
 
+  if (!isGraphValue(value)) {
+    return value;
+  }
+
   if (value.type === 'dict' && typeof value.value === 'object' && value.value !== null) {
     return Object.fromEntries(
-      Object.entries(value.value).map(([key, entry]) => [key, plainValue(entry as GraphValue)]),
+      Object.entries(value.value).map(([key, entry]) => [key, plainValue(entry as GraphValue | undefined)]),
     );
+  }
+
+  if (value.type === 'data' && Array.isArray(value.value)) {
+    return value.value.map((entry) => plainValue(isGraphValue(entry) ? entry : graphValueFromUnknown(entry)));
   }
 
   return value.value;
@@ -194,7 +253,9 @@ function coerceRemoteValue(raw: unknown, outputDataType: GraphValue['type']): Gr
     case 'JSON':
       return { type: outputDataType, value: typeof raw === 'string' ? raw : JSON.stringify(raw) } as GraphValue;
     case 'dict':
-      return { type: 'dict', value: typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? raw as Record<string, GraphValue> : {} };
+      return typeof raw === 'object' && raw !== null && !Array.isArray(raw)
+        ? graphValueFromUnknown(raw, 'dict')
+        : { type: 'dict', value: {} };
     case 'number': {
       const numeric = Number(raw);
       return { type: 'number', value: Number.isFinite(numeric) ? Math.trunc(numeric) : 0 };
@@ -210,48 +271,6 @@ function coerceRemoteValue(raw: unknown, outputDataType: GraphValue['type']): Gr
     default:
       return { type: outputDataType, value: raw } as GraphValue;
   }
-}
-
-async function readResponseBytes(response: Response, maxBytes: number): Promise<Uint8Array> {
-  if (!response.body) {
-    const buffer = new Uint8Array(await response.arrayBuffer());
-    if (buffer.byteLength > maxBytes) {
-      throw new Error('Remote response exceeded the configured byte limit');
-    }
-
-    return buffer;
-  }
-
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-
-  try {
-    for (;;) {
-      const result = await reader.read();
-      if (result.done) {
-        break;
-      }
-
-      total += result.value.byteLength;
-      if (total > maxBytes) {
-        await reader.cancel();
-        throw new Error('Remote response exceeded the configured byte limit');
-      }
-
-      chunks.push(result.value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-
-  const output = new Uint8Array(total);
-  let offset = 0;
-  chunks.forEach((chunk) => {
-    output.set(chunk, offset);
-    offset += chunk.byteLength;
-  });
-  return output;
 }
 
 async function defaultFetchRemote(request: RemoteRequest): Promise<GraphValue> {
@@ -272,7 +291,7 @@ async function defaultFetchRemote(request: RemoteRequest): Promise<GraphValue> {
       throw new Error(`Remote request failed with HTTP ${response.status}`);
     }
 
-    const buffer = await readResponseBytes(response, request.maxBytes);
+    const buffer = await readLimitedResponseBytes(response, request.maxBytes, 'Remote response');
     const text = new TextDecoder().decode(buffer);
     const contentType = response.headers.get('content-type') ?? '';
     const raw = request.outputDataType === 'JSON' || request.outputDataType === 'dict' || contentType.includes('json')
@@ -301,7 +320,7 @@ async function defaultResolveAsset(request: AssetRequest): Promise<AssetRef> {
       throw new Error(`Remote asset request failed with HTTP ${response.status}`);
     }
 
-    const bytes = await readResponseBytes(response, request.maxBytes);
+    const bytes = await readLimitedResponseBytes(response, request.maxBytes, 'Remote asset');
     return {
       source: 'remote',
       kind: request.kind,
@@ -355,6 +374,49 @@ async function defaultDisplay(request: DisplayRequest): Promise<GraphValue> {
     reason: 'unavailable',
     error: `Display "${request.type}" is unavailable in this runtime`,
   });
+}
+
+async function defaultOverlayControl(request: OverlayControlRequest): Promise<GraphValue> {
+  return dictValue({
+    ok: false,
+    active: false,
+    action: request.action,
+    reason: 'unavailable',
+    error: 'Overlay control is unavailable in this runtime',
+  });
+}
+
+async function defaultOverlayDraw(): Promise<GraphValue> {
+  return dictValue({
+    ok: false,
+    active: false,
+    reason: 'unavailable',
+    error: 'Overlay drawing is unavailable in this runtime',
+  });
+}
+
+function truthy(value: GraphValue | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+
+  if (value.type === 'bool') {
+    return value.value === 1;
+  }
+
+  if (typeof value.value === 'number') {
+    return value.value !== 0;
+  }
+
+  if (typeof value.value === 'string') {
+    return value.value.trim() !== '' && value.value !== '0' && value.value.toLowerCase() !== 'false';
+  }
+
+  if (Array.isArray(value.value)) {
+    return value.value.length > 0;
+  }
+
+  return value.value !== null && value.value !== undefined;
 }
 
 function asString(value: GraphValue | undefined): string {
@@ -451,11 +513,47 @@ function parseVariableOrLiteral(state: VmState, raw: string): GraphValue {
   return initialized;
 }
 
-function defaultSourceValue(source: string, inputUrl: string): GraphValue {
+function eventDict(event: OverlayRuntimeEvent | undefined, inputUrl: string): GraphValue {
+  if (!event) {
+    return dictValue({ kind: 'none', url: inputUrl });
+  }
+
+  return graphValueFromUnknown({ ...event, url: 'url' in event && event.url ? event.url : inputUrl }, 'dict');
+}
+
+function defaultSourceValue(source: string, inputUrl: string, event?: OverlayRuntimeEvent): GraphValue {
   switch (source) {
     case 'url':
     case 'linkUrl':
       return { type: 'URL', value: inputUrl };
+    case 'triggered':
+      return { type: 'bool', value: event?.kind === 'trigger' ? 1 : 0 };
+    case 'event':
+      return eventDict(event, inputUrl);
+    case 'keyboardKey':
+      return { type: 'string', value: event?.kind === 'keyboard' ? event.key : '' };
+    case 'keyboardCode':
+      return { type: 'string', value: event?.kind === 'keyboard' ? event.code : '' };
+    case 'keyboardCodePoint':
+      return { type: 'number', value: event?.kind === 'keyboard' && event.key.length > 0 ? event.key.charCodeAt(0) : 0 };
+    case 'keyboardEvent':
+      return eventDict(event?.kind === 'keyboard' ? event : undefined, inputUrl);
+    case 'mouseEvent':
+      return eventDict(event?.kind === 'mouse' ? event : undefined, inputUrl);
+    case 'mouseKind':
+      return { type: 'string', value: event?.kind === 'mouse' ? event.eventType : '' };
+    case 'mouseButton':
+      return { type: 'number', value: event?.kind === 'mouse' ? event.button : 0 };
+    case 'mouseX':
+      return { type: 'number', value: event?.kind === 'mouse' ? event.x : -1 };
+    case 'mouseY':
+      return { type: 'number', value: event?.kind === 'mouse' ? event.y : -1 };
+    case 'tick':
+      return { type: 'number', value: event?.kind === 'tick' ? event.tick : 0 };
+    case 'deltaMs':
+      return { type: 'number', value: event?.kind === 'tick' ? event.deltaMs : 0 };
+    case 'tickEvent':
+      return eventDict(event?.kind === 'tick' ? event : undefined, inputUrl);
     case 'pageMetadata':
     case 'mediaData':
     case 'jsMetadata':
@@ -534,19 +632,75 @@ function numberValuesToString(values: number[], ord: boolean): string {
   return `${String.fromCharCode(...cleanupStringCodes(codes))}\0`;
 }
 
+function graphList(value: GraphValue | undefined): unknown[] {
+  if (!value) {
+    return [];
+  }
+
+  if (value.type === 'data' && Array.isArray(value.value)) {
+    return value.value;
+  }
+
+  if (Array.isArray(value.value)) {
+    return value.value;
+  }
+
+  return [];
+}
+
+function plainObject(value: unknown): Record<string, unknown> {
+  if (isGraphValue(value)) {
+    return plainObject(plainValue(value));
+  }
+
+  return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function pointPart(value: unknown, key: 'x' | 'y'): number {
+  const entry = plainObject(value)[key];
+  if (isGraphValue(entry)) {
+    return asNumber(entry);
+  }
+  const numeric = Number(entry);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function samePoint(left: unknown, right: unknown): boolean {
+  return pointPart(left, 'x') === pointPart(right, 'x') && pointPart(left, 'y') === pointPart(right, 'y');
+}
+
+function enabledValue(state: VmState, key?: string): boolean {
+  return key === undefined ? true : truthy(getValue(state, key));
+}
+
+function eventInstructions(pack: CompiledActionPackV2, handler: GraphEventHandler): GraphVmInstruction[] {
+  const handlerInstructions = pack.vm.eventHandlers?.[handler];
+  if (handlerInstructions) {
+    return handlerInstructions;
+  }
+
+  return handler === 'trigger' ? pack.vm.instructions : [];
+}
+
 async function executeInstruction(
   instruction: GraphVmInstruction,
   state: VmState,
   runtime: GraphRuntime,
   pack: CompiledActionPackV2,
   inputUrl: string,
+  event: OverlayRuntimeEvent | undefined,
 ): Promise<void> {
   switch (instruction.op) {
     case 'SOURCE': {
       const external = await runtime.readSource?.(instruction.source);
-      const value = external ?? defaultSourceValue(instruction.source, inputUrl);
+      const value = external ?? defaultSourceValue(instruction.source, inputUrl, event);
       setValue(state, instruction.output, value, pack.vm.valueByteLimit);
       trace(state, instruction, `Read ${instruction.source}`, value);
+      break;
+    }
+    case 'CONSTANT': {
+      setValue(state, instruction.output, instruction.value, pack.vm.valueByteLimit);
+      trace(state, instruction, 'Loaded constant', instruction.value);
       break;
     }
     case 'REGEX_TRANSFORM': {
@@ -658,21 +812,43 @@ async function executeInstruction(
       break;
     }
     case 'COMPARE': {
-      const left = asNumber(getValue(state, instruction.input));
-      const right = asNumber(parseVariableOrLiteral(state, instruction.compareValue));
-      const matched =
-        instruction.operator === 'LT'
-          ? left < right
-          : instruction.operator === 'LTE'
-            ? left <= right
-            : instruction.operator === 'GT'
-              ? left > right
-              : instruction.operator === 'GTE'
-                ? left >= right
-                : left === right;
+      const source = getValue(state, instruction.input);
+      const compareRaw = instruction.compareValue.trim();
+      const parsedRight = Number.parseFloat(compareRaw);
+      const compareAsNumber =
+        compareRaw.startsWith('$') ||
+        compareRaw.startsWith('_') ||
+        (compareRaw !== '' && Number.isFinite(parsedRight) && String(parsedRight) === compareRaw);
+      const matched = compareAsNumber
+        ? (() => {
+            const left = asNumber(source);
+            const right = asNumber(parseVariableOrLiteral(state, compareRaw));
+            return instruction.operator === 'LT'
+              ? left < right
+              : instruction.operator === 'LTE'
+                ? left <= right
+                : instruction.operator === 'GT'
+                  ? left > right
+                  : instruction.operator === 'GTE'
+                    ? left >= right
+                    : left === right;
+          })()
+        : (() => {
+            const left = asString(source);
+            const right = compareRaw;
+            return instruction.operator === 'LT'
+              ? left < right
+              : instruction.operator === 'LTE'
+                ? left <= right
+                : instruction.operator === 'GT'
+                  ? left > right
+                  : instruction.operator === 'GTE'
+                    ? left >= right
+                    : left === right;
+          })();
       const value: GraphValue = instruction.booleanOutput
         ? { type: 'bool', value: matched ? 1 : 0 }
-        : { type: 'number', value: matched ? left : 0 };
+        : { type: 'number', value: matched ? asNumber(source) : 0 };
       setValue(state, instruction.output, value, pack.vm.valueByteLimit);
       trace(state, instruction, 'Compared value', value);
       break;
@@ -704,7 +880,7 @@ async function executeInstruction(
           value = { type: 'JSON', value: JSON.stringify(source?.value ?? {}) };
           break;
         case 'JSON_TO_DICT':
-          value = { type: 'dict', value: JSON.parse(asString(source) || '{}') };
+          value = graphValueFromUnknown(JSON.parse(asString(source) || '{}'), 'dict');
           break;
         case 'NUMBER_TO_STRING':
           value = { type: 'string', value: numberValuesToString(numericValues(source), instruction.ord ?? true) };
@@ -788,6 +964,177 @@ async function executeInstruction(
       trace(state, instruction, `Looped ${count} time${count === 1 ? '' : 's'}`, value);
       break;
     }
+    case 'SLEEP': {
+      if (!enabledValue(state, instruction.enabled)) {
+        if (instruction.output) {
+          setValue(state, instruction.output, { type: 'bool', value: 0 }, pack.vm.valueByteLimit);
+        }
+        trace(state, instruction, 'Sleep skipped');
+        break;
+      }
+
+      const durationMs = Math.max(0, Math.min(60_000, Math.trunc(instruction.duration ? asNumber(getValue(state, instruction.duration)) : instruction.fallbackMs)));
+      await (runtime.sleep ?? ((ms) => new Promise<void>((resolve) => globalThis.setTimeout(resolve, ms))))(durationMs);
+      if (instruction.output) {
+        setValue(state, instruction.output, { type: 'bool', value: 1 }, pack.vm.valueByteLimit);
+      }
+      trace(state, instruction, `Slept ${durationMs}ms`);
+      break;
+    }
+    case 'SHARED_STATE': {
+      const key = instruction.key ? asString(getValue(state, instruction.key)) : instruction.fallbackKey;
+      if (!key) {
+        state.issues.push(issue('Shared State skipped because key is empty', instruction.nodeId));
+        break;
+      }
+
+      if (!enabledValue(state, instruction.enabled)) {
+        if (instruction.output) {
+          setValue(state, instruction.output, instruction.mode === 'EXISTS' ? { type: 'bool', value: 0 } : instruction.fallbackValue, pack.vm.valueByteLimit);
+        }
+        trace(state, instruction, `Shared State ${instruction.mode.toLowerCase()} skipped`);
+        break;
+      }
+
+      if (instruction.mode === 'SET') {
+        const value = getValue(state, instruction.value) ?? instruction.fallbackValue;
+        await runtime.saveSessionValue?.(key, value);
+        if (instruction.output) {
+          setValue(state, instruction.output, value, pack.vm.valueByteLimit);
+        }
+        trace(state, instruction, `Saved shared state ${key}`, value);
+        break;
+      }
+
+      if (instruction.mode === 'DELETE') {
+        await runtime.deleteSessionValue?.(key);
+        if (!runtime.deleteSessionValue) {
+          await runtime.saveSessionValue?.(key, { type: 'Any', value: null });
+        }
+        if (instruction.output) {
+          setValue(state, instruction.output, { type: 'bool', value: 1 }, pack.vm.valueByteLimit);
+        }
+        trace(state, instruction, `Deleted shared state ${key}`);
+        break;
+      }
+
+      const loaded = await runtime.loadSessionValue?.(key);
+      const value = instruction.mode === 'EXISTS'
+        ? { type: 'bool', value: loaded ? 1 : 0 } as GraphValue
+        : loaded ?? instruction.fallbackValue;
+      if (instruction.output) {
+        setValue(state, instruction.output, value, pack.vm.valueByteLimit);
+      }
+      trace(state, instruction, `Loaded shared state ${key}`, value);
+      break;
+    }
+    case 'DICT_GET': {
+      const source = getValue(state, instruction.dict);
+      const dict = source?.type === 'dict' ? source.value : {};
+      const key = instruction.key ? asString(getValue(state, instruction.key)) : instruction.fallbackKey;
+      const value = key && Object.prototype.hasOwnProperty.call(dict, key) ? dict[key] : instruction.fallbackValue;
+      setValue(state, instruction.output, value ?? instruction.fallbackValue, pack.vm.valueByteLimit);
+      trace(state, instruction, `Read dict key ${key}`, value ?? instruction.fallbackValue);
+      break;
+    }
+    case 'LIST_OP': {
+      const list = graphList(getValue(state, instruction.list) ?? instruction.fallbackList);
+      const item = getValue(state, instruction.item) ?? instruction.fallbackItem;
+      const index = Math.trunc(asNumber(getValue(state, instruction.index)));
+      let value: GraphValue;
+
+      switch (instruction.operation) {
+        case 'PREPEND':
+          value = { type: 'data', value: [plainValue(item), ...list] };
+          break;
+        case 'DROP_LAST':
+          value = { type: 'data', value: list.slice(0, -1) };
+          break;
+        case 'GET':
+          value = graphValueFromUnknown(list[Math.max(0, Math.min(list.length - 1, index))]);
+          break;
+        case 'LENGTH':
+          value = { type: 'number', value: list.length };
+          break;
+        case 'CONTAINS_POINT':
+          value = { type: 'bool', value: list.some((entry) => samePoint(entry, plainValue(item))) ? 1 : 0 };
+          break;
+        case 'APPEND':
+        default:
+          value = { type: 'data', value: [...list, plainValue(item)] };
+          break;
+      }
+
+      setValue(state, instruction.output, value, pack.vm.valueByteLimit);
+      trace(state, instruction, `List ${instruction.operation.toLowerCase()}`, value);
+      break;
+    }
+    case 'SELECT': {
+      const selected = truthy(getValue(state, instruction.condition))
+        ? getValue(state, instruction.trueValue) ?? instruction.fallbackTrue
+        : getValue(state, instruction.falseValue) ?? instruction.fallbackFalse;
+      setValue(state, instruction.output, selected, pack.vm.valueByteLimit);
+      trace(state, instruction, 'Selected value', selected);
+      break;
+    }
+    case 'RANDOM_INT': {
+      const min = Math.trunc(instruction.min ? asNumber(getValue(state, instruction.min)) : instruction.fallbackMin);
+      const max = Math.trunc(instruction.max ? asNumber(getValue(state, instruction.max)) : instruction.fallbackMax);
+      const low = Math.min(min, max);
+      const high = Math.max(min, max);
+      const value: GraphValue = { type: 'number', value: low + Math.floor(Math.random() * (high - low + 1)) };
+      setValue(state, instruction.output, value, pack.vm.valueByteLimit);
+      trace(state, instruction, 'Generated random integer', value);
+      break;
+    }
+    case 'OVERLAY_CONTROL': {
+      if (!enabledValue(state, instruction.enabled)) {
+        if (instruction.output) {
+          setValue(state, instruction.output, dictValue({ ok: true, skipped: true, active: false }), pack.vm.valueByteLimit);
+        }
+        trace(state, instruction, 'Overlay control skipped');
+        break;
+      }
+
+      const value = await (runtime.overlayControl ?? defaultOverlayControl)({
+        action: instruction.action,
+        message: instruction.message,
+        width: instruction.width,
+        height: instruction.height,
+        cellSize: instruction.cellSize,
+        tickMs: instruction.tickMs,
+        background: instruction.background,
+      });
+      if (instruction.output) {
+        setValue(state, instruction.output, value, pack.vm.valueByteLimit);
+      }
+      trace(state, instruction, `Overlay ${instruction.action.toLowerCase()}`, value);
+      break;
+    }
+    case 'OVERLAY_DRAW': {
+      if (!enabledValue(state, instruction.enabled)) {
+        if (instruction.output) {
+          setValue(state, instruction.output, dictValue({ ok: true, skipped: true }), pack.vm.valueByteLimit);
+        }
+        trace(state, instruction, 'Overlay draw skipped');
+        break;
+      }
+
+      const text = instruction.text ? getValue(state, instruction.text) : graphValueFromUnknown('');
+      const value = await (runtime.overlayDraw ?? defaultOverlayDraw)({
+        cells: getValue(state, instruction.cells),
+        text,
+        width: instruction.width,
+        height: instruction.height,
+        cellSize: instruction.cellSize,
+        background: instruction.background,
+      });
+      if (instruction.output) {
+        setValue(state, instruction.output, value, pack.vm.valueByteLimit);
+      }
+      trace(state, instruction, 'Overlay draw completed', value);
+      break;
+    }
     case 'OUTPUT': {
       const value = getValue(state, instruction.input);
       if (!value) {
@@ -815,10 +1162,17 @@ export async function executeCompiledActionPackV2(
   pack: CompiledActionPackV2,
   runtime: GraphRuntime,
   settings: GlobalSettings,
+  options: GraphExecutionOptions = {},
 ): Promise<GraphExecutionResult> {
+  const event = options.event;
+  const mouseX = event?.kind === 'mouse' ? event.x : -1;
+  const mouseY = event?.kind === 'mouse' ? event.y : -1;
   const state: VmState = {
     values: new Map(),
-    globals: new Map(),
+    globals: new Map([
+      ['$mouse_x', { type: 'number', value: mouseX }],
+      ['$mouse_y', { type: 'number', value: mouseY }],
+    ]),
     locals: new Map(),
     loopSteps: 0,
     issues: [],
@@ -839,14 +1193,15 @@ export async function executeCompiledActionPackV2(
 
   try {
     const stepBudget = effectiveVmInstructionLimit(settings, pack.vm.stepBudget);
-    for (const [index, instruction] of pack.vm.instructions.entries()) {
+    const instructions = eventInstructions(pack, options.handler ?? 'trigger');
+    for (const [index, instruction] of instructions.entries()) {
       if (index >= stepBudget) {
         state.issues.push(issue('VM step budget exceeded; pack execution was aborted'));
         break;
       }
 
       const issueCount = state.issues.length;
-      await executeInstruction(instruction, state, runtime, pack, inputUrl);
+      await executeInstruction(instruction, state, runtime, pack, inputUrl, event);
       if (state.issues.length > issueCount && pack.vm.safety.abortOnFailure) {
         break;
       }

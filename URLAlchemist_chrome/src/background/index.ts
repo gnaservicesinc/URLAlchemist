@@ -6,21 +6,100 @@ import {
   CONTENT_DISPLAY_MESSAGE,
   CONTENT_INTERACTION_MESSAGE,
   CONTENT_MUTATE_TEXT_MESSAGE,
+  CONTENT_OVERLAY_CONTROL_MESSAGE,
+  CONTENT_OVERLAY_DRAW_MESSAGE,
   CONTENT_READ_SOURCE_MESSAGE,
   isHotkeyTriggerMessage,
+  isOverlayAppEventMessage,
   type ContentGraphResponse,
   type RuntimeSourceContext,
 } from '../shared/messages';
 import { appendTraceEntry, loadStoredState } from '../shared/storage';
 import type { ActionPack, EngineIssue, GlobalSettings, TriggerType, WorkspaceTriggerType } from '../shared/types';
-import type { AssetRef, CompiledActionPackV2, GraphValue, WorkspaceInputSource } from '../shared/v2/types';
-import { executeCompiledActionPackV2, type AssetRequest, type DisplayRequest, type GraphRuntime, type UserInteractionRequest } from '../shared/v2/vm';
+import { base64FromBytes, readLimitedResponseBytes } from '../shared/v2/remoteBytes';
+import type { AssetRef, CompiledActionPackV2, GraphEventHandler, GraphValue, OverlayRuntimeEvent, WorkspaceInputSource } from '../shared/v2/types';
+import { executeCompiledActionPackV2, type AssetRequest, type DisplayRequest, type GraphRuntime, type OverlayControlRequest, type OverlayDrawRequest, type UserInteractionRequest } from '../shared/v2/vm';
 import { createOffscreenRegexExecutor, readClipboardFromOffscreen, writeClipboardFromOffscreen } from './offscreenBridge';
 
 const redirectTrail = new Map<string, { url: string; depth: number; expiresAt: number }>();
 const fallbackTriggerHistory = new Map<string, number[]>();
 const INTERVAL_ALARM_PREFIX = 'url-alchemist-interval:';
 const remoteAssetCache = new Map<string, AssetRef>();
+const fallbackOverlaySessions = new Map<string, { active: boolean; url: string; updatedAt: number }>();
+const fallbackSharedState = new Map<string, GraphValue>();
+
+function sessionStorageArea(): chrome.storage.SessionStorageArea | undefined {
+  return chrome.storage?.session;
+}
+
+function overlaySessionKey(tabId: number, packId: string): string {
+  return `url-alchemist-overlay-session:${tabId}:${packId}`;
+}
+
+function sharedStateKey(packId: string, key: string): string {
+  return `url-alchemist-v2-shared:${packId}:${key}`;
+}
+
+async function getOverlaySession(tabId: number, packId: string): Promise<{ active: boolean; url: string; updatedAt: number }> {
+  const key = overlaySessionKey(tabId, packId);
+  const sessionStorage = sessionStorageArea();
+  if (!sessionStorage) {
+    return fallbackOverlaySessions.get(key) ?? { active: false, url: '', updatedAt: 0 };
+  }
+
+  const stored = await sessionStorage.get(key);
+  const value = stored[key];
+  if (typeof value === 'object' && value !== null && 'active' in value) {
+    return value as { active: boolean; url: string; updatedAt: number };
+  }
+
+  return { active: false, url: '', updatedAt: 0 };
+}
+
+async function saveOverlaySession(tabId: number, packId: string, active: boolean, url: string): Promise<void> {
+  const key = overlaySessionKey(tabId, packId);
+  const value = { active, url, updatedAt: Date.now() };
+  const sessionStorage = sessionStorageArea();
+  if (!sessionStorage) {
+    fallbackOverlaySessions.set(key, value);
+    return;
+  }
+
+  await sessionStorage.set({ [key]: value });
+}
+
+async function loadSharedGraphValue(packId: string, key: string): Promise<GraphValue | undefined> {
+  const storageKey = sharedStateKey(packId, key);
+  const sessionStorage = sessionStorageArea();
+  if (!sessionStorage) {
+    return fallbackSharedState.get(storageKey);
+  }
+
+  const stored = await sessionStorage.get(storageKey);
+  return stored[storageKey] as GraphValue | undefined;
+}
+
+async function saveSharedGraphValue(packId: string, key: string, value: GraphValue): Promise<void> {
+  const storageKey = sharedStateKey(packId, key);
+  const sessionStorage = sessionStorageArea();
+  if (!sessionStorage) {
+    fallbackSharedState.set(storageKey, value);
+    return;
+  }
+
+  await sessionStorage.set({ [storageKey]: value });
+}
+
+async function deleteSharedGraphValue(packId: string, key: string): Promise<void> {
+  const storageKey = sharedStateKey(packId, key);
+  const sessionStorage = sessionStorageArea();
+  if (!sessionStorage) {
+    fallbackSharedState.delete(storageKey);
+    return;
+  }
+
+  await sessionStorage.remove(storageKey);
+}
 const baseRuntime: GraphRuntime = {
   regex: createOffscreenRegexExecutor(),
   readClipboard: readClipboardFromOffscreen,
@@ -51,7 +130,8 @@ async function sendContentGraphMessage(tabId: number | undefined, message: objec
 }
 
 async function resolveRemoteAsset(request: AssetRequest): Promise<AssetRef> {
-  const cached = remoteAssetCache.get(request.url);
+  const cacheKey = `${request.kind}:${request.maxBytes}:${request.url}`;
+  const cached = remoteAssetCache.get(cacheKey);
   if (cached) {
     return cached;
   }
@@ -73,18 +153,21 @@ async function resolveRemoteAsset(request: AssetRequest): Promise<AssetRef> {
       throw new Error('Remote asset exceeded the configured byte limit');
     }
 
+    const bytes = await readLimitedResponseBytes(response, request.maxBytes, 'Remote asset');
     const asset: AssetRef = {
-      source: 'remote',
+      source: 'embedded',
       kind: request.kind,
       mimeType: response.headers.get('content-type')?.split(';')[0]?.trim() || `${request.kind}/*`,
-      url: request.url,
-      sizeBytes: contentLength || undefined,
-      cacheKey: request.url,
+      name: new URL(request.url).pathname.split('/').filter(Boolean).pop(),
+      dataBase64: base64FromBytes(bytes),
+      compression: 'none',
+      sizeBytes: bytes.byteLength,
+      cacheKey,
     };
-    if (remoteAssetCache.size > 50) {
+    if (remoteAssetCache.size > 12) {
       remoteAssetCache.clear();
     }
-    remoteAssetCache.set(request.url, asset);
+    remoteAssetCache.set(cacheKey, asset);
     return asset;
   } finally {
     globalThis.clearTimeout(timeout);
@@ -124,10 +207,89 @@ async function displayWithFallback(tabId: number | undefined, request: DisplayRe
   }
 }
 
-function createRunRuntime(context: RuntimeSourceContext = {}, settings?: GlobalSettings): GraphRuntime {
+function graphDictEntry(value: GraphValue, key: string): GraphValue | undefined {
+  return value.type === 'dict' ? value.value[key] : undefined;
+}
+
+function graphBoolValue(value: GraphValue | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+
+  if (value.type === 'bool') {
+    return value.value === 1;
+  }
+
+  if (typeof value.value === 'number') {
+    return value.value !== 0;
+  }
+
+  if (typeof value.value === 'string') {
+    return value.value.trim() !== '' && value.value !== '0' && value.value.toLowerCase() !== 'false';
+  }
+
+  return Boolean(value.value);
+}
+
+async function controlOverlay(tabId: number | undefined, packId: string | undefined, url: string | undefined, request: OverlayControlRequest): Promise<GraphValue> {
+  if (tabId === undefined || tabId < 0 || !packId) {
+    throw new Error('No active tab or pack is available for overlay control');
+  }
+
+  if (request.action === 'STATUS') {
+    const session = await getOverlaySession(tabId, packId);
+    return {
+      type: 'dict',
+      value: {
+        ok: { type: 'bool', value: 1 },
+        active: { type: 'bool', value: session.active ? 1 : 0 },
+        action: { type: 'string', value: 'STATUS' },
+      },
+    };
+  }
+
+  const response = await sendContentGraphMessage(tabId, {
+    type: CONTENT_OVERLAY_CONTROL_MESSAGE,
+    requestId: crypto.randomUUID(),
+    packId,
+    request,
+  });
+  const active = graphBoolValue(graphDictEntry(response, 'active'));
+  await saveOverlaySession(tabId, packId, active, url ?? '');
+  return response;
+}
+
+async function drawOverlay(tabId: number | undefined, packId: string | undefined, request: OverlayDrawRequest): Promise<GraphValue> {
+  if (tabId === undefined || tabId < 0 || !packId) {
+    throw new Error('No active tab or pack is available for overlay drawing');
+  }
+
+  return sendContentGraphMessage(tabId, {
+    type: CONTENT_OVERLAY_DRAW_MESSAGE,
+    requestId: crypto.randomUUID(),
+    packId,
+    request,
+  });
+}
+
+function createRunRuntime(context: RuntimeSourceContext = {}, settings?: GlobalSettings, packId?: string, inputUrl?: string): GraphRuntime {
   return {
     ...baseRuntime,
     regex: createOffscreenRegexExecutor(settings ? effectiveRegexTimeoutMs(settings) : undefined),
+    loadSessionValue: async (key) => packId ? loadSharedGraphValue(packId, key) : baseRuntime.loadSessionValue?.(key),
+    saveSessionValue: async (key, value) => {
+      if (packId) {
+        await saveSharedGraphValue(packId, key, value);
+        return;
+      }
+
+      await baseRuntime.saveSessionValue?.(key, value);
+    },
+    deleteSessionValue: async (key) => {
+      if (packId) {
+        await deleteSharedGraphValue(packId, key);
+      }
+    },
     readSource: async (source) => {
       if (source === 'clipboard') {
         return { type: 'string', value: await readClipboardFromOffscreen() };
@@ -167,6 +329,9 @@ function createRunRuntime(context: RuntimeSourceContext = {}, settings?: GlobalS
       request,
     }),
     displayOverlay: async (request: DisplayRequest) => displayWithFallback(context.tabId, request),
+    overlayControl: async (request: OverlayControlRequest) => controlOverlay(context.tabId, packId, inputUrl, request),
+    overlayDraw: async (request: OverlayDrawRequest) => drawOverlay(context.tabId, packId, request),
+    sleep: (durationMs) => new Promise<void>((resolve) => globalThis.setTimeout(resolve, durationMs)),
     mutatePageText: async (value) => {
       await sendContentGraphMessage(context.tabId, {
         type: CONTENT_MUTATE_TEXT_MESSAGE,
@@ -422,6 +587,7 @@ async function applyPacksToTab(
   }
 
   for (const pack of state.actionPacksV2) {
+    const packRuntime = createRunRuntime({ ...context, tabId }, state.settings, pack.manifest.id, currentUrl);
     if (onlyPackId && pack.manifest.id !== onlyPackId) {
       continue;
     }
@@ -431,7 +597,7 @@ async function applyPacksToTab(
     }
 
     try {
-      const matchesScope = await v2ScopeMatches(pack, currentUrl, runtime);
+      const matchesScope = await v2ScopeMatches(pack, currentUrl, packRuntime);
       if (!matchesScope) {
         continue;
       }
@@ -453,7 +619,14 @@ async function applyPacksToTab(
       continue;
     }
 
-    const result = await executeCompiledActionPackV2(currentUrl, pack, runtime, state.settings);
+    const result = await executeCompiledActionPackV2(currentUrl, pack, packRuntime, state.settings, {
+      handler: 'trigger',
+      event: {
+        kind: 'trigger',
+        hotkey: triggeredHotkey,
+        url: currentUrl,
+      },
+    });
     logV2Issues(pack, result.issues);
 
     if (pack.traceEnabledUntil && pack.traceEnabledUntil > Date.now()) {
@@ -484,6 +657,71 @@ async function applyPacksToTab(
     await chrome.tabs.update(tabId, {
       url: currentUrl,
     });
+  }
+}
+
+function handlerForOverlayEvent(event: OverlayRuntimeEvent): GraphEventHandler | null {
+  switch (event.kind) {
+    case 'keyboard':
+      return 'keyboard';
+    case 'mouse':
+      return 'mouse';
+    case 'tick':
+      return 'tick';
+    case 'trigger':
+      return 'trigger';
+    case 'close':
+    default:
+      return null;
+  }
+}
+
+async function runOverlayEvent(tabId: number, url: string, packId: string, event: OverlayRuntimeEvent, context: RuntimeSourceContext = {}): Promise<void> {
+  if (event.kind === 'close') {
+    await saveOverlaySession(tabId, packId, false, url);
+    return;
+  }
+
+  const session = await getOverlaySession(tabId, packId);
+  if (!session.active) {
+    return;
+  }
+
+  const handler = handlerForOverlayEvent(event);
+  if (!handler) {
+    return;
+  }
+
+  const state = await loadStoredState();
+  if (!state.settings.globalEnabled) {
+    return;
+  }
+
+  const pack = state.actionPacksV2.find((candidate) => candidate.manifest.id === packId);
+  if (!pack || !pack.manifest.enabled) {
+    return;
+  }
+
+  const runtime = createRunRuntime({ ...context, tabId }, state.settings, pack.manifest.id, url);
+  const result = await executeCompiledActionPackV2(url, pack, runtime, state.settings, { handler, event });
+  logV2Issues(pack, result.issues);
+
+  if (pack.traceEnabledUntil && pack.traceEnabledUntil > Date.now()) {
+    await appendTraceEntry({
+      id: crypto.randomUUID(),
+      packId: pack.manifest.id,
+      packName: pack.manifest.name,
+      timestamp: Date.now(),
+      inputUrl: url,
+      outputUrl: result.finalUrl,
+      changed: result.changed,
+      entries: result.trace,
+      issues: result.issues,
+    });
+  }
+
+  if (result.changed && result.finalUrl !== url) {
+    await chrome.tabs.update(tabId, { url: result.finalUrl });
   }
 }
 
@@ -524,6 +762,31 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (isOverlayAppEventMessage(message)) {
+    const tabId = sender.tab?.id ?? message.tabId;
+    const url = sender.tab?.url || message.url;
+    if (tabId === undefined || !url) {
+      sendResponse({ handled: false });
+      return;
+    }
+
+    void runOverlayEvent(tabId, url, message.packId, message.event, {
+      tabId,
+      pageTitle: message.pageTitle ?? sender.tab?.title,
+      selectedText: message.selectedText,
+      linkUrl: message.linkUrl,
+    })
+      .then(() => {
+        sendResponse({ handled: true });
+      })
+      .catch((error) => {
+        console.warn('[URL Alchemist V2] Overlay event failed', error instanceof Error ? error.message : error);
+        sendResponse({ handled: false });
+      });
+
+    return true;
+  }
+
   if (!isHotkeyTriggerMessage(message)) {
     return;
   }

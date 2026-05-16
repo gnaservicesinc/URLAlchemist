@@ -16,8 +16,10 @@ import type {
   CompiledActionPackV2,
   CompiledTriggerPlan,
   CompiledRiskSummary,
+  GraphEventHandler,
   GraphCompileResult,
   GraphDataType,
+  GraphValue,
   GraphVmInstruction,
   GraphVmSafetyPolicy,
   RiskLevel,
@@ -44,6 +46,16 @@ const VM_STEP_BUDGET = 300;
 const VM_LOOP_BUDGET = 500;
 const VM_VALUE_BYTE_LIMIT = 256 * 1024;
 const ASSET_MAX_BYTES = 512 * 1024;
+const EVENT_HANDLERS: GraphEventHandler[] = ['trigger', 'keyboard', 'mouse', 'tick'];
+const EVENT_SOURCE_BLOCKS = new Map<BlockKind, GraphEventHandler>([
+  ['DataFlowIn', 'trigger'],
+  ['ExtendedDataIn', 'trigger'],
+  ['OnTriggerEvent', 'trigger'],
+  ['KeyboardIn', 'keyboard'],
+  ['MouseIn', 'mouse'],
+  ['OverlayTickIn', 'tick'],
+]);
+const SIDE_EFFECT_BLOCKS = new Set<BlockKind>(['OverlayControl', 'OverlayDraw', 'Sleep']);
 const WORKSPACE_INPUT_SOURCE_IDS = new Set<WorkspaceInputSource>([
   'url',
   'linkUrl',
@@ -165,38 +177,94 @@ function interactionKindForNode(type: BlockKind): UserInteractionKind {
   }
 }
 
-function collectReachableNodes(workspace: WorkspaceFileV2): Set<string> {
+function upstreamNodeIds(workspace: WorkspaceFileV2, nodeId: string): Set<string> {
   const reachable = new Set<string>();
-  const outputEdges = workspace.edges.filter((edge) => {
-    const target = findNode(workspace, edge.target);
-    return target?.type === 'DataFlowOut' || target?.type === 'ExtendedDataOut';
-  });
-  const stack = outputEdges.map((edge) => edge.source);
-  outputEdges.forEach((edge) => {
-    reachable.add(edge.target);
-  });
+  const stack = [nodeId];
 
   while (stack.length > 0) {
-    const nodeId = stack.pop()!;
-    if (reachable.has(nodeId)) {
+    const current = stack.pop()!;
+    if (reachable.has(current)) {
       continue;
     }
 
-    reachable.add(nodeId);
+    reachable.add(current);
     workspace.edges
-      .filter((edge) => edge.target === nodeId)
+      .filter((edge) => edge.target === current)
       .forEach((edge) => {
         stack.push(edge.source);
       });
   }
 
+  return reachable;
+}
+
+function handlersForNodeIds(workspace: WorkspaceFileV2, nodeIds: Set<string>): Set<GraphEventHandler> {
+  const handlers = new Set<GraphEventHandler>();
   workspace.nodes.forEach((node) => {
-    const definition = getBlockDefinition(node.type);
-    if (definition.flags.alwaysProcess || node.settings.alwaysProcess || definition.flags.processBeforeRun || node.settings.processBeforeRun) {
-      reachable.add(node.id);
+    if (!nodeIds.has(node.id)) {
+      return;
+    }
+
+    const handler = EVENT_SOURCE_BLOCKS.get(node.type);
+    if (handler) {
+      handlers.add(handler);
     }
   });
 
+  if (handlers.size === 0) {
+    handlers.add('trigger');
+  }
+
+  return handlers;
+}
+
+function isTerminalNode(node: WorkspaceNodeV2): boolean {
+  return (
+    node.type === 'DataFlowOut' ||
+    node.type === 'ExtendedDataOut' ||
+    SIDE_EFFECT_BLOCKS.has(node.type) ||
+    (node.type === 'SharedState' && ['SET', 'DELETE'].includes(node.settings.sharedStateMode ?? 'GET'))
+  );
+}
+
+function collectHandlerReachability(workspace: WorkspaceFileV2): Record<GraphEventHandler, Set<string>> {
+  const reachable: Record<GraphEventHandler, Set<string>> = {
+    trigger: new Set<string>(),
+    keyboard: new Set<string>(),
+    mouse: new Set<string>(),
+    tick: new Set<string>(),
+  };
+  const terminals = workspace.nodes.filter(isTerminalNode);
+
+  terminals.forEach((terminal) => {
+    const upstream = upstreamNodeIds(workspace, terminal.id);
+    handlersForNodeIds(workspace, upstream).forEach((handler) => {
+      upstream.forEach((nodeId) => reachable[handler].add(nodeId));
+    });
+  });
+
+  workspace.nodes.forEach((node) => {
+    const definition = getBlockDefinition(node.type);
+    if (!(definition.flags.alwaysProcess || node.settings.alwaysProcess || definition.flags.processBeforeRun || node.settings.processBeforeRun)) {
+      return;
+    }
+
+    const activeHandlers = EVENT_HANDLERS.filter((handler) => reachable[handler].size > 0);
+    const targetHandlers: GraphEventHandler[] = activeHandlers.length > 0 ? activeHandlers : ['trigger'];
+    targetHandlers.forEach((handler) => {
+      reachable[handler].add(node.id);
+    });
+  });
+
+  return reachable;
+}
+
+function collectReachableNodes(workspace: WorkspaceFileV2): Set<string> {
+  const byHandler = collectHandlerReachability(workspace);
+  const reachable = new Set<string>();
+  EVENT_HANDLERS.forEach((handler) => {
+    byHandler[handler].forEach((nodeId) => reachable.add(nodeId));
+  });
   return reachable;
 }
 
@@ -506,6 +574,87 @@ function isGlobalScope(scopeRegex?: string): boolean {
   return GLOBAL_SCOPE_PATTERNS.has((scopeRegex ?? '').trim());
 }
 
+function graphValueFromPlain(value: unknown, preferredType: GraphDataType = 'Any'): GraphValue {
+  if (typeof value === 'boolean') {
+    return { type: 'bool', value: value ? 1 : 0 };
+  }
+
+  if (typeof value === 'number') {
+    return Number.isInteger(value) ? { type: 'number', value } : { type: 'floatingPoint', value };
+  }
+
+  if (typeof value === 'string') {
+    if (preferredType === 'URL') {
+      return { type: 'URL', value };
+    }
+
+    if (preferredType === 'JSON') {
+      return { type: 'JSON', value };
+    }
+
+    return { type: 'string', value };
+  }
+
+  if (Array.isArray(value)) {
+    return { type: 'data', value };
+  }
+
+  if (typeof value === 'object' && value !== null) {
+    return {
+      type: 'dict',
+      value: Object.fromEntries(
+        Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
+          key,
+          graphValueFromPlain(entry),
+        ]),
+      ),
+    };
+  }
+
+  return { type: preferredType, value } as GraphValue;
+}
+
+function literalGraphValue(raw: string | undefined, dataType: GraphDataType = 'string'): GraphValue {
+  const value = raw ?? '';
+  switch (dataType) {
+    case 'bool':
+      return { type: 'bool', value: value.trim() === '1' || value.trim().toLowerCase() === 'true' ? 1 : 0 };
+    case 'number': {
+      const numeric = Number.parseFloat(value);
+      return { type: 'number', value: Number.isFinite(numeric) ? Math.trunc(numeric) : 0 };
+    }
+    case 'floatingPoint': {
+      const numeric = Number.parseFloat(value);
+      return { type: 'floatingPoint', value: Number.isFinite(numeric) ? numeric : 0 };
+    }
+    case 'URL':
+      return { type: 'URL', value };
+    case 'JSON':
+      return { type: 'JSON', value };
+    case 'dict':
+    case 'data':
+    case 'Any':
+      try {
+        const parsed = JSON.parse(value || (dataType === 'data' ? '[]' : '{}'));
+        const graphValue = graphValueFromPlain(parsed, dataType);
+        if (dataType === 'dict' && graphValue.type !== 'dict') {
+          return { type: 'dict', value: {} };
+        }
+        if (dataType === 'data' && graphValue.type !== 'data') {
+          return { type: 'data', value: parsed };
+        }
+        return graphValue;
+      } catch {
+        return dataType === 'data' ? { type: 'data', value: [] } : dataType === 'dict' ? { type: 'dict', value: {} } : { type: 'Any', value };
+      }
+    case 'asset':
+      return { type: 'asset', value: { source: 'embedded', kind: 'unknown', mimeType: '' } };
+    case 'string':
+    default:
+      return { type: 'string', value };
+  }
+}
+
 function instructionForNode(
   node: WorkspaceNodeV2,
   workspace: WorkspaceFileV2,
@@ -515,7 +664,11 @@ function instructionForNode(
 
   switch (node.type) {
     case 'DataFlowIn':
-    case 'ExtendedDataIn': {
+    case 'ExtendedDataIn':
+    case 'OnTriggerEvent':
+    case 'KeyboardIn':
+    case 'MouseIn':
+    case 'OverlayTickIn': {
       const definition = getBlockDefinition(node.type);
       definition.outputs.forEach((output) => {
         instructions.push({
@@ -658,6 +811,113 @@ function instructionForNode(
         timeoutMs: node.settings.displayTimeoutMs,
         captureKeyboard: node.settings.captureKeyboard ?? true,
         captureMouse: node.settings.captureMouse ?? true,
+      });
+      break;
+    case 'Constant':
+      instructions.push({
+        op: 'CONSTANT',
+        nodeId: node.id,
+        output: symbol(node.id, 'value'),
+        value: literalGraphValue(node.settings.literalValue, node.settings.literalDataType ?? 'string'),
+      });
+      break;
+    case 'Sleep':
+      instructions.push({
+        op: 'SLEEP',
+        nodeId: node.id,
+        duration: connectedInput(edgesByTarget, node.id, 'duration'),
+        enabled: connectedInput(edgesByTarget, node.id, 'enabled'),
+        output: symbol(node.id, 'result'),
+        fallbackMs: Math.max(0, Math.min(60_000, Math.trunc(node.settings.sleepMs ?? 0))),
+      });
+      break;
+    case 'SharedState':
+      instructions.push({
+        op: 'SHARED_STATE',
+        nodeId: node.id,
+        key: connectedInput(edgesByTarget, node.id, 'key'),
+        value: connectedInput(edgesByTarget, node.id, 'value'),
+        enabled: connectedInput(edgesByTarget, node.id, 'enabled'),
+        output: symbol(node.id, 'result'),
+        mode: node.settings.sharedStateMode ?? 'GET',
+        fallbackKey: node.settings.literalValue ?? '',
+        fallbackValue: literalGraphValue(node.settings.selectFalseValue ?? node.settings.literalValue, node.settings.literalDataType ?? 'Any'),
+      });
+      break;
+    case 'DictGet':
+      instructions.push({
+        op: 'DICT_GET',
+        nodeId: node.id,
+        dict: connectedInput(edgesByTarget, node.id, 'dict'),
+        key: connectedInput(edgesByTarget, node.id, 'key'),
+        output: symbol(node.id, 'result'),
+        fallbackKey: node.settings.dictKey ?? '',
+        fallbackValue: literalGraphValue(node.settings.literalValue, node.settings.literalDataType ?? 'Any'),
+      });
+      break;
+    case 'ListOperation':
+      instructions.push({
+        op: 'LIST_OP',
+        nodeId: node.id,
+        list: connectedInput(edgesByTarget, node.id, 'list'),
+        item: connectedInput(edgesByTarget, node.id, 'item'),
+        index: connectedInput(edgesByTarget, node.id, 'index'),
+        output: symbol(node.id, 'result'),
+        operation: node.settings.listOperation ?? 'APPEND',
+        fallbackList: literalGraphValue(node.settings.literalValue, 'data'),
+        fallbackItem: literalGraphValue(node.settings.selectTrueValue, node.settings.literalDataType ?? 'Any'),
+      });
+      break;
+    case 'ConditionSelect':
+      instructions.push({
+        op: 'SELECT',
+        nodeId: node.id,
+        condition: connectedInput(edgesByTarget, node.id, 'condition'),
+        trueValue: connectedInput(edgesByTarget, node.id, 'trueValue'),
+        falseValue: connectedInput(edgesByTarget, node.id, 'falseValue'),
+        output: symbol(node.id, 'result'),
+        fallbackTrue: literalGraphValue(node.settings.selectTrueValue, node.settings.literalDataType ?? 'Any'),
+        fallbackFalse: literalGraphValue(node.settings.selectFalseValue, node.settings.literalDataType ?? 'Any'),
+      });
+      break;
+    case 'RandomNumber':
+      instructions.push({
+        op: 'RANDOM_INT',
+        nodeId: node.id,
+        min: connectedInput(edgesByTarget, node.id, 'min'),
+        max: connectedInput(edgesByTarget, node.id, 'max'),
+        output: symbol(node.id, 'result'),
+        fallbackMin: Math.trunc(node.settings.randomMin ?? 0),
+        fallbackMax: Math.trunc(node.settings.randomMax ?? 10),
+      });
+      break;
+    case 'OverlayControl':
+      instructions.push({
+        op: 'OVERLAY_CONTROL',
+        nodeId: node.id,
+        enabled: connectedInput(edgesByTarget, node.id, 'enabled'),
+        output: symbol(node.id, 'result'),
+        action: node.settings.overlayControlAction ?? 'START',
+        message: node.settings.overlayText ?? node.settings.promptMessage ?? '',
+        width: Math.max(1, Math.min(200, Math.trunc(node.settings.overlayWidth ?? 24))),
+        height: Math.max(1, Math.min(200, Math.trunc(node.settings.overlayHeight ?? 18))),
+        cellSize: Math.max(4, Math.min(96, Math.trunc(node.settings.overlayCellSize ?? 24))),
+        tickMs: Math.max(16, Math.min(5_000, Math.trunc(node.settings.overlayTickMs ?? 120))),
+        background: node.settings.overlayBackground ?? '#ffffff',
+      });
+      break;
+    case 'OverlayDraw':
+      instructions.push({
+        op: 'OVERLAY_DRAW',
+        nodeId: node.id,
+        enabled: connectedInput(edgesByTarget, node.id, 'enabled'),
+        cells: connectedInput(edgesByTarget, node.id, 'cells'),
+        text: connectedInput(edgesByTarget, node.id, 'text'),
+        output: symbol(node.id, 'result'),
+        width: Math.max(1, Math.min(200, Math.trunc(node.settings.overlayWidth ?? 24))),
+        height: Math.max(1, Math.min(200, Math.trunc(node.settings.overlayHeight ?? 18))),
+        cellSize: Math.max(4, Math.min(96, Math.trunc(node.settings.overlayCellSize ?? 24))),
+        background: node.settings.overlayBackground ?? '#ffffff',
       });
       break;
     case 'Logical':
@@ -906,6 +1166,23 @@ function buildSafetyPolicy(instructions: GraphVmInstruction[]): GraphVmSafetyPol
   };
 }
 
+function instructionKey(instruction: GraphVmInstruction): string {
+  return JSON.stringify(instruction);
+}
+
+function uniqueInstructions(instructions: GraphVmInstruction[]): GraphVmInstruction[] {
+  const seen = new Set<string>();
+  return instructions.filter((instruction) => {
+    const key = instructionKey(instruction);
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
 export function compileWorkspace(workspace: WorkspaceFileV2, options: CompileOptions = {}): GraphCompileResult {
   const validation = validateWorkspace(workspace);
   const workspaceWithValidation: WorkspaceFileV2 = {
@@ -921,13 +1198,36 @@ export function compileWorkspace(workspace: WorkspaceFileV2, options: CompileOpt
     };
   }
 
+  const reachableByHandler = collectHandlerReachability(workspace);
   const reachable = collectReachableNodes(workspace);
-  const sorted = topologicalSort(workspace, reachable);
-  if (!sorted.ok) {
+  const sortedByHandler = new Map<GraphEventHandler, WorkspaceNodeV2[]>();
+  for (const handler of EVENT_HANDLERS) {
+    const sorted = topologicalSort(workspace, reachableByHandler[handler]);
+    if (!sorted.ok) {
+      const cycleValidation: WorkspaceValidationState = {
+        ...validation,
+        valid: false,
+        errors: [...validation.errors, `Workspace ${handler} handler contains a cycle involving ${sorted.cycleIds.length} blocks.`],
+      };
+
+      return {
+        ok: false,
+        workspace: {
+          ...workspaceWithValidation,
+          validationState: cycleValidation,
+        },
+        validation: cycleValidation,
+      };
+    }
+
+    sortedByHandler.set(handler, sorted.nodes);
+  }
+
+  if (EVENT_HANDLERS.every((handler) => (sortedByHandler.get(handler)?.length ?? 0) === 0)) {
     const cycleValidation: WorkspaceValidationState = {
       ...validation,
       valid: false,
-      errors: [...validation.errors, `Workspace contains a cycle involving ${sorted.cycleIds.length} blocks.`],
+      errors: [...validation.errors, 'Workspace has no compiled trigger or overlay event handler blocks.'],
     };
 
     return {
@@ -941,7 +1241,13 @@ export function compileWorkspace(workspace: WorkspaceFileV2, options: CompileOpt
   }
 
   const edgesByTarget = new Map(workspace.edges.map((edge) => [`${edge.target}:${edge.targetHandle}`, edge]));
-  const instructions = sorted.nodes.flatMap((node) => instructionForNode(node, workspace, edgesByTarget));
+  const eventHandlers = Object.fromEntries(
+    EVENT_HANDLERS.map((handler) => [
+      handler,
+      sortedByHandler.get(handler)?.flatMap((node) => instructionForNode(node, workspace, edgesByTarget)) ?? [],
+    ]),
+  ) as Record<GraphEventHandler, GraphVmInstruction[]>;
+  const instructions = uniqueInstructions(EVENT_HANDLERS.flatMap((handler) => eventHandlers[handler]));
   const triggerPlan = compileTriggerPlan(workspace, deriveInputSources(workspace, reachable));
   const safety = buildSafetyPolicy(instructions);
   const risk = { ...validation.risk };
@@ -1001,6 +1307,14 @@ export function compileWorkspace(workspace: WorkspaceFileV2, options: CompileOpt
         'output',
       );
     }
+
+    if (instruction.op === 'SHARED_STATE') {
+      addRisk(risk, 'extended', 'Session-scoped shared state is extended risk.', 'output');
+    }
+
+    if (instruction.op === 'OVERLAY_CONTROL' || instruction.op === 'OVERLAY_DRAW') {
+      addRisk(risk, 'extended', 'Interactive overlay display is extended risk.', 'output');
+    }
   });
 
   const pack: CompiledActionPackV2 = {
@@ -1042,6 +1356,7 @@ export function compileWorkspace(workspace: WorkspaceFileV2, options: CompileOpt
     requiredPermissions: requiredPermissionsForInstructions(instructions),
     vm: {
       instructions,
+      eventHandlers,
       constants: {},
       symbolTable: buildSymbolTable(workspace),
       stepBudget: VM_STEP_BUDGET,

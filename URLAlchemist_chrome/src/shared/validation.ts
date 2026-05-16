@@ -13,7 +13,7 @@ import {
   normalizeHardeningRegexTimeoutMs,
   normalizeUiScale,
 } from './hardening';
-import { ACTION_PACK_SCHEMA_VERSION, LEGACY_ACTION_PACK_SCHEMA_VERSION } from './v2/types';
+import { SUPPORTED_ACTION_PACK_SCHEMA_VERSIONS } from './v2/types';
 import type { CompiledActionPackV2 } from './v2/types';
 import { validateCompiledActionPackV2 } from './v2/actionPackValidator';
 import { validateWorkspaceFile } from './v2/workspace';
@@ -352,7 +352,7 @@ export function validateStoredState(candidate: unknown): ValidationResult<Valida
     if (
       isRecord(pack) &&
       pack.kind === 'action-pack.v2' &&
-      (pack.schemaVersion === ACTION_PACK_SCHEMA_VERSION || pack.schemaVersion === LEGACY_ACTION_PACK_SCHEMA_VERSION) &&
+      (SUPPORTED_ACTION_PACK_SCHEMA_VERSIONS as readonly number[]).includes(pack.schemaVersion as number) &&
       isRecord(pack.manifest) &&
       isRecord(pack.vm) &&
       Array.isArray(pack.vm.instructions)

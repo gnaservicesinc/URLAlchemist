@@ -6,6 +6,7 @@ import { compileWorkspace } from '../../shared/v2/compiler';
 import { explainInstruction, explainRiskReason, summarizePackBehavior } from '../../shared/v2/explain';
 import type { CompiledActionPackV2, GraphVmInstruction, WorkspaceFileV2 } from '../../shared/v2/types';
 import { importAnyArtifact } from '../../shared/v2/vault';
+import { HelpTooltip } from './HelpTooltip';
 
 interface SecurityPanelProps {
   actionPacks: CompiledActionPackV2[];
@@ -159,10 +160,14 @@ export function SecurityPanel({
         </div>
 
         <div className="mt-6 grid gap-4 lg:grid-cols-3">
-          <label className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-4">
-            <span className="field-label">VM instruction limit</span>
+          <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-4">
+            <span className="field-label flex items-center gap-2">
+              VM instruction limit
+              <HelpTooltip label="VM instruction limit" text="Caps the number of compiled VM instructions that can run for one Action Pack execution." />
+            </span>
             <input
               className="mt-3 w-full"
+              aria-label="VM instruction limit"
               max={300}
               min={1}
               type="range"
@@ -171,18 +176,23 @@ export function SecurityPanel({
             />
             <input
               className="field-input mt-3"
+              aria-label="VM instruction limit number"
               max={300}
               min={1}
               type="number"
               value={settings.hardeningMaxInstructions}
               onChange={(event) => onHardeningChange({ hardeningMaxInstructions: Number.parseInt(event.target.value || '300', 10) })}
             />
-          </label>
+          </div>
 
-          <label className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-4">
-            <span className="field-label">Redirect recursion</span>
+          <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-4">
+            <span className="field-label flex items-center gap-2">
+              Redirect recursion
+              <HelpTooltip label="Redirect recursion" text="Stops repeated redirects from the same pack on the same tab. The effective maximum is capped at 3." />
+            </span>
             <input
               className="mt-3 w-full"
+              aria-label="Redirect recursion"
               max={3}
               min={1}
               type="range"
@@ -191,18 +201,23 @@ export function SecurityPanel({
             />
             <input
               className="field-input mt-3"
+              aria-label="Redirect recursion number"
               max={3}
               min={1}
               type="number"
               value={Math.min(3, settings.hardeningMaxRecursion)}
               onChange={(event) => onHardeningChange({ hardeningMaxRecursion: Number.parseInt(event.target.value || '3', 10) })}
             />
-          </label>
+          </div>
 
-          <label className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-4">
-            <span className="field-label">Regex timeout</span>
+          <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-4">
+            <span className="field-label flex items-center gap-2">
+              Regex timeout
+              <HelpTooltip label="Regex timeout" text="Maximum time budget for regex operations. Lower values reduce ReDoS risk but can reject slower valid patterns." />
+            </span>
             <input
               className="mt-3 w-full"
+              aria-label="Regex timeout"
               max={50}
               min={10}
               step={5}
@@ -212,6 +227,7 @@ export function SecurityPanel({
             />
             <input
               className="field-input mt-3"
+              aria-label="Regex timeout number"
               max={50}
               min={10}
               step={5}
@@ -219,7 +235,7 @@ export function SecurityPanel({
               value={settings.hardeningRegexTimeoutMs}
               onChange={(event) => onHardeningChange({ hardeningRegexTimeoutMs: Number.parseInt(event.target.value || '50', 10) })}
             />
-          </label>
+          </div>
         </div>
       </article>
 
@@ -276,7 +292,9 @@ export function SecurityPanel({
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h3 className="text-xl font-semibold text-slate-900">Audit uninstalled file</h3>
-            <p className="mt-2 text-sm text-slate-600">Drop a v2 workspace or Action Pack to validate structure and inspect behavior without installing it.</p>
+            <p className="mt-2 text-sm text-slate-600">
+              Drop a v2 workspace or Action Pack to validate structure and inspect behavior without installing it. <HelpTooltip label="Audit uninstalled file" text="The audit decodes and validates the artifact in memory; it does not save the file to extension storage." />
+            </p>
           </div>
           <button className="primary-button" type="button" onClick={() => fileInputRef.current?.click()}>
             Choose File

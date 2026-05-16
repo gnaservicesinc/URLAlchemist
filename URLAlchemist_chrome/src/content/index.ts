@@ -2,13 +2,16 @@ import {
   CONTENT_DISPLAY_MESSAGE,
   CONTENT_INTERACTION_MESSAGE,
   CONTENT_MUTATE_TEXT_MESSAGE,
+  CONTENT_OVERLAY_CONTROL_MESSAGE,
+  CONTENT_OVERLAY_DRAW_MESSAGE,
   CONTENT_READ_SOURCE_MESSAGE,
   HOTKEY_TRIGGER_MESSAGE,
+  OVERLAY_APP_EVENT_MESSAGE,
   isContentRuntimeMessage,
   type ContentRuntimeMessage,
   type RuntimeResponse,
 } from '../shared/messages';
-import type { AssetRef, GraphValue } from '../shared/v2/types';
+import type { AssetRef, GraphValue, OverlayRuntimeEvent } from '../shared/v2/types';
 
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
@@ -115,11 +118,30 @@ function toHotkey(event: KeyboardEvent): string | null {
   return [...modifiers, key].join('+');
 }
 
+interface OverlayAppState {
+  packId: string;
+  root: HTMLDivElement;
+  stage: HTMLDivElement;
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+  title: HTMLDivElement;
+  close: HTMLButtonElement;
+  width: number;
+  height: number;
+  cellSize: number;
+  tickMs: number;
+  tick: number;
+  lastTickAt: number;
+  timer: number;
+}
+
+let activeOverlayApp: OverlayAppState | null = null;
+
 if (window.top === window) {
   window.addEventListener(
     'keydown',
     (event) => {
-      if (!event.isTrusted || event.defaultPrevented || event.repeat || isEditableTarget(event.target)) {
+      if (activeOverlayApp || !event.isTrusted || event.defaultPrevented || event.repeat || isEditableTarget(event.target)) {
         return;
       }
 
@@ -224,6 +246,314 @@ function overlayShell(): { root: HTMLDivElement; panel: HTMLDivElement; close: H
     close,
     cleanup: () => root.remove(),
   };
+}
+
+function plain(value: unknown): unknown {
+  if (value && typeof value === 'object' && 'type' in value && 'value' in value) {
+    const graph = value as GraphValue;
+    if (graph.type === 'dict') {
+      return Object.fromEntries(Object.entries(graph.value).map(([key, entry]) => [key, plain(entry)]));
+    }
+
+    if (Array.isArray(graph.value)) {
+      return graph.value.map(plain);
+    }
+
+    return graph.value;
+  }
+
+  return value;
+}
+
+function sendOverlayAppEvent(packId: string, event: OverlayRuntimeEvent): void {
+  chrome.runtime.sendMessage(
+    {
+      type: OVERLAY_APP_EVENT_MESSAGE,
+      packId,
+      event,
+      pageTitle: document.title,
+      selectedText: window.getSelection()?.toString() ?? '',
+      url: window.location.href,
+    },
+    () => {
+      void chrome.runtime.lastError;
+    },
+  );
+}
+
+function stopOverlayApp(reason = 'stopped', notify = true): GraphValue {
+  const state = activeOverlayApp;
+  if (!state) {
+    return dict({ ok: true, active: false, reason });
+  }
+
+  window.clearInterval(state.timer);
+  state.root.remove();
+  activeOverlayApp = null;
+  if (notify) {
+    sendOverlayAppEvent(state.packId, { kind: 'close', reason });
+  }
+
+  return dict({ ok: true, active: false, reason });
+}
+
+function eventPoint(state: OverlayAppState, event: PointerEvent): { x: number; y: number } {
+  const rect = state.canvas.getBoundingClientRect();
+  return {
+    x: Math.round(event.clientX - rect.left),
+    y: Math.round(event.clientY - rect.top),
+  };
+}
+
+function startOverlayApp(message: Extract<ContentRuntimeMessage, { type: typeof CONTENT_OVERLAY_CONTROL_MESSAGE }>): GraphValue {
+  const { request, packId } = message;
+  stopOverlayApp('replaced', true);
+
+  const root = document.createElement('div');
+  root.style.cssText = [
+    'position:fixed',
+    'inset:0',
+    'z-index:2147483647',
+    `background:${request.background || '#ffffff'}`,
+    'display:grid',
+    'grid-template-rows:auto 1fr',
+    'font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',
+    'color:#0f172a',
+  ].join(';');
+
+  const header = document.createElement('div');
+  header.style.cssText = [
+    'height:48px',
+    'display:flex',
+    'align-items:center',
+    'justify-content:space-between',
+    'gap:16px',
+    'padding:0 16px',
+    'border-bottom:1px solid #d4d4d8',
+    'background:#ffffff',
+    'box-sizing:border-box',
+  ].join(';');
+
+  const title = document.createElement('div');
+  title.textContent = request.message || 'URL Alchemist overlay active';
+  title.style.cssText = 'font-size:14px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+  const close = document.createElement('button');
+  close.type = 'button';
+  close.textContent = 'Close';
+  close.style.cssText = 'border:1px solid #a1a1aa;background:#f4f4f5;color:#111827;border-radius:6px;padding:7px 11px;font-size:13px;font-weight:700;cursor:pointer';
+  header.append(title, close);
+
+  const stage = document.createElement('div');
+  stage.tabIndex = 0;
+  stage.style.cssText = [
+    'display:flex',
+    'align-items:center',
+    'justify-content:center',
+    'outline:none',
+    'overflow:hidden',
+    'padding:16px',
+    'box-sizing:border-box',
+  ].join(';');
+
+  const canvas = document.createElement('canvas');
+  const width = Math.max(1, Math.trunc(request.width));
+  const height = Math.max(1, Math.trunc(request.height));
+  const cellSize = Math.max(4, Math.trunc(request.cellSize));
+  canvas.width = width * cellSize;
+  canvas.height = height * cellSize;
+  canvas.style.cssText = [
+    'display:block',
+    'max-width:calc(100vw - 32px)',
+    'max-height:calc(100vh - 80px)',
+    'width:auto',
+    'height:auto',
+    'background:#ffffff',
+    'border:1px solid #111827',
+    'box-shadow:0 10px 28px rgba(15,23,42,0.18)',
+    'image-rendering:pixelated',
+  ].join(';');
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    return dict({ ok: false, active: false, error: 'Canvas is unavailable' });
+  }
+
+  stage.append(canvas);
+  root.append(header, stage);
+  document.documentElement.append(root);
+
+  activeOverlayApp = {
+    packId,
+    root,
+    stage,
+    canvas,
+    ctx,
+    title,
+    close,
+    width,
+    height,
+    cellSize,
+    tickMs: Math.max(16, Math.trunc(request.tickMs)),
+    tick: 0,
+    lastTickAt: performance.now(),
+    timer: 0,
+  };
+
+  const state = activeOverlayApp;
+  const emitKeyboard = (event: KeyboardEvent) => {
+    if (!event.isTrusted || activeOverlayApp !== state) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    sendOverlayAppEvent(packId, {
+      kind: 'keyboard',
+      eventType: event.type === 'keyup' ? 'keyup' : 'keydown',
+      key: event.key,
+      code: event.code,
+      keyCode: event.keyCode,
+      repeat: event.repeat,
+    });
+  };
+  const emitPointer = (event: PointerEvent) => {
+    if (activeOverlayApp !== state) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const point = event.type === 'pointerleave' ? { x: -1, y: -1 } : eventPoint(state, event);
+    sendOverlayAppEvent(packId, {
+      kind: 'mouse',
+      eventType: event.type as 'pointermove' | 'pointerdown' | 'pointerup' | 'pointerleave',
+      button: event.button,
+      buttons: event.buttons,
+      x: point.x,
+      y: point.y,
+    });
+  };
+
+  close.addEventListener('click', () => {
+    stopOverlayApp('closed', true);
+  });
+  window.addEventListener('keydown', emitKeyboard, true);
+  window.addEventListener('keyup', emitKeyboard, true);
+  canvas.addEventListener('pointermove', emitPointer);
+  canvas.addEventListener('pointerdown', emitPointer);
+  canvas.addEventListener('pointerup', emitPointer);
+  canvas.addEventListener('pointerleave', emitPointer);
+
+  state.timer = window.setInterval(() => {
+    if (activeOverlayApp !== state) {
+      return;
+    }
+
+    const now = performance.now();
+    state.tick += 1;
+    sendOverlayAppEvent(packId, {
+      kind: 'tick',
+      tick: state.tick,
+      deltaMs: Math.round(now - state.lastTickAt),
+    });
+    state.lastTickAt = now;
+  }, state.tickMs);
+
+  const originalStop = stopOverlayApp;
+  root.addEventListener('remove-overlay-listeners', () => {
+    window.removeEventListener('keydown', emitKeyboard, true);
+    window.removeEventListener('keyup', emitKeyboard, true);
+    canvas.removeEventListener('pointermove', emitPointer);
+    canvas.removeEventListener('pointerdown', emitPointer);
+    canvas.removeEventListener('pointerup', emitPointer);
+    canvas.removeEventListener('pointerleave', emitPointer);
+    void originalStop;
+  }, { once: true });
+
+  const originalRemove = root.remove.bind(root);
+  root.remove = () => {
+    root.dispatchEvent(new Event('remove-overlay-listeners'));
+    originalRemove();
+  };
+
+  handleOverlayDraw({
+    type: CONTENT_OVERLAY_DRAW_MESSAGE,
+    requestId: message.requestId,
+    packId,
+    request: {
+      width,
+      height,
+      cellSize,
+      background: request.background,
+      text: { type: 'string', value: request.message },
+    },
+  });
+  stage.focus();
+
+  return dict({ ok: true, active: true, action: request.action });
+}
+
+function handleOverlayControl(message: Extract<ContentRuntimeMessage, { type: typeof CONTENT_OVERLAY_CONTROL_MESSAGE }>): GraphValue {
+  const { request, packId } = message;
+  if (request.action === 'STATUS') {
+    return dict({ ok: true, active: activeOverlayApp?.packId === packId, action: request.action });
+  }
+
+  if (request.action === 'STOP') {
+    if (activeOverlayApp?.packId === packId) {
+      return stopOverlayApp('stopped', false);
+    }
+
+    return dict({ ok: true, active: false, action: request.action });
+  }
+
+  if (request.action === 'TOGGLE' && activeOverlayApp?.packId === packId) {
+    return stopOverlayApp('toggled-off', false);
+  }
+
+  return startOverlayApp(message);
+}
+
+function numberFromCell(entry: Record<string, unknown>, key: 'x' | 'y'): number {
+  const value = plain(entry[key]);
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function colorFromCell(entry: Record<string, unknown>): string {
+  const raw = plain(entry.color ?? entry.fill ?? entry.background);
+  return typeof raw === 'string' && raw.trim() ? raw : '#111827';
+}
+
+function handleOverlayDraw(message: Extract<ContentRuntimeMessage, { type: typeof CONTENT_OVERLAY_DRAW_MESSAGE }>): GraphValue {
+  const state = activeOverlayApp;
+  if (!state || state.packId !== message.packId) {
+    return dict({ ok: false, active: false, reason: 'inactive' });
+  }
+
+  const { request } = message;
+  const ctx = state.ctx;
+  ctx.fillStyle = request.background || '#ffffff';
+  ctx.fillRect(0, 0, state.canvas.width, state.canvas.height);
+
+  const cells = plain(request.cells) as unknown;
+  const cellList = Array.isArray(cells) ? cells : [];
+  cellList.forEach((cell) => {
+    if (!cell || typeof cell !== 'object' || Array.isArray(cell)) {
+      return;
+    }
+
+    const entry = cell as Record<string, unknown>;
+    const x = numberFromCell(entry, 'x');
+    const y = numberFromCell(entry, 'y');
+    if (x < 0 || y < 0 || x >= state.width || y >= state.height) {
+      return;
+    }
+
+    ctx.fillStyle = colorFromCell(entry);
+    ctx.fillRect(x * state.cellSize, y * state.cellSize, state.cellSize, state.cellSize);
+  });
+
+  const text = plain(request.text);
+  state.title.textContent = typeof text === 'string' && text.trim() ? text : state.title.textContent;
+  return dict({ ok: true, active: true, cells: cellList.length });
 }
 
 async function handleInteraction(message: Extract<ContentRuntimeMessage, { type: typeof CONTENT_INTERACTION_MESSAGE }>): Promise<GraphValue> {
@@ -622,6 +952,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       }
       if (message.type === CONTENT_DISPLAY_MESSAGE) {
         return { ok: true, data: await handleDisplay(message) };
+      }
+      if (message.type === CONTENT_OVERLAY_CONTROL_MESSAGE) {
+        return { ok: true, data: handleOverlayControl(message) };
+      }
+      if (message.type === CONTENT_OVERLAY_DRAW_MESSAGE) {
+        return { ok: true, data: handleOverlayDraw(message) };
       }
       if (message.type === CONTENT_MUTATE_TEXT_MESSAGE) {
         return { ok: true, data: mutateText(message.value) };

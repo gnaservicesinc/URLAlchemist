@@ -1,6 +1,6 @@
 import type { RegexJobRequest, RegexJobResponse } from './types';
-import type { GraphValue } from './v2/types';
-import type { DisplayRequest, UserInteractionRequest } from './v2/vm';
+import type { GraphValue, OverlayRuntimeEvent } from './v2/types';
+import type { DisplayRequest, OverlayControlRequest, OverlayDrawRequest, UserInteractionRequest } from './v2/vm';
 
 export const OFFSCREEN_REGEX_MESSAGE = 'URL_ALCHEMIST_OFFSCREEN_REGEX';
 export const OFFSCREEN_CLIPBOARD_MESSAGE = 'URL_ALCHEMIST_OFFSCREEN_CLIPBOARD';
@@ -10,6 +10,9 @@ export const CONTENT_INTERACTION_MESSAGE = 'URL_ALCHEMIST_CONTENT_INTERACTION';
 export const CONTENT_DISPLAY_MESSAGE = 'URL_ALCHEMIST_CONTENT_DISPLAY';
 export const CONTENT_MUTATE_TEXT_MESSAGE = 'URL_ALCHEMIST_CONTENT_MUTATE_TEXT';
 export const CONTENT_READ_SOURCE_MESSAGE = 'URL_ALCHEMIST_CONTENT_READ_SOURCE';
+export const CONTENT_OVERLAY_CONTROL_MESSAGE = 'URL_ALCHEMIST_CONTENT_OVERLAY_CONTROL';
+export const CONTENT_OVERLAY_DRAW_MESSAGE = 'URL_ALCHEMIST_CONTENT_OVERLAY_DRAW';
+export const OVERLAY_APP_EVENT_MESSAGE = 'URL_ALCHEMIST_OVERLAY_APP_EVENT';
 
 export interface OffscreenRegexMessage {
   type: typeof OFFSCREEN_REGEX_MESSAGE;
@@ -52,6 +55,20 @@ export interface ContentDisplayMessage {
   request: DisplayRequest;
 }
 
+export interface ContentOverlayControlMessage {
+  type: typeof CONTENT_OVERLAY_CONTROL_MESSAGE;
+  requestId: string;
+  packId: string;
+  request: OverlayControlRequest;
+}
+
+export interface ContentOverlayDrawMessage {
+  type: typeof CONTENT_OVERLAY_DRAW_MESSAGE;
+  requestId: string;
+  packId: string;
+  request: OverlayDrawRequest;
+}
+
 export interface ContentMutateTextMessage {
   type: typeof CONTENT_MUTATE_TEXT_MESSAGE;
   requestId: string;
@@ -64,7 +81,20 @@ export interface ContentReadSourceMessage {
   source: string;
 }
 
-export type ContentRuntimeMessage = ContentInteractionMessage | ContentDisplayMessage | ContentMutateTextMessage | ContentReadSourceMessage;
+export type ContentRuntimeMessage =
+  | ContentInteractionMessage
+  | ContentDisplayMessage
+  | ContentOverlayControlMessage
+  | ContentOverlayDrawMessage
+  | ContentMutateTextMessage
+  | ContentReadSourceMessage;
+
+export interface OverlayAppEventMessage extends RuntimeSourceContext {
+  type: typeof OVERLAY_APP_EVENT_MESSAGE;
+  packId: string;
+  url: string;
+  event: OverlayRuntimeEvent;
+}
 
 export interface RuntimeSuccess<T> {
   ok: true;
@@ -95,9 +125,27 @@ export function isContentRuntimeMessage(message: unknown): message is ContentRun
     (
       (message as { type?: unknown }).type === CONTENT_INTERACTION_MESSAGE ||
       (message as { type?: unknown }).type === CONTENT_DISPLAY_MESSAGE ||
+      (message as { type?: unknown }).type === CONTENT_OVERLAY_CONTROL_MESSAGE ||
+      (message as { type?: unknown }).type === CONTENT_OVERLAY_DRAW_MESSAGE ||
       (message as { type?: unknown }).type === CONTENT_MUTATE_TEXT_MESSAGE ||
       (message as { type?: unknown }).type === CONTENT_READ_SOURCE_MESSAGE
     )
+  );
+}
+
+export function isOverlayAppEventMessage(message: unknown): message is OverlayAppEventMessage {
+  return (
+    typeof message === 'object' &&
+    message !== null &&
+    'type' in message &&
+    'packId' in message &&
+    'url' in message &&
+    'event' in message &&
+    (message as OverlayAppEventMessage).type === OVERLAY_APP_EVENT_MESSAGE &&
+    typeof (message as OverlayAppEventMessage).packId === 'string' &&
+    typeof (message as OverlayAppEventMessage).url === 'string' &&
+    typeof (message as { event?: unknown }).event === 'object' &&
+    (message as { event?: unknown }).event !== null
   );
 }
 
