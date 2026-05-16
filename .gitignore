@@ -152,6 +152,15 @@ vite.config.ts.timestamp-*
 */.DS_Store
 **/.DS_Store
 
+*.crx
+**.crx
+*/*.crx
+**/**.crx
+*.pem
+**.pem
+*/*.pem
+**/**.pem
+
 # URL Alchemist generated Chrome artifacts
 URLAlchemist_chrome/dist/
 URLAlchemist_chrome/dist.crx
