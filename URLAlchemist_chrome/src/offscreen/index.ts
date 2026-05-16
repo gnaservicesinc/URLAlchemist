@@ -1,4 +1,5 @@
-import { OFFSCREEN_CLIPBOARD_MESSAGE, OFFSCREEN_CLIPBOARD_WRITE_MESSAGE, OFFSCREEN_REGEX_MESSAGE } from '../shared/messages';
+import { CLIPBOARD_MAX_TEXT_BYTES } from '../shared/constants';
+import { OFFSCREEN_CLIPBOARD_BINARY_WRITE_MESSAGE, OFFSCREEN_CLIPBOARD_MESSAGE, OFFSCREEN_CLIPBOARD_WRITE_MESSAGE, OFFSCREEN_REGEX_MESSAGE } from '../shared/messages';
 import type { ClipboardResponse, OffscreenMessage, RuntimeResponse } from '../shared/messages';
 import { createPageRegexExecutor } from '../shared/regex/pageRunner';
 import type { RegexJobResponse } from '../shared/types';
@@ -13,7 +14,7 @@ chrome.runtime.onMessage.addListener((message: OffscreenMessage, _sender, sendRe
           message.request.kind === 'test'
             ? {
                 kind: 'test',
-                matched: await regexExecutor.test(message.request.input, message.request.pattern),
+                matched: await regexExecutor.test(message.request.input, message.request.pattern, message.request.timeoutMs),
               }
             : {
                 kind: 'transform',
@@ -39,6 +40,13 @@ chrome.runtime.onMessage.addListener((message: OffscreenMessage, _sender, sendRe
     void (async () => {
       try {
         const text = await navigator.clipboard.readText();
+        if (new TextEncoder().encode(text).byteLength > CLIPBOARD_MAX_TEXT_BYTES) {
+          sendResponse({
+            ok: false,
+            error: `Clipboard text exceeds the ${CLIPBOARD_MAX_TEXT_BYTES / 1024 / 1024}MB size limit`,
+          } satisfies RuntimeResponse<ClipboardResponse>);
+          return;
+        }
 
         sendResponse({
           ok: true,
@@ -70,6 +78,28 @@ chrome.runtime.onMessage.addListener((message: OffscreenMessage, _sender, sendRe
         sendResponse({
           ok: false,
           error: error instanceof Error ? error.message : 'Clipboard write failed',
+        } satisfies RuntimeResponse<null>);
+      }
+    })();
+
+    return true;
+  }
+
+  if (message.type === OFFSCREEN_CLIPBOARD_BINARY_WRITE_MESSAGE) {
+    void (async () => {
+      try {
+        const bytes = Uint8Array.from(atob(message.dataBase64), (c) => c.charCodeAt(0));
+        const blob = new Blob([bytes], { type: message.mimeType });
+        await navigator.clipboard.write([new ClipboardItem({ [message.mimeType]: blob })]);
+
+        sendResponse({
+          ok: true,
+          data: null,
+        } satisfies RuntimeResponse<null>);
+      } catch (error) {
+        sendResponse({
+          ok: false,
+          error: error instanceof Error ? error.message : 'Binary clipboard write failed',
         } satisfies RuntimeResponse<null>);
       }
     })();

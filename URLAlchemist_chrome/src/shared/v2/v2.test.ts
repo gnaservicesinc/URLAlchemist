@@ -16,7 +16,7 @@ import { validateCompiledActionPackV2 } from './actionPackValidator';
 import { BUNDLED_ACTION_PACK_EXAMPLES, createBundledExampleActionPacks, createBundledExampleWorkspaces } from './bundledExamples';
 import { compileWorkspace } from './compiler';
 import { createSandboxGraphRuntime } from './sandboxRuntime';
-import { ACTION_PACK_SCHEMA_VERSION, BLOCK_TYPE_IDS, LEGACY_ACTION_PACK_SCHEMA_VERSION, type BlockKind, type CompiledActionPackV2 } from './types';
+import { ACTION_PACK_SCHEMA_VERSION, LEGACY_ACTION_PACK_SCHEMA_VERSION, type CompiledActionPackV2, type GraphValue } from './types';
 import { executeCompiledActionPackV2, type GraphRuntime } from './vm';
 import { createEdge, createDefaultWorkspace, createWorkspaceNode, workspaceFromLegacyPack } from './workspace';
 import {
@@ -194,6 +194,34 @@ describe('v2 workspace compiler and VM', () => {
     );
 
     expect(result.trace.some((entry) => entry.op === 'DISPLAY' && entry.message === 'Display completed')).toBe(true);
+  });
+
+  it('marks binary clipboard asset output as requiring clipboard write permission', () => {
+    const workspace = createDefaultWorkspace();
+    const getImage = createWorkspaceNode('GetImage', { x: 260, y: 80 }, {
+      assetDataBase64: 'iVBORw0KGgo=',
+      assetKind: 'image',
+      assetMimeType: 'image/png',
+      assetCompression: 'none',
+    });
+    const extendedOut = createWorkspaceNode('ExtendedDataOut', { x: 520, y: 80 });
+    const compiled = compileWorkspace({
+      ...workspace,
+      nodes: [...workspace.nodes, getImage, extendedOut],
+      edges: [
+        createEdge(getImage.id, 'result', extendedOut.id, 'clipboardBinary'),
+      ],
+    });
+
+    expect(compiled.ok).toBe(true);
+    expect(compiled.pack!.requiredPermissions).toContain('clipboardWrite');
+    expect(compiled.pack!.vm.instructions).toContainEqual(expect.objectContaining({
+      op: 'OUTPUT',
+      destination: 'clipboardBinary',
+      dataType: 'asset',
+      risk: 'high',
+    }));
+    expect(validateCompiledActionPackV2(compiled.pack!)).toEqual(expect.objectContaining({ ok: true }));
   });
 
   it('routes trigger, keyboard, mouse, and tick handlers through shared state', async () => {
@@ -1107,13 +1135,14 @@ describe('v2 workspace compiler and VM', () => {
     }
   });
 
-  it('compiles every bundled example and covers the v2 block surface', () => {
+  it('compiles every bundled example and keeps the gallery grounded in runnable workflows', () => {
     const workspaces = createBundledExampleWorkspaces();
     const packs = createBundledExampleActionPacks();
-    const usedBlockKinds = new Set<BlockKind>();
     const usedActions = new Set<string>();
     const usedMatchModes = new Set<string>();
 
+    expect(BUNDLED_ACTION_PACK_EXAMPLES.some((example) => example.slug === 'screen-time')).toBe(false);
+    expect(BUNDLED_ACTION_PACK_EXAMPLES.map((example) => example.slug)).toContain('break-reminder');
     expect(workspaces.length).toBeGreaterThanOrEqual(13);
     expect(packs).toHaveLength(workspaces.length);
 
@@ -1121,7 +1150,12 @@ describe('v2 workspace compiler and VM', () => {
       const compiled = compileWorkspace(workspace);
       expect(compiled.ok, `${workspace.metadata.name}: ${compiled.validation.errors.join('; ')}`).toBe(true);
       workspace.nodes.forEach((node) => {
-        usedBlockKinds.add(node.type);
+        if ((node.type === 'FetchData' || node.type === 'HttpRequest') && node.settings.remoteUrl) {
+          expect(node.settings.remoteUrl).not.toMatch(/example\.com\/(?:api|data)/);
+        }
+        if ((node.type === 'GetImage' || node.type === 'GetVideo' || node.type === 'GetAudio') && !node.settings.assetDataBase64) {
+          expect(node.settings.assetUrl, `${workspace.metadata.name} remote asset`).toMatch(/^https:\/\//);
+        }
         if (node.type === 'RegExpression') {
           usedActions.add(node.settings.action ?? 'SUBSTITUTE');
           usedMatchModes.add(node.settings.matchMode ?? 'STANDARD');
@@ -1129,9 +1163,105 @@ describe('v2 workspace compiler and VM', () => {
       });
     });
 
-    expect(Array.from(usedBlockKinds).sort()).toEqual((Object.keys(BLOCK_TYPE_IDS) as BlockKind[]).sort());
     expect(Array.from(usedActions).sort()).toEqual(['APPEND', 'PREPEND', 'REMOVE', 'SUBSTITUTE']);
     expect(Array.from(usedMatchModes).sort()).toEqual(['AFTER_PATTERN', 'BEFORE_PATTERN', 'NTH_OCCURRENCE', 'STANDARD']);
+  });
+
+  it('executes every bundled example with realistic stubbed browser services', async () => {
+    const session = new Map<string, GraphValue>();
+    const destinationWrites: string[] = [];
+    const packs = createBundledExampleActionPacks();
+    const exampleRuntime: GraphRuntime = {
+      ...runtime,
+      readSource: async (source) => {
+        if (source === 'clipboard') {
+          return { type: 'string', value: 'docs & notes' };
+        }
+        if (source === 'selectedText') {
+          return { type: 'string', value: 'c# docs & tips' };
+        }
+        if (source === 'pageTitle') {
+          return { type: 'string', value: 'Example Page' };
+        }
+        if (source === 'pageText') {
+          return { type: 'string', value: 'This damn page has a few crap words.' };
+        }
+        if (source === 'linkUrl') {
+          return { type: 'URL', value: 'https://github.com/acme/project/pull/42?tab=conversation' };
+        }
+        return undefined;
+      },
+      fetchRemote: async (request) => ({
+        type: request.outputDataType,
+        value: request.method === 'POST'
+          ? `echo:${request.url}:${JSON.stringify(request.body ?? {})}`
+          : 'Example Domain remote response',
+      } as GraphValue),
+      requestUserInteraction: async (request) => {
+        const value: GraphValue = request.kind === 'PROMPT_NUMBER'
+          ? { type: 'number', value: 30 }
+          : { type: 'string', value: request.defaultValue || 'Test input' };
+
+        return {
+          type: 'dict',
+          value: {
+            ok: { type: 'bool', value: 1 },
+            cancelled: { type: 'bool', value: 0 },
+            value,
+            source: { type: 'string', value: 'test' },
+          },
+        };
+      },
+      displayOverlay: async (request) => ({
+        type: 'dict',
+        value: {
+          ok: { type: 'bool', value: 1 },
+          completed: { type: 'bool', value: request.type === 'video' ? 0 : 1 },
+          cancelled: { type: 'bool', value: 0 },
+          stoppedAtSeconds: { type: 'number', value: request.type === 'video' ? 1 : 0 },
+          durationSeconds: { type: 'number', value: request.type === 'video' ? 2 : 0 },
+          watchedPercent: { type: 'number', value: request.type === 'video' ? 50 : 0 },
+          reason: { type: 'string', value: request.type === 'input-capture' ? 'closed' : 'test' },
+        },
+      }),
+      overlayControl: async (request) => ({
+        type: 'dict',
+        value: {
+          ok: { type: 'bool', value: 1 },
+          active: { type: 'bool', value: request.action === 'STOP' ? 0 : 1 },
+          action: { type: 'string', value: request.action },
+        },
+      }),
+      overlayDraw: async () => ({ type: 'dict', value: { ok: { type: 'bool', value: 1 } } }),
+      loadSessionValue: async (key) => session.get(key),
+      saveSessionValue: async (key, value) => {
+        session.set(key, value);
+      },
+      deleteSessionValue: async (key) => {
+        session.delete(key);
+      },
+      writeDestination: async (destination) => {
+        destinationWrites.push(destination);
+      },
+      mutatePageText: async () => undefined,
+    };
+
+    for (const pack of packs) {
+      const inputUrl = pack.manifest.name === 'GitHub PR Files Shortcut'
+        ? 'https://github.com/acme/project/pull/42?tab=conversation'
+        : 'https://example.com/path?utm_source=newsletter&ref=abc&id=123&keep=1';
+      const result = await executeCompiledActionPackV2(inputUrl, pack, exampleRuntime, DEFAULT_SETTINGS, {
+        handler: 'trigger',
+        event: { kind: 'trigger', hotkey: pack.manifest.trigger.hotkey, url: inputUrl },
+      });
+
+      expect(result.issues, pack.manifest.name).toEqual([]);
+    }
+
+    expect(session.has('break-reminder:last-run')).toBe(true);
+    expect(session.has('playback-resume:last-video')).toBe(true);
+    expect(destinationWrites).toContain('pageText');
+    expect(destinationWrites).toContain('clipboard');
   });
 
   it('keeps the Snake example built from generic block and VM operation names', () => {

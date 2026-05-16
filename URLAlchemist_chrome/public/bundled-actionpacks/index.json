@@ -135,13 +135,13 @@
       "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200009",
       "name": "Remote Text Fetch Preview",
       "slug": "remote-text-fetch-preview",
-      "description": "Fetches a text file from a fixed HTTPS endpoint and writes it to the page-text output while leaving navigation unchanged.",
+      "description": "Fetches the stable Example Domain page and previews the returned text on the current page while leaving navigation unchanged.",
       "category": "Remote data",
       "trigger": "CONTEXT_MENU",
       "risk": "high",
       "features": [
         "Remote GET warning",
-        "Typed string output",
+        "Real HTTPS endpoint",
         "No redirect"
       ],
       "workspacePath": "bundled-actionpacks/workspaces/remote-text-fetch-preview.workspace",
@@ -151,14 +151,14 @@
       "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200010",
       "name": "Remote POST Snapshot",
       "slug": "remote-post-snapshot",
-      "description": "Builds a small dictionary from the current page and sends it to a fixed HTTPS endpoint.",
+      "description": "Builds a small page dictionary, sends it to a public echo endpoint, and previews the echoed response.",
       "category": "Remote data",
       "trigger": "CONTEXT_MENU",
       "risk": "high",
       "features": [
         "Remote POST warning",
         "Dictionary body",
-        "No redirect"
+        "Echo response"
       ],
       "workspacePath": "bundled-actionpacks/workspaces/remote-post-snapshot.workspace",
       "actionPackPath": "bundled-actionpacks/action-packs/remote-post-snapshot.actionpack"
@@ -167,12 +167,12 @@
       "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200011",
       "name": "Clean Words",
       "slug": "clean-words",
-      "description": "Fetches a remote bad-words list, masks matching page text, and shows a review message before leaving navigation unchanged.",
+      "description": "Masks a small built-in word list in page text and shows a review message before leaving navigation unchanged.",
       "category": "Page tools",
       "trigger": "CONTEXT_MENU",
       "risk": "high",
       "features": [
-        "Remote word list",
+        "Built-in word list",
         "Page text mutation",
         "Overlay message"
       ],
@@ -181,32 +181,30 @@
     },
     {
       "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200012",
-      "name": "Screen Time",
-      "slug": "screen-time",
-      "description": "Prompts for a daily limit, records timing data, shows media feedback, and redirects to a chosen break page.",
-      "category": "Storage",
-      "trigger": "CONTEXT_MENU",
+      "name": "Break Reminder",
+      "slug": "break-reminder",
+      "description": "Opens a manual break reminder from a hotkey, shows bundled media, plays a short local tone, and records the run time.",
+      "category": "Media",
+      "trigger": "HOTKEY",
       "risk": "high",
       "features": [
-        "System time",
-        "Prompts",
-        "SaveLoad",
-        "Image and sound overlays"
+        "Embedded media",
+        "Hotkey trigger",
+        "SaveLoad timestamp"
       ],
-      "workspacePath": "bundled-actionpacks/workspaces/screen-time.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/screen-time.actionpack"
+      "workspacePath": "bundled-actionpacks/workspaces/break-reminder.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/break-reminder.actionpack"
     },
     {
       "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200013",
       "name": "Playback Resume",
       "slug": "playback-resume",
-      "description": "Prompts for a direct video file or URL, plays a direct-access video, and stores playback result details for later runs.",
+      "description": "Plays a tiny bundled video sample and stores playback result details for later runs.",
       "category": "Media",
       "trigger": "HOTKEY",
       "risk": "high",
       "features": [
-        "File or URL prompt",
-        "Direct video fetch",
+        "Embedded video",
         "Playback result dictionary",
         "SaveLoad"
       ],

@@ -73,7 +73,7 @@ export function BundledExamplesPanel({
           <p className="eyebrow">Examples</p>
           <h2 className="mt-2 text-2xl font-semibold text-slate-900">Built-in Action Packs</h2>
           <p className="mt-2 max-w-3xl text-sm text-slate-600">
-            Open a workspace to inspect or change the source, or install the compiled Action Pack directly. These examples are never installed automatically.
+            Open a curated workspace to inspect or change the source, or install the compiled Action Pack directly. These examples are never installed automatically.
           </p>
         </div>
       </div>

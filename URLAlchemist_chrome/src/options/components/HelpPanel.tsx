@@ -23,10 +23,19 @@ function getHelpUrl(path: string): string {
 
 function extractHelpBody(content: string): string {
   const document = new DOMParser().parseFromString(content, 'text/html');
-  document.querySelectorAll('script, iframe, object, embed').forEach((node) => node.remove());
+  // Remove known dangerous elements
+  document.querySelectorAll('script, iframe, object, embed, base, meta[http-equiv]').forEach((node) => node.remove());
+  // Sanitize attributes across all remaining elements
   document.querySelectorAll('*').forEach((node) => {
     [...node.attributes].forEach((attribute) => {
-      if (attribute.name.toLowerCase().startsWith('on')) {
+      const name = attribute.name.toLowerCase();
+      if (name.startsWith('on')) {
+        node.removeAttribute(attribute.name);
+      } else if (name === 'style' && /(?:url\s*\(|@import)/i.test(attribute.value)) {
+        // Remove inline styles that reference external resources
+        node.removeAttribute(attribute.name);
+      } else if (name === 'href' && /^\s*javascript\s*:/i.test(attribute.value)) {
+        // Remove javascript: URIs from links
         node.removeAttribute(attribute.name);
       }
     });

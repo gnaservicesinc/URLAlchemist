@@ -17,6 +17,7 @@ import {
   Controls,
   Handle,
   MiniMap,
+  Panel,
   Position,
   ReactFlow,
   ReactFlowProvider,
@@ -72,6 +73,7 @@ interface WorkspaceBlockData {
   invalidInputs: string[];
   node: WorkspaceNodeV2;
   outputs: GraphPortDefinition[];
+  onCollapseToggle: (nodeId: string) => void;
   onDeleteNode: (nodeId: string) => void;
   onLockToggle: (nodeId: string) => void;
   onOpenRegexBuilder: (nodeId: string) => void;
@@ -92,6 +94,46 @@ const DATA_TYPE_COLORS: Record<string, string> = {
   asset: '#ea580c',
   Any: '#334155',
 };
+
+const CATEGORY_LABELS: Record<BlockDefinition['category'], string> = {
+  convert: 'Convert',
+  data: 'Data',
+  flow: 'Flow',
+  interaction: 'Interaction',
+  logic: 'Logic',
+  math: 'Math',
+  media: 'Media',
+  regex: 'Regex',
+  storage: 'Storage',
+};
+
+const EVENT_LANE_DEFINITIONS = [
+  { id: 'trigger', label: 'Trigger', sourceTypes: new Set<BlockKind>(['DataFlowIn', 'ExtendedDataIn', 'OnTriggerEvent']) },
+  { id: 'keyboard', label: 'Keyboard', sourceTypes: new Set<BlockKind>(['KeyboardIn']) },
+  { id: 'mouse', label: 'Mouse', sourceTypes: new Set<BlockKind>(['MouseIn']) },
+  { id: 'tick', label: 'Tick', sourceTypes: new Set<BlockKind>(['OverlayTickIn']) },
+] as const;
+
+type EventLaneId = (typeof EVENT_LANE_DEFINITIONS)[number]['id'] | 'other';
+
+function blockTitle(node: WorkspaceNodeV2, definition = getBlockDefinition(node.type)): string {
+  return node.settings.label || definition.label;
+}
+
+function shortDataType(type: string): string {
+  switch (type) {
+    case 'floatingPoint':
+      return 'float';
+    case 'number':
+      return 'num';
+    default:
+      return type;
+  }
+}
+
+function categoryLabel(category: BlockDefinition['category']): string {
+  return CATEGORY_LABELS[category] ?? category;
+}
 
 function settingText(value: unknown): string {
   return value === undefined || value === null ? '' : String(value);
@@ -713,16 +755,76 @@ function renderBlockSettings(
 }
 
 const WorkspaceBlockNode = memo(function WorkspaceBlockNode({ data, selected }: NodeProps<WorkspaceFlowNode>) {
-  const { connectedInputs, definition, inputs, invalidInputs, node, outputs, onDeleteNode, onLockToggle, onOpenRegexBuilder, onSettingsChange } = data;
+  const { connectedInputs, definition, inputs, invalidInputs, node, outputs, onCollapseToggle, onDeleteNode, onLockToggle, onOpenRegexBuilder, onSettingsChange } = data;
   const locked = Boolean(node.settings.locked);
+  const collapsed = Boolean(node.settings.collapsed);
+  const title = blockTitle(node, definition);
+
+  const compactPortRows = (ports: GraphPortDefinition[], direction: 'input' | 'output') => (
+    <div className="grid gap-1.5">
+      {ports.length === 0 ? (
+        <div className="rounded-md border border-dashed border-slate-200 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-300">
+          No {direction === 'input' ? 'inputs' : 'outputs'}
+        </div>
+      ) : ports.map((port) => (
+        <div key={port.id} className={`relative flex min-h-6 items-center rounded-md bg-slate-50 px-2 py-1 text-[10px] text-slate-600 ${direction === 'input' ? 'pl-3' : 'pr-3'}`}>
+          {direction === 'input' ? (
+            <Handle
+              className="workspace-port-handle workspace-port-handle-target workspace-port-handle-compact"
+              id={port.id}
+              position={Position.Left}
+              style={handleStyle(invalidInputs.includes(port.id) ? '#dc2626' : DATA_TYPE_COLORS[port.dataType])}
+              type="target"
+            />
+          ) : null}
+          <span className="truncate">{port.label}</span>
+          <span className={`${direction === 'input' ? 'ml-auto' : 'ml-1 mr-auto'} font-mono text-[9px] text-slate-400`}>{shortDataType(port.dataType)}</span>
+          {direction === 'output' ? (
+            <Handle
+              className="workspace-port-handle workspace-port-handle-source workspace-port-handle-compact"
+              id={port.id}
+              position={Position.Right}
+              style={handleStyle(DATA_TYPE_COLORS[port.dataType])}
+              type="source"
+            />
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
 
   return (
-    <div className={`min-w-56 rounded-xl border bg-white shadow-[0_14px_28px_rgba(15,23,42,0.12)] ${selected ? 'border-amber-500 ring-2 ring-amber-200' : 'border-slate-200'}`}>
+    <div className={`${collapsed ? 'w-56' : 'min-w-56'} rounded-xl border bg-white shadow-[0_14px_28px_rgba(15,23,42,0.12)] ${selected ? 'border-amber-500 ring-2 ring-amber-200' : 'border-slate-200'}`}>
       <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-4 py-3">
-        <div>
-          <div className="text-sm font-semibold text-slate-900">{node.settings.label || definition.label}</div>
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold text-slate-900">{title}</div>
+          {collapsed ? (
+            <div className="mt-1 flex flex-wrap gap-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+              <span>{categoryLabel(definition.category)}</span>
+              <span>{inputs.length} in</span>
+              <span>{outputs.length} out</span>
+            </div>
+          ) : null}
         </div>
         <div className="flex items-center gap-1">
+          <button
+            aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${title}`}
+            className="nodrag flex h-6 w-6 items-center justify-center rounded-full border border-slate-200 bg-white text-[11px] font-bold text-slate-500 transition hover:border-amber-300 hover:bg-amber-50 hover:text-amber-700"
+            title={collapsed ? 'Expand block' : 'Collapse block'}
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onCollapseToggle(node.id);
+            }}
+          >
+            <svg aria-hidden="true" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24">
+              {collapsed ? (
+                <path d="M12 5v14M5 12h14" stroke="currentColor" strokeLinecap="round" strokeWidth="2.4" />
+              ) : (
+                <path d="M5 12h14" stroke="currentColor" strokeLinecap="round" strokeWidth="2.4" />
+              )}
+            </svg>
+          </button>
           <button
             className={`nodrag rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${locked ? 'bg-slate-100 text-slate-600 hover:bg-slate-200' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'}`}
             type="button"
@@ -749,6 +851,12 @@ const WorkspaceBlockNode = memo(function WorkspaceBlockNode({ data, selected }: 
         </div>
       </div>
 
+      {collapsed ? (
+        <div className="grid grid-cols-2 gap-2 px-3 py-3">
+          {compactPortRows(inputs, 'input')}
+          {compactPortRows(outputs, 'output')}
+        </div>
+      ) : (
       <div className="px-4 py-3">
         <SettingField help="Optional display name for this block. Leaving it empty uses the block type name." label="Block label">
           <input
@@ -801,6 +909,7 @@ const WorkspaceBlockNode = memo(function WorkspaceBlockNode({ data, selected }: 
           ))}
         </div>
       </div>
+      )}
     </div>
   );
 });
@@ -851,6 +960,116 @@ function regexSettingsFromDraft(draft: ActivityDraft): Partial<WorkspaceBlockSet
   };
 }
 
+function buildDownstreamNodeIds(workspace: WorkspaceFileV2, sourceTypes: Set<BlockKind>): Set<string> {
+  const sourceIds = workspace.nodes.filter((node) => sourceTypes.has(node.type)).map((node) => node.id);
+  const visited = new Set(sourceIds);
+  const queue = [...sourceIds];
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    workspace.edges
+      .filter((edge) => edge.source === current)
+      .forEach((edge) => {
+        if (!visited.has(edge.target)) {
+          visited.add(edge.target);
+          queue.push(edge.target);
+        }
+      });
+  }
+
+  return visited;
+}
+
+function buildEventLaneTargets(workspace: WorkspaceFileV2): Record<EventLaneId, Set<string>> {
+  const targets = EVENT_LANE_DEFINITIONS.reduce((accumulator, lane) => {
+    accumulator[lane.id] = buildDownstreamNodeIds(workspace, lane.sourceTypes);
+    return accumulator;
+  }, {} as Record<EventLaneId, Set<string>>);
+  const known = new Set<string>();
+  EVENT_LANE_DEFINITIONS.forEach((lane) => {
+    targets[lane.id].forEach((nodeId) => known.add(nodeId));
+  });
+  targets.other = new Set(workspace.nodes.filter((node) => !known.has(node.id)).map((node) => node.id));
+  return targets;
+}
+
+function tidyWorkspaceByEventLanes(workspace: WorkspaceFileV2): WorkspaceFileV2 {
+  const targets = buildEventLaneTargets(workspace);
+  const laneOrder: EventLaneId[] = ['trigger', 'keyboard', 'mouse', 'tick', 'other'];
+  const laneByNode = new Map<string, EventLaneId>();
+  laneOrder.forEach((lane) => {
+    targets[lane].forEach((nodeId) => {
+      if (!laneByNode.has(nodeId)) {
+        laneByNode.set(nodeId, lane);
+      }
+    });
+  });
+
+  const nodesByLane = laneOrder.reduce((accumulator, lane) => {
+    accumulator[lane] = workspace.nodes
+      .filter((node) => (laneByNode.get(node.id) ?? 'other') === lane)
+      .slice()
+      .sort((left, right) => left.position.x - right.position.x || left.position.y - right.position.y);
+    return accumulator;
+  }, {} as Record<EventLaneId, WorkspaceNodeV2[]>);
+
+  const yBase: Record<EventLaneId, number> = {
+    trigger: 80,
+    keyboard: 520,
+    mouse: 960,
+    tick: 1400,
+    other: 1840,
+  };
+  const positionById = new Map<string, WorkspaceNodeV2['position']>();
+  laneOrder.forEach((lane) => {
+    nodesByLane[lane].forEach((node, index) => {
+      positionById.set(node.id, {
+        x: 80 + Math.floor(index / 3) * 300,
+        y: yBase[lane] + (index % 3) * 132,
+      });
+    });
+  });
+
+  return {
+    ...workspace,
+    metadata: { ...workspace.metadata, updated_at: Date.now() },
+    nodes: workspace.nodes.map((node) => ({
+      ...node,
+      position: positionById.get(node.id) ?? node.position,
+    })),
+  };
+}
+
+function groupedRiskReasons(reasons: string[]): Array<{ key: string; summary: string; details: string[] }> {
+  const grouped = new Map<string, string[]>();
+  const output: Array<{ key: string; summary: string; details: string[] }> = [];
+
+  reasons.forEach((reason) => {
+    const match = /^(.+) is (extended|high) risk\.$/.exec(reason);
+    if (!match) {
+      output.push({ key: reason, summary: reason, details: [] });
+      return;
+    }
+
+    const [, name, risk] = match;
+    const key = `${risk}-ports`;
+    grouped.set(key, [...(grouped.get(key) ?? []), name]);
+  });
+
+  grouped.forEach((names, key) => {
+    const risk = key.startsWith('high') ? 'high' : 'extended';
+    const shown = names.slice(0, 6).join(', ');
+    const suffix = names.length > 6 ? `, +${names.length - 6} more` : '';
+    output.unshift({
+      key,
+      summary: `${names.length} ${risk}-risk ports: ${shown}${suffix}.`,
+      details: names.map((name) => `${name} is ${risk} risk.`),
+    });
+  });
+
+  return output;
+}
+
 interface WorkspaceFlowProps {
   advancedModeEnabled: boolean;
   workspace: WorkspaceFileV2;
@@ -879,6 +1098,18 @@ function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, inva
       }
 
       onWorkspaceChange(updateNodeSettings(workspace, nodeId, { locked: !node.settings.locked }));
+    },
+    [onWorkspaceChange, workspace],
+  );
+
+  const handleCollapseToggle = useCallback(
+    (nodeId: string): void => {
+      const node = workspace.nodes.find((candidate) => candidate.id === nodeId);
+      if (!node) {
+        return;
+      }
+
+      onWorkspaceChange(updateNodeSettings(workspace, nodeId, { collapsed: !node.settings.collapsed }));
     },
     [onWorkspaceChange, workspace],
   );
@@ -934,6 +1165,7 @@ function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, inva
             invalidInputs,
             node,
             outputs,
+            onCollapseToggle: handleCollapseToggle,
             onDeleteNode: handleDeleteNode,
             onLockToggle: handleLockToggle,
             onOpenRegexBuilder: setRegexBuilderNodeId,
@@ -943,7 +1175,7 @@ function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, inva
           draggable: !node.settings.locked,
         };
       }),
-    [workspace, invalidEdgeIds, handleDeleteNode, handleLockToggle, handleSettingsChange],
+    [workspace, invalidEdgeIds, handleCollapseToggle, handleDeleteNode, handleLockToggle, handleSettingsChange],
   );
 
   const workspaceEdges = useMemo<Edge[]>(
@@ -962,6 +1194,8 @@ function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, inva
       })),
     [workspace.edges, invalidEdgeIds],
   );
+  const laneTargets = useMemo(() => buildEventLaneTargets(workspace), [workspace]);
+  const collapsedCount = workspace.nodes.filter((node) => node.settings.collapsed).length;
 
   const [flowNodes, setFlowNodes] = useState<WorkspaceFlowNode[]>(workspaceNodes);
   const [flowEdges, setFlowEdges] = useState<Edge[]>(workspaceEdges);
@@ -1082,6 +1316,36 @@ function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, inva
     });
   }
 
+  function setAllBlocksCollapsed(collapsed: boolean): void {
+    onWorkspaceChange({
+      ...workspace,
+      metadata: { ...workspace.metadata, updated_at: Date.now() },
+      nodes: workspace.nodes.map((node) => ({
+        ...node,
+        settings: {
+          ...node.settings,
+          collapsed,
+        },
+      })),
+    });
+  }
+
+  function focusNodeIds(nodeIds: Set<string>): void {
+    if (!flowInstance || nodeIds.size === 0) {
+      return;
+    }
+
+    void flowInstance.fitView({
+      nodes: Array.from(nodeIds).map((id) => ({ id })),
+      padding: 0.22,
+      duration: 240,
+    });
+  }
+
+  function tidyEventLanes(): void {
+    onWorkspaceChange(tidyWorkspaceByEventLanes(workspace));
+  }
+
   function handleViewportChange(viewport: Viewport): void {
     if (
       Math.abs(workspace.viewport.x - viewport.x) < 0.5 &&
@@ -1134,6 +1398,50 @@ function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, inva
         selectionOnDrag
         selectNodesOnDrag={false}
       >
+        <Panel className="nodrag nowheel" position="top-left">
+          <div className="flex max-w-[min(760px,calc(100vw-56px))] flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white/90 p-2 text-xs shadow-[0_14px_34px_rgba(15,23,42,0.12)] backdrop-blur">
+            <span className="rounded-full bg-slate-100 px-2.5 py-1 font-semibold text-slate-600">
+              {workspace.nodes.length} blocks / {workspace.edges.length} links
+            </span>
+            <button className="rounded-full border border-slate-200 px-2.5 py-1 font-semibold text-slate-700 hover:border-amber-300 hover:bg-amber-50" type="button" onClick={() => focusNodeIds(new Set(workspace.nodes.map((node) => node.id)))}>
+              Fit
+            </button>
+            <button className="rounded-full border border-slate-200 px-2.5 py-1 font-semibold text-slate-700 hover:border-amber-300 hover:bg-amber-50" type="button" onClick={() => setAllBlocksCollapsed(true)}>
+              Compact all
+            </button>
+            <button className="rounded-full border border-slate-200 px-2.5 py-1 font-semibold text-slate-700 hover:border-amber-300 hover:bg-amber-50" type="button" onClick={() => setAllBlocksCollapsed(false)}>
+              Expand all
+            </button>
+            <button className="rounded-full border border-slate-200 px-2.5 py-1 font-semibold text-slate-700 hover:border-amber-300 hover:bg-amber-50" type="button" onClick={tidyEventLanes}>
+              Tidy lanes
+            </button>
+            {collapsedCount > 0 ? (
+              <span className="rounded-full bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-700">{collapsedCount} compact</span>
+            ) : null}
+          </div>
+        </Panel>
+        <Panel className="nodrag nowheel" position="top-right">
+          <div className="grid gap-1 rounded-2xl border border-slate-200 bg-white/90 p-2 text-xs shadow-[0_14px_34px_rgba(15,23,42,0.12)] backdrop-blur">
+            {EVENT_LANE_DEFINITIONS.map((lane) => (
+              <button
+                key={lane.id}
+                className="flex min-w-32 items-center justify-between gap-3 rounded-xl px-2.5 py-1.5 font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45"
+                disabled={laneTargets[lane.id].size === 0}
+                type="button"
+                onClick={() => focusNodeIds(laneTargets[lane.id])}
+              >
+                <span>{lane.label}</span>
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 font-mono text-[10px] text-slate-500">{laneTargets[lane.id].size}</span>
+              </button>
+            ))}
+            {laneTargets.other.size > 0 ? (
+              <button className="flex min-w-32 items-center justify-between gap-3 rounded-xl px-2.5 py-1.5 font-semibold text-slate-700 hover:bg-slate-50" type="button" onClick={() => focusNodeIds(laneTargets.other)}>
+                <span>Other</span>
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 font-mono text-[10px] text-slate-500">{laneTargets.other.size}</span>
+              </button>
+            ) : null}
+          </div>
+        </Panel>
         <Background color="#e2e8f0" gap={22} />
         <Controls showInteractive={false} />
         <MiniMap nodeColor="#c76a1a" pannable zoomable />
@@ -1195,6 +1503,111 @@ function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, inva
   );
 }
 
+function BlockPicker({ onAddBlock }: { onAddBlock: (kind: BlockKind) => void }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [category, setCategory] = useState<BlockDefinition['category'] | 'all'>('all');
+  const categories = useMemo(
+    () => Array.from(new Set(BLOCK_DEFINITIONS.map((definition) => definition.category))).sort(),
+    [],
+  );
+  const matchingBlocks = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return BLOCK_DEFINITIONS.filter((definition) => {
+      if (category !== 'all' && definition.category !== category) {
+        return false;
+      }
+
+      if (!normalizedQuery) {
+        return true;
+      }
+
+      return (
+        definition.label.toLowerCase().includes(normalizedQuery) ||
+        definition.kind.toLowerCase().includes(normalizedQuery) ||
+        definition.category.toLowerCase().includes(normalizedQuery)
+      );
+    });
+  }, [category, query]);
+
+  return (
+    <div className="relative z-20">
+      <div className="flex flex-wrap items-center gap-2">
+        <button className="secondary-button" type="button" onClick={() => setOpen((current) => !current)}>
+          Add Block
+        </button>
+        <div className="flex flex-wrap gap-1.5">
+          {['RegExpression', 'Logical', 'Math', 'SharedState', 'OverlayControl', 'OverlayDraw'].map((kind) => {
+            const definition = getBlockDefinition(kind as BlockKind);
+            return (
+              <button
+                key={kind}
+                className="ghost-button px-3 py-1.5 text-xs"
+                type="button"
+                onClick={() => onAddBlock(definition.kind)}
+              >
+                {definition.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      {open ? (
+        <div className="absolute left-0 top-12 z-30 w-[min(760px,calc(100vw-32px))] rounded-2xl border border-slate-200 bg-white p-3 shadow-[0_24px_70px_rgba(15,23,42,0.22)]">
+          <div className="grid gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                className="field-input min-w-64 flex-1 py-2"
+                placeholder="Search blocks"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+              <button className="ghost-button px-3 py-2" type="button" onClick={() => setOpen(false)}>
+                Close
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                className={`rounded-full border px-3 py-1 text-xs font-semibold ${category === 'all' ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
+                type="button"
+                onClick={() => setCategory('all')}
+              >
+                All
+              </button>
+              {categories.map((entry) => (
+                <button
+                  key={entry}
+                  className={`rounded-full border px-3 py-1 text-xs font-semibold ${category === entry ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
+                  type="button"
+                  onClick={() => setCategory(entry)}
+                >
+                  {categoryLabel(entry)}
+                </button>
+              ))}
+            </div>
+            <div className="grid max-h-72 gap-2 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3">
+              {matchingBlocks.map((definition) => (
+                <button
+                  key={definition.kind}
+                  className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-left transition hover:border-amber-300 hover:bg-amber-50"
+                  type="button"
+                  onClick={() => {
+                    onAddBlock(definition.kind);
+                    setOpen(false);
+                  }}
+                >
+                  <span className="block text-sm font-semibold text-slate-900">{definition.label}</span>
+                  <span className="mt-1 block text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">{categoryLabel(definition.category)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function WorkspaceEditor({
   advancedModeEnabled,
   allWorkspaces,
@@ -1213,6 +1626,7 @@ export function WorkspaceEditor({
   const [isPopout, setIsPopout] = useState(false);
   const compileResult = useMemo(() => compileWorkspace(workspace), [workspace]);
   const invalidEdgeIds = useMemo(() => new Set(compileResult.validation.invalidEdgeIds), [compileResult.validation.invalidEdgeIds]);
+  const riskReasonGroups = useMemo(() => groupedRiskReasons(compileResult.validation.risk.reasons), [compileResult.validation.risk.reasons]);
   const hotkeyError = workspace.trigger.type === 'HOTKEY' ? getHotkeyValidationError(workspace.trigger.hotkey, []) : null;
   const hasDataOut = workspace.nodes.some((node) => node.type === 'DataFlowOut');
   const urlFilter = workspace.trigger.sourceFilters?.find((filter) => filter.source === 'url')?.pattern ?? '';
@@ -1264,22 +1678,12 @@ export function WorkspaceEditor({
     };
   }, [isPopout]);
 
-  const blockToolbar = (
-    <div className="flex flex-wrap gap-2">
-      {BLOCK_DEFINITIONS.map((definition) => (
-        <button key={definition.kind} className="ghost-button" type="button" onClick={() => addToolbarBlock(definition.kind)}>
-          {definition.label}
-        </button>
-      ))}
-    </div>
-  );
-
   const surface = (heightClassName?: string, expanded = false) => (
     <div className={expanded ? 'flex h-full min-h-0 flex-col gap-3' : 'grid gap-4'}>
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-sm font-semibold text-slate-900">Workspace surface</p>
-          <p className="text-xs text-slate-500">Right-click the canvas or use the block generator to add blocks.</p>
+          <p className="text-xs text-slate-500">{workspace.nodes.length} blocks, {workspace.edges.length} links.</p>
         </div>
         {!expanded ? (
           <button className="ghost-button" title="Expand workspace surface" type="button" onClick={() => setIsPopout(true)}>
@@ -1290,7 +1694,9 @@ export function WorkspaceEditor({
           </button>
         ) : null}
       </div>
-      <div className="shrink-0">{blockToolbar}</div>
+      <div className="shrink-0">
+        <BlockPicker onAddBlock={addToolbarBlock} />
+      </div>
       <ReactFlowProvider>
         <WorkspaceFlow
           advancedModeEnabled={advancedModeEnabled}
@@ -1472,7 +1878,7 @@ export function WorkspaceEditor({
                 ? 'Install notice: extended access'
                 : 'Install notice: standard'}
           </p>
-          {compileResult.validation.risk.reasons.length > 0 ? (
+          {riskReasonGroups.length > 0 ? (
             <div className="mt-2 space-y-2">
               <p>
                 {compileResult.validation.risk.highest === 'high'
@@ -1480,8 +1886,19 @@ export function WorkspaceEditor({
                   : 'Users will be told that this pack touches data outside the safe core and should enable trace after installation.'}
               </p>
               <ul className="list-disc pl-5">
-              {compileResult.validation.risk.reasons.map((reason) => (
-                <li key={reason}>{reason}</li>
+              {riskReasonGroups.map((group) => (
+                <li key={group.key}>
+                  {group.details.length > 0 ? (
+                    <details>
+                      <summary className="cursor-pointer font-medium">{group.summary}</summary>
+                      <ul className="mt-1 list-disc pl-5 text-xs">
+                        {group.details.map((detail) => (
+                          <li key={detail}>{detail}</li>
+                        ))}
+                      </ul>
+                    </details>
+                  ) : group.summary}
+                </li>
               ))}
               </ul>
             </div>

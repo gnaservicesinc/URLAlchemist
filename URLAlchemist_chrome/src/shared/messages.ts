@@ -5,6 +5,7 @@ import type { DisplayRequest, OverlayControlRequest, OverlayDrawRequest, UserInt
 export const OFFSCREEN_REGEX_MESSAGE = 'URL_ALCHEMIST_OFFSCREEN_REGEX';
 export const OFFSCREEN_CLIPBOARD_MESSAGE = 'URL_ALCHEMIST_OFFSCREEN_CLIPBOARD';
 export const OFFSCREEN_CLIPBOARD_WRITE_MESSAGE = 'URL_ALCHEMIST_OFFSCREEN_CLIPBOARD_WRITE';
+export const OFFSCREEN_CLIPBOARD_BINARY_WRITE_MESSAGE = 'URL_ALCHEMIST_OFFSCREEN_CLIPBOARD_BINARY_WRITE';
 export const HOTKEY_TRIGGER_MESSAGE = 'URL_ALCHEMIST_HOTKEY_TRIGGER';
 export const CONTENT_INTERACTION_MESSAGE = 'URL_ALCHEMIST_CONTENT_INTERACTION';
 export const CONTENT_DISPLAY_MESSAGE = 'URL_ALCHEMIST_CONTENT_DISPLAY';
@@ -28,6 +29,12 @@ export interface OffscreenClipboardWriteMessage {
   text: string;
 }
 
+export interface OffscreenClipboardBinaryWriteMessage {
+  type: typeof OFFSCREEN_CLIPBOARD_BINARY_WRITE_MESSAGE;
+  mimeType: string;
+  dataBase64: string;
+}
+
 export interface RuntimeSourceContext {
   linkUrl?: string;
   pageTitle?: string;
@@ -41,7 +48,7 @@ export interface HotkeyTriggerMessage extends RuntimeSourceContext {
   url: string;
 }
 
-export type OffscreenMessage = OffscreenRegexMessage | OffscreenClipboardMessage | OffscreenClipboardWriteMessage;
+export type OffscreenMessage = OffscreenRegexMessage | OffscreenClipboardMessage | OffscreenClipboardWriteMessage | OffscreenClipboardBinaryWriteMessage;
 
 export interface ContentInteractionMessage {
   type: typeof CONTENT_INTERACTION_MESSAGE;

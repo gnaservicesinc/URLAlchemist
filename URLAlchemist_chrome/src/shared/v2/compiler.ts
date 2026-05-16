@@ -486,10 +486,12 @@ function validateWorkspace(workspace: WorkspaceFileV2): WorkspaceValidationState
     }
 
     if (node.type === 'FetchData' || node.type === 'HttpRequest' || node.type === 'GetImage' || node.type === 'GetVideo' || node.type === 'GetAudio') {
-      addRisk(risk, 'high', node.type === 'FetchData' || node.type === 'HttpRequest' ? 'Remote data access is high risk.' : 'Remote media access is high risk.', 'input');
-      const fallbackUrl = (node.type === 'FetchData' || node.type === 'HttpRequest' ? node.settings.remoteUrl : node.settings.assetUrl)?.trim() ?? '';
-      if (!connectedInput(edgesByTarget, node.id, 'url') && !fallbackUrl) {
-        errors.push(`${node.settings.label || definition.label}: remote URL is required unless the URL input is connected.`);
+      const remoteDataNode = node.type === 'FetchData' || node.type === 'HttpRequest';
+      const hasEmbeddedAsset = !remoteDataNode && Boolean(node.settings.assetDataBase64?.trim());
+      addRisk(risk, 'high', remoteDataNode ? 'Remote data access is high risk.' : hasEmbeddedAsset ? 'Embedded media access is high risk.' : 'Remote media access is high risk.', 'input');
+      const fallbackUrl = (remoteDataNode ? node.settings.remoteUrl : node.settings.assetUrl)?.trim() ?? '';
+      if (!connectedInput(edgesByTarget, node.id, 'url') && !fallbackUrl && !hasEmbeddedAsset) {
+        errors.push(`${node.settings.label || definition.label}: remote URL or embedded asset is required unless the URL input is connected.`);
       }
 
       if (fallbackUrl) {
@@ -1047,7 +1049,7 @@ function requiredPermissionsForInstructions(instructions: GraphVmInstruction[]):
       permissions.add('clipboardRead');
     }
 
-    if (instruction.op === 'OUTPUT' && instruction.destination === 'clipboard') {
+    if (instruction.op === 'OUTPUT' && ['clipboard', 'clipboardBinary'].includes(instruction.destination)) {
       permissions.add('clipboardWrite');
     }
   });

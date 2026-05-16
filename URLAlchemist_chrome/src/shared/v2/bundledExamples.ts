@@ -8,6 +8,9 @@ export const BUNDLED_EXAMPLE_BUILDER_UUID = '11111111-1111-4111-8111-11111111111
 export const BUNDLED_EXAMPLE_CREATED_AT = BUNDLED_EXAMPLE_BUILD_TIME_UTC * 1000;
 export const BUNDLED_EXAMPLE_CHROME_VERSION = '2.0.0';
 export const BUNDLED_EXAMPLE_FIREFOX_VERSION = '0.1.0';
+const EMBEDDED_BREAK_IMAGE_BASE64 = 'PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxNjAgOTAiPjxyZWN0IHdpZHRoPSIxNjAiIGhlaWdodD0iOTAiIGZpbGw9IiNmZWYzYzciLz48Y2lyY2xlIGN4PSI4MCIgY3k9IjQ1IiByPSIzMCIgZmlsbD0iI2ZmZiIgc3Ryb2tlPSIjMGY3NjZlIiBzdHJva2Utd2lkdGg9IjYiLz48cGF0aCBkPSJNODAgMjV2MjJsMTYgMTAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2M3NmExYSIgc3Ryb2tlLXdpZHRoPSI2IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48dGV4dCB4PSI4MCIgeT0iODIiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxMCIgZmlsbD0iIzE3MjAzMyI+UXVpY2sgYnJlYWs8L3RleHQ+PC9zdmc+';
+const EMBEDDED_BREAK_TONE_BASE64 = 'UklGRgYEAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgATElTVBoAAABJTkZPSVNGVA4AAABMYXZmNjIuMTUuMTAwAGRhdGHAAwAAgomPjYV6cnB1fomPjoZ8c3B0fYiPjod9c3BzfYeOj4h+dHBzfIaOj4l+dXBye4WOj4qAdXBxeoSNj4qBdnBxeYOMj4uCd3BxeIKMj4yCeHFwd4KLj4yDeXFwdoGKj42EenFwdYCKj46Fe3JwdX6Jj46GfHNwdH2Ij46HfXNwc3yHjo+IfXRwc3yGjo+JfnVwcnuFjo+KgHVwcXqEjY+KgXZwcXmDjI+LgndwcXiCjJCMg3hxcHeCi4+Mg3lxcHaBio+NhHpxcHWAio+OhXtycHV+iY+OhnxzcHR9iI+Oh31zcHN9h46PiH10cHN8ho6PiX51cHJ7hY6PioB1cHF6hI2PioF2cHF5g4yPi4J3cHF4g4yPjIN4cXB3gouPjIN5cXB2gYqPjYR6cXB1f4qPjoV7cnB1fomPjoZ8c3B0fYiPjod9c3BzfYeOj4h9dHBzfIaOj4l/dXBye4WOj4qAdXBxeoSNj4qBdnBxeYOMj4uCd3BxeIKMj4yDeHFwd4KLj4yDeXFwdoGKj42EenFwdYCKj46Fe3JwdX6Jj46GfHNwdH2Ij46HfXNwc32Hjo+IfnRwc3yGjo+JfnVwcnuFjo+KgHVwcXqEjY+KgXZwcXmDjI+LgndwcXiCjI+MgnhxcHeCi4+Mg3lxcHaBio+NhHpxcHWAio+OhXtycHV+iY+OhnxzcHR9iI+Oh31zcHN8h46PiH10cHN8ho6PiX51cHJ7hY6PioB1cHF6hI2PioF2cHF5g4yPi4J3cHF4goyQjIN4cXB3gouPjIN5cXB2gYqPjYR6cXB1gIqPjoV7cnB1fomPjoZ8c3B0fYiPjod9c3BzfYeOj4h9dHBzfIaOj4l+dXBye4WOj4qAdXBxeoSNj4qBdnBxeYOMj4uCd3BxeIOMj4yDeHFwd4KLj4yDeXFwdoGKj42EenFwdX+Kj46Fe3JwdX6Jj46GfHNwdH2Ij46HfXNwc32Hjo+IfXRwc3yGjo+Jf3VwcnuFjo+KgHVwcXqEjY+KgXZwcXmDjI+LgndwcXiCjI+Mg3hxcHeCi4+Mg3lxcHaBio+NhHpxcHWAio+OhXtycHV+iY+OhnxzcHR9iI+Oh31zcHN9h46PiH50cHN8ho6PiX51cHJ7hY6PioB1cHF6hI2PioF2cHF5g4yPi4J3cHF4goyPjIJ4cXB3gouPjIN5cXB2gYqPjYR6cXB1gIqPjoV7cnB1fomPjoZ8c3B0fYiPjod9c3BzfIeOj4h9dHBzfIaOj4l+dXBye4WOj4qAdXBxeoSNj4uA';
+const EMBEDDED_SAMPLE_VIDEO_BASE64 = 'AAAAHGZ0eXBpc29tAAACAGlzb21pc28ybXA0MQAAAAhmcmVlAAABbG1kYXQAAAGzABAHAAABthYozhfHyv4iQZgOBwpZy3ttJzN3k4TiipVG2c2omu0Cd4oDKvY0haLmDX8gD4fAVAkDBOxhwFjYFF8gBZHwFQJAwTsGgr8IsQIyUHQMhQGEqn/Cz//I1G7nTfKeBp2cvScGNMzftFlBkCKkmoBlwMCBAAClDSF8Ngz+X/xBgvCW1K5ATU39RcGomXJ/Lo1+IDQJrSLBaajdFQ1BT/NYLwlBgbHzMDgGGo4kLmcU9UL8EUUtIcBYQ8qzUOi4JCAGs4j0XBICj8dpgVIMNAraBllJaSIlydrFoZE4MHasGDVsHKX08Wg3PVe63bUd7AYJA0HONjbo0B1Y2MKVJIiXJ38AAMUM4Xx0rgedNAmPMgWoyDNyCJ8UDQPCf+JcCvBgkY8LWwcvkAyPgKgSBgnYw4CxsCh+QAsj4CoEgYJ2VNPV5CQ+PqTjeBoGL2DhQ7+JgwwHApkhQ2DBSwAAA0Ftb292AAAAbG12aGQAAAAAAAAAAAAAAAAAAAPoAAAD6AABAAABAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAACa3RyYWsAAABcdGtoZAAAAAMAAAAAAAAAAAAAAAEAAAAAAAAD6AAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAEAAAAAAQAAAACQAAAAAACRlZHRzAAAAHGVsc3QAAAAAAAAAAQAAA+gAAAAAAAEAAAAAAeNtZGlhAAAAIG1kaGQAAAAAAAAAAAAAAAAAAEAAAABAAFXEAAAAAAAtaGRscgAAAAAAAAAAdmlkZQAAAAAAAAAAAAAAAFZpZGVvSGFuZGxlcgAAAAGObWluZgAAABR2bWhkAAAAAQAAAAAAAAAAAAAAJGRpbmYAAAAcZHJlZgAAAAAAAAABAAAADHVybCAAAAABAAABTnN0YmwAAADqc3RzZAAAAAAAAAABAAAA2m1wNHYAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAQAAkAEgAAABIAAAAAAAAAAETTGF2YzYyLjMyLjEwMCBtcGVnNAAAAAAAAAAAAAAAAAAY//8AAABgZXNkcwAAAAADgICATwABAASAgIBBIBEAAAAAAw1AAAALIAWAgIAvAAABsAEAAAG1iRMAAAEAAAABIADEjYgADQIEBJRDAAABskxhdmM2Mi4zMi4xMDAGgICAAQIAAAAQcGFzcAAAAAEAAAABAAAAFGJ0cnQAAAAAAAMNQAAACyAAAAAYc3R0cwAAAAAAAAABAAAAAQAAQAAAAAAcc3RzYwAAAAAAAAABAAAAAQAAAAEAAAABAAAAFHN0c3oAAAAAAAABZAAAAAEAAAAUc3RjbwAAAAAAAAABAAAALAAAAGJ1ZHRhAAAAWm1ldGEAAAAAAAAAIWhkbHIAAAAAAAAAAG1kaXJhcHBsAAAAAAAAAAAAAAAALWlsc3QAAAAlqXRvbwAAAB1kYXRhAAAAAQAAAABMYXZmNjIuMTUuMTAw';
 
 export interface BundledActionPackExample {
   id: string;
@@ -123,11 +126,11 @@ export const BUNDLED_ACTION_PACK_EXAMPLES: BundledActionPackExample[] = [
     id: '0f6b6d50-9d44-4a86-9d0f-80a9e8200009',
     name: 'Remote Text Fetch Preview',
     slug: 'remote-text-fetch-preview',
-    description: 'Fetches a text file from a fixed HTTPS endpoint and writes it to the page-text output while leaving navigation unchanged.',
+    description: 'Fetches the stable Example Domain page and previews the returned text on the current page while leaving navigation unchanged.',
     category: 'Remote data',
     trigger: 'CONTEXT_MENU',
     risk: 'high',
-    features: ['Remote GET warning', 'Typed string output', 'No redirect'],
+    features: ['Remote GET warning', 'Real HTTPS endpoint', 'No redirect'],
     workspacePath: 'bundled-actionpacks/workspaces/remote-text-fetch-preview.workspace',
     actionPackPath: 'bundled-actionpacks/action-packs/remote-text-fetch-preview.actionpack',
   },
@@ -135,11 +138,11 @@ export const BUNDLED_ACTION_PACK_EXAMPLES: BundledActionPackExample[] = [
     id: '0f6b6d50-9d44-4a86-9d0f-80a9e8200010',
     name: 'Remote POST Snapshot',
     slug: 'remote-post-snapshot',
-    description: 'Builds a small dictionary from the current page and sends it to a fixed HTTPS endpoint.',
+    description: 'Builds a small page dictionary, sends it to a public echo endpoint, and previews the echoed response.',
     category: 'Remote data',
     trigger: 'CONTEXT_MENU',
     risk: 'high',
-    features: ['Remote POST warning', 'Dictionary body', 'No redirect'],
+    features: ['Remote POST warning', 'Dictionary body', 'Echo response'],
     workspacePath: 'bundled-actionpacks/workspaces/remote-post-snapshot.workspace',
     actionPackPath: 'bundled-actionpacks/action-packs/remote-post-snapshot.actionpack',
   },
@@ -147,35 +150,35 @@ export const BUNDLED_ACTION_PACK_EXAMPLES: BundledActionPackExample[] = [
     id: '0f6b6d50-9d44-4a86-9d0f-80a9e8200011',
     name: 'Clean Words',
     slug: 'clean-words',
-    description: 'Fetches a remote bad-words list, masks matching page text, and shows a review message before leaving navigation unchanged.',
+    description: 'Masks a small built-in word list in page text and shows a review message before leaving navigation unchanged.',
     category: 'Page tools',
     trigger: 'CONTEXT_MENU',
     risk: 'high',
-    features: ['Remote word list', 'Page text mutation', 'Overlay message'],
+    features: ['Built-in word list', 'Page text mutation', 'Overlay message'],
     workspacePath: 'bundled-actionpacks/workspaces/clean-words.workspace',
     actionPackPath: 'bundled-actionpacks/action-packs/clean-words.actionpack',
   },
   {
     id: '0f6b6d50-9d44-4a86-9d0f-80a9e8200012',
-    name: 'Screen Time',
-    slug: 'screen-time',
-    description: 'Prompts for a daily limit, records timing data, shows media feedback, and redirects to a chosen break page.',
-    category: 'Storage',
-    trigger: 'CONTEXT_MENU',
+    name: 'Break Reminder',
+    slug: 'break-reminder',
+    description: 'Opens a manual break reminder from a hotkey, shows bundled media, plays a short local tone, and records the run time.',
+    category: 'Media',
+    trigger: 'HOTKEY',
     risk: 'high',
-    features: ['System time', 'Prompts', 'SaveLoad', 'Image and sound overlays'],
-    workspacePath: 'bundled-actionpacks/workspaces/screen-time.workspace',
-    actionPackPath: 'bundled-actionpacks/action-packs/screen-time.actionpack',
+    features: ['Embedded media', 'Hotkey trigger', 'SaveLoad timestamp'],
+    workspacePath: 'bundled-actionpacks/workspaces/break-reminder.workspace',
+    actionPackPath: 'bundled-actionpacks/action-packs/break-reminder.actionpack',
   },
   {
     id: '0f6b6d50-9d44-4a86-9d0f-80a9e8200013',
     name: 'Playback Resume',
     slug: 'playback-resume',
-    description: 'Prompts for a direct video file or URL, plays a direct-access video, and stores playback result details for later runs.',
+    description: 'Plays a tiny bundled video sample and stores playback result details for later runs.',
     category: 'Media',
     trigger: 'HOTKEY',
     risk: 'high',
-    features: ['File or URL prompt', 'Direct video fetch', 'Playback result dictionary', 'SaveLoad'],
+    features: ['Embedded video', 'Playback result dictionary', 'SaveLoad'],
     workspacePath: 'bundled-actionpacks/workspaces/playback-resume.workspace',
     actionPackPath: 'bundled-actionpacks/action-packs/playback-resume.actionpack',
   },
@@ -383,31 +386,63 @@ function githubPrFilesShortcut(): WorkspaceFileV2 {
 function searchSelectedText(): WorkspaceFileV2 {
   const slug = 'search-selected-text';
   const input = node(slug, 'input', 'DataFlowIn', { x: 0, y: 140 }, { locked: true });
-  const spaces = node(slug, 'spaces', 'RegExpression', { x: 280, y: 90 }, {
+  const percent = node(slug, 'percent', 'RegExpression', { x: 260, y: 60 }, {
+    label: 'Encode percent',
+    pattern: '%',
+    action: 'SUBSTITUTE',
+    matchMode: 'STANDARD',
+    payload: '%25',
+  });
+  const ampersand = node(slug, 'ampersand', 'RegExpression', { x: 520, y: 60 }, {
+    label: 'Encode ampersand',
+    pattern: '&',
+    action: 'SUBSTITUTE',
+    matchMode: 'STANDARD',
+    payload: '%26',
+  });
+  const hash = node(slug, 'hash', 'RegExpression', { x: 780, y: 60 }, {
+    label: 'Encode hash',
+    pattern: '#',
+    action: 'SUBSTITUTE',
+    matchMode: 'STANDARD',
+    payload: '%23',
+  });
+  const question = node(slug, 'question', 'RegExpression', { x: 1040, y: 60 }, {
+    label: 'Encode question',
+    pattern: '\\?',
+    action: 'SUBSTITUTE',
+    matchMode: 'STANDARD',
+    payload: '%3F',
+  });
+  const spaces = node(slug, 'spaces', 'RegExpression', { x: 1300, y: 90 }, {
     label: 'Spaces to plus',
     pattern: '\\s+',
     action: 'SUBSTITUTE',
     matchMode: 'STANDARD',
     payload: '+',
   });
-  const prepend = node(slug, 'prepend', 'RegExpression', { x: 560, y: 90 }, {
+  const prepend = node(slug, 'prepend', 'RegExpression', { x: 1560, y: 90 }, {
     label: 'Add search URL',
     pattern: '^',
     action: 'PREPEND',
     matchMode: 'STANDARD',
     payload: 'https://www.google.com/search?q=',
   });
-  const convert = node(slug, 'convert', 'Convert', { x: 840, y: 95 }, {
+  const convert = node(slug, 'convert', 'Convert', { x: 1840, y: 95 }, {
     label: 'String to URL',
     convertMode: 'STRING_TO_URL',
   });
-  const output = node(slug, 'output', 'DataFlowOut', { x: 1120, y: 140 }, { locked: true });
+  const output = node(slug, 'output', 'DataFlowOut', { x: 2120, y: 140 }, { locked: true });
 
   return baseWorkspace(
     getExample(slug),
-    [input, spaces, prepend, convert, output],
+    [input, percent, ampersand, hash, question, spaces, prepend, convert, output],
     [
-      edge(input, 'selectedText', spaces, 'input'),
+      edge(input, 'selectedText', percent, 'input'),
+      edge(percent, 'result', ampersand, 'input'),
+      edge(ampersand, 'result', hash, 'input'),
+      edge(hash, 'result', question, 'input'),
+      edge(question, 'result', spaces, 'input'),
       edge(spaces, 'result', prepend, 'input'),
       edge(prepend, 'result', convert, 'input'),
       edge(convert, 'result', output, 'url'),
@@ -425,31 +460,63 @@ function clipboardSearchLauncher(): WorkspaceFileV2 {
   const slug = 'clipboard-search-launcher';
   const input = node(slug, 'input', 'DataFlowIn', { x: 0, y: 260 }, { locked: true });
   const extendedInput = node(slug, 'extended-input', 'ExtendedDataIn', { x: 0, y: 40 });
-  const spaces = node(slug, 'spaces', 'RegExpression', { x: 300, y: 40 }, {
+  const percent = node(slug, 'percent', 'RegExpression', { x: 260, y: 40 }, {
+    label: 'Encode percent',
+    pattern: '%',
+    action: 'SUBSTITUTE',
+    matchMode: 'STANDARD',
+    payload: '%25',
+  });
+  const ampersand = node(slug, 'ampersand', 'RegExpression', { x: 520, y: 40 }, {
+    label: 'Encode ampersand',
+    pattern: '&',
+    action: 'SUBSTITUTE',
+    matchMode: 'STANDARD',
+    payload: '%26',
+  });
+  const hash = node(slug, 'hash', 'RegExpression', { x: 780, y: 40 }, {
+    label: 'Encode hash',
+    pattern: '#',
+    action: 'SUBSTITUTE',
+    matchMode: 'STANDARD',
+    payload: '%23',
+  });
+  const question = node(slug, 'question', 'RegExpression', { x: 1040, y: 40 }, {
+    label: 'Encode question',
+    pattern: '\\?',
+    action: 'SUBSTITUTE',
+    matchMode: 'STANDARD',
+    payload: '%3F',
+  });
+  const spaces = node(slug, 'spaces', 'RegExpression', { x: 1300, y: 40 }, {
     label: 'Spaces to plus',
     pattern: '\\s+',
     action: 'SUBSTITUTE',
     matchMode: 'STANDARD',
     payload: '+',
   });
-  const prepend = node(slug, 'prepend', 'RegExpression', { x: 580, y: 40 }, {
+  const prepend = node(slug, 'prepend', 'RegExpression', { x: 1560, y: 40 }, {
     label: 'Add search URL',
     pattern: '^',
     action: 'PREPEND',
     matchMode: 'STANDARD',
     payload: 'https://www.google.com/search?q=',
   });
-  const convert = node(slug, 'convert', 'Convert', { x: 860, y: 45 }, {
+  const convert = node(slug, 'convert', 'Convert', { x: 1840, y: 45 }, {
     label: 'String to URL',
     convertMode: 'STRING_TO_URL',
   });
-  const output = node(slug, 'output', 'DataFlowOut', { x: 1140, y: 80 }, { locked: true });
+  const output = node(slug, 'output', 'DataFlowOut', { x: 2120, y: 80 }, { locked: true });
 
   return baseWorkspace(
     getExample(slug),
-    [input, extendedInput, spaces, prepend, convert, output],
+    [input, extendedInput, percent, ampersand, hash, question, spaces, prepend, convert, output],
     [
-      edge(extendedInput, 'clipboard', spaces, 'input'),
+      edge(extendedInput, 'clipboard', percent, 'input'),
+      edge(percent, 'result', ampersand, 'input'),
+      edge(ampersand, 'result', hash, 'input'),
+      edge(hash, 'result', question, 'input'),
+      edge(question, 'result', spaces, 'input'),
       edge(spaces, 'result', prepend, 'input'),
       edge(prepend, 'result', convert, 'input'),
       edge(convert, 'result', output, 'url'),
@@ -557,7 +624,7 @@ function uppercaseSelectionClipboard(): WorkspaceFileV2 {
   });
   const loop = node(slug, 'loop', 'Loop', { x: 840, y: 90 }, {
     label: 'Budgeted pass',
-    loopLimit: 8,
+    loopLimit: 64,
   });
   const convert = node(slug, 'convert', 'Convert', { x: 1120, y: 90 }, {
     label: 'Codes to string',
@@ -600,7 +667,7 @@ function remoteTextFetchPreview(): WorkspaceFileV2 {
   const input = node(slug, 'input', 'DataFlowIn', { x: 0, y: 160 }, { locked: true });
   const fetchText = node(slug, 'fetch-text', 'FetchData', { x: 300, y: 40 }, {
     label: 'Fetch remote text',
-    remoteUrl: 'https://example.com/data.txt',
+    remoteUrl: 'https://example.com/',
     remoteDataType: 'string',
     remoteTimeoutMs: 5000,
     remoteMaxBytes: 32768,
@@ -635,7 +702,7 @@ function remotePostSnapshot(): WorkspaceFileV2 {
   const request = node(slug, 'request', 'HttpRequest', { x: 620, y: 40 }, {
     label: 'POST snapshot',
     remoteMethod: 'POST',
-    remoteUrl: 'https://example.com/api/snapshot',
+    remoteUrl: 'https://httpbin.org/post',
     remoteDataType: 'string',
     remoteTimeoutMs: 5000,
     remoteMaxBytes: 32768,
@@ -665,39 +732,25 @@ function cleanWords(): WorkspaceFileV2 {
   const slug = 'clean-words';
   const input = node(slug, 'input', 'DataFlowIn', { x: 0, y: 180 }, { locked: true });
   const extendedInput = node(slug, 'extended-input', 'ExtendedDataIn', { x: 0, y: 20 });
-  const fetchList = node(slug, 'fetch-list', 'FetchData', { x: 300, y: 20 }, {
-    label: 'Fetch bad words',
-    remoteUrl: 'https://www.cs.cmu.edu/~biglou/resources/bad-words.txt',
-    remoteDataType: 'string',
-    remoteTimeoutMs: 5000,
-    remoteMaxBytes: 131072,
-  });
-  const maskText = node(slug, 'mask-text', 'RegExpression', { x: 620, y: 170 }, {
+  const maskText = node(slug, 'mask-text', 'RegExpression', { x: 300, y: 120 }, {
     label: 'Mask page words',
-    pattern: '\\b([A-Za-z])(?:fuck|shit|damn|crap|bitch|bastard)\\b',
+    pattern: '\\b(?:[Ff]uck|[Ss]hit|[Dd]amn|[Cc]rap|[Bb]itch|[Bb]astard)\\b',
     action: 'SUBSTITUTE',
     matchMode: 'STANDARD',
-    payload: '$1###',
-    payloadVars: true,
+    payload: '[masked]',
   });
-  const message = node(slug, 'message', 'ShowMessage', { x: 940, y: 20 }, {
-    promptMessage: 'Clean Words scanned this page and masked matching terms after the first letter.',
+  const message = node(slug, 'message', 'ShowMessage', { x: 620, y: 20 }, {
+    promptMessage: 'Clean Words scanned this page and masked matching terms from its built-in list.',
     displayMode: 'OVERLAY',
   });
-  const storeFetch = node(slug, 'store-fetch', 'SaveLoad', { x: 940, y: 170 }, {
-    label: 'Remember source list',
-    literalValue: 'clean-words:last-list',
-  });
-  const extendedOutput = node(slug, 'extended-output', 'ExtendedDataOut', { x: 1260, y: 100 });
-  const output = node(slug, 'output', 'DataFlowOut', { x: 1260, y: 280 }, { locked: true });
+  const extendedOutput = node(slug, 'extended-output', 'ExtendedDataOut', { x: 940, y: 80 });
+  const output = node(slug, 'output', 'DataFlowOut', { x: 940, y: 260 }, { locked: true });
 
   return baseWorkspace(
     getExample(slug),
-    [input, extendedInput, fetchList, maskText, message, storeFetch, extendedOutput, output],
+    [input, extendedInput, maskText, message, extendedOutput, output],
     [
       edge(extendedInput, 'pageText', maskText, 'input'),
-      edge(fetchList, 'result', storeFetch, 'value'),
-      edge(storeFetch, 'result', extendedOutput, 'fileBlob'),
       edge(maskText, 'result', extendedOutput, 'pageText'),
       edge(message, 'result', extendedOutput, 'domMutation'),
       edge(input, 'url', output, 'url'),
@@ -711,103 +764,89 @@ function cleanWords(): WorkspaceFileV2 {
   );
 }
 
-function screenTime(): WorkspaceFileV2 {
-  const slug = 'screen-time';
+function breakReminder(): WorkspaceFileV2 {
+  const slug = 'break-reminder';
   const input = node(slug, 'input', 'DataFlowIn', { x: 0, y: 260 }, { locked: true });
-  const now = node(slug, 'now', 'SystemData', { x: 0, y: 20 }, {
+  const now = node(slug, 'now', 'SystemData', { x: 0, y: 40 }, {
     label: 'Current time',
     systemDataMode: 'NOW_MS',
   });
-  const promptLimit = node(slug, 'prompt-limit', 'PromptNumber', { x: 280, y: 20 }, {
-    promptMessage: 'Daily max minutes for this site',
-    promptDefaultValue: '30',
-    minValue: 1,
-    maxValue: 1440,
+  const image = node(slug, 'image', 'GetImage', { x: 280, y: 40 }, {
+    label: 'Bundled break image',
+    assetKind: 'image',
+    assetMimeType: 'image/svg+xml',
+    assetName: 'break-reminder.svg',
+    assetDataBase64: EMBEDDED_BREAK_IMAGE_BASE64,
+    assetCompression: 'none',
+    remoteMaxBytes: 8192,
   });
-  const confirmBreak = node(slug, 'confirm-break', 'Confirm', { x: 280, y: 180 }, {
-    promptMessage: 'Screen time is up. Take a break?',
-  });
-  const image = node(slug, 'image', 'GetImage', { x: 560, y: 20 }, {
-    assetUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3f/OOjs_UI_icon_clock.svg/240px-OOjs_UI_icon_clock.svg.png',
-    assetMimeType: 'image/png',
-    remoteTimeoutMs: 5000,
-    remoteMaxBytes: 131072,
-  });
-  const showImage = node(slug, 'show-image', 'ShowImage', { x: 840, y: 20 }, {
+  const showImage = node(slug, 'show-image', 'ShowImage', { x: 560, y: 40 }, {
+    label: 'Show break card',
+    promptMessage: 'Quick break reminder',
     imageStopMode: 'TIMEOUT',
     displayTimeoutMs: 3000,
   });
-  const audio = node(slug, 'audio', 'GetAudio', { x: 560, y: 180 }, {
-    assetUrl: 'https://upload.wikimedia.org/wikipedia/commons/c/c8/Example.ogg',
-    assetMimeType: 'audio/ogg',
-    remoteTimeoutMs: 5000,
-    remoteMaxBytes: 524288,
+  const audio = node(slug, 'audio', 'GetAudio', { x: 280, y: 220 }, {
+    label: 'Bundled reminder tone',
+    assetKind: 'audio',
+    assetMimeType: 'audio/wav',
+    assetName: 'break-tone.wav',
+    assetDataBase64: EMBEDDED_BREAK_TONE_BASE64,
+    assetCompression: 'none',
+    remoteMaxBytes: 8192,
   });
-  const playSound = node(slug, 'play-sound', 'PlaySound', { x: 840, y: 180 });
-  const message = node(slug, 'message', 'ShowMessage', { x: 840, y: 340 }, {
-    promptMessage: 'Screen time limit reached. Redirecting to your break page.',
+  const playSound = node(slug, 'play-sound', 'PlaySound', { x: 560, y: 220 }, {
+    label: 'Play tone',
   });
-  const stats = node(slug, 'stats', 'DataStructure', { x: 1120, y: 80 }, {
-    variableName: 'screenTimeStats',
+  const message = node(slug, 'message', 'ShowMessage', { x: 560, y: 400 }, {
+    label: 'Show reminder text',
+    promptMessage: 'Stand up, look away from the screen, and take a short reset.',
+    displayMode: 'OVERLAY',
+    displayTimeoutMs: 4500,
+  });
+  const stats = node(slug, 'stats', 'DataStructure', { x: 860, y: 60 }, {
+    variableName: 'breakReminder',
     dictKey: 'lastRunMs',
   });
-  const stats2 = node(slug, 'stats2', 'DataStructure', { x: 1120, y: 220 }, {
-    variableName: 'screenTimeStats',
-    dictKey: 'limitPrompt',
-  });
-  const stats3 = node(slug, 'stats3', 'DataStructure', { x: 1120, y: 320 }, {
-    variableName: 'screenTimeStats',
+  const stats2 = node(slug, 'stats2', 'DataStructure', { x: 860, y: 200 }, {
+    variableName: 'breakReminder',
     dictKey: 'imageResult',
   });
-  const stats4 = node(slug, 'stats4', 'DataStructure', { x: 1120, y: 420 }, {
-    variableName: 'screenTimeStats',
+  const stats3 = node(slug, 'stats3', 'DataStructure', { x: 860, y: 340 }, {
+    variableName: 'breakReminder',
     dictKey: 'soundResult',
   });
-  const stats5 = node(slug, 'stats5', 'DataStructure', { x: 1120, y: 520 }, {
-    variableName: 'screenTimeStats',
-    dictKey: 'confirmed',
-  });
-  const stats6 = node(slug, 'stats6', 'DataStructure', { x: 1120, y: 620 }, {
-    variableName: 'screenTimeStats',
+  const stats4 = node(slug, 'stats4', 'DataStructure', { x: 860, y: 480 }, {
+    variableName: 'breakReminder',
     dictKey: 'messageResult',
   });
-  const save = node(slug, 'save', 'SaveLoad', { x: 1400, y: 160 }, {
-    literalValue: 'screen-time:stats',
+  const save = node(slug, 'save', 'SaveLoad', { x: 1160, y: 200 }, {
+    label: 'Remember last reminder',
+    literalValue: 'break-reminder:last-run',
   });
-  const redirect = node(slug, 'redirect', 'RegExpression', { x: 1120, y: 380 }, {
-    pattern: '^.*$',
-    action: 'SUBSTITUTE',
-    matchMode: 'STANDARD',
-    payload: 'https://chatgpt.com/',
-  });
-  const extendedOutput = node(slug, 'extended-output', 'ExtendedDataOut', { x: 1680, y: 140 });
-  const output = node(slug, 'output', 'DataFlowOut', { x: 1680, y: 360 }, { locked: true });
+  const extendedOutput = node(slug, 'extended-output', 'ExtendedDataOut', { x: 1440, y: 160 });
+  const output = node(slug, 'output', 'DataFlowOut', { x: 1440, y: 360 }, { locked: true });
 
   return baseWorkspace(
     getExample(slug),
-    [input, now, promptLimit, confirmBreak, image, showImage, audio, playSound, message, stats, stats2, stats3, stats4, stats5, stats6, save, redirect, extendedOutput, output],
+    [input, now, image, showImage, audio, playSound, message, stats, stats2, stats3, stats4, save, extendedOutput, output],
     [
       edge(image, 'result', showImage, 'asset'),
       edge(audio, 'result', playSound, 'asset'),
       edge(now, 'result', stats, 'value'),
-      edge(promptLimit, 'result', stats2, 'value'),
+      edge(showImage, 'result', stats2, 'value'),
       edge(stats, 'result', stats2, 'dict'),
-      edge(showImage, 'result', stats3, 'value'),
+      edge(playSound, 'result', stats3, 'value'),
       edge(stats2, 'result', stats3, 'dict'),
-      edge(playSound, 'result', stats4, 'value'),
+      edge(message, 'result', stats4, 'value'),
       edge(stats3, 'result', stats4, 'dict'),
-      edge(confirmBreak, 'result', stats5, 'value'),
-      edge(stats4, 'result', stats5, 'dict'),
-      edge(message, 'result', stats6, 'value'),
-      edge(stats5, 'result', stats6, 'dict'),
-      edge(stats6, 'result', save, 'value'),
+      edge(stats4, 'result', save, 'value'),
       edge(save, 'result', extendedOutput, 'fileBlob'),
-      edge(input, 'url', redirect, 'input'),
-      edge(redirect, 'result', output, 'url'),
+      edge(input, 'url', output, 'url'),
     ],
     {
-      type: 'CONTEXT_MENU',
-      hotkey: 'Ctrl+Shift+U',
+      type: 'HOTKEY',
+      hotkey: 'Ctrl+Shift+B',
       inputSources: ['url'],
       sourceFilters: [{ source: 'url', pattern: '^https?://' }],
     },
@@ -817,29 +856,27 @@ function screenTime(): WorkspaceFileV2 {
 function playbackResume(): WorkspaceFileV2 {
   const slug = 'playback-resume';
   const input = node(slug, 'input', 'DataFlowIn', { x: 0, y: 240 }, { locked: true });
-  const pick = node(slug, 'pick', 'PickFileOrUrl', { x: 0, y: 20 }, {
-    promptMessage: 'Choose a direct video file or enter a direct video URL',
-  });
-  const labelPrompt = node(slug, 'label-prompt', 'PromptText', { x: 0, y: 120 }, {
+  const labelPrompt = node(slug, 'label-prompt', 'PromptText', { x: 0, y: 80 }, {
     promptMessage: 'Playback label',
-    promptDefaultValue: 'Direct video',
+    promptDefaultValue: 'Bundled sample video',
   });
-  const getVideo = node(slug, 'get-video', 'GetVideo', { x: 300, y: 120 }, {
-    assetUrl: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
+  const getVideo = node(slug, 'get-video', 'GetVideo', { x: 300, y: 80 }, {
+    label: 'Bundled video sample',
+    assetKind: 'video',
     assetMimeType: 'video/mp4',
-    remoteTimeoutMs: 5000,
-    remoteMaxBytes: 524288,
+    assetName: 'playback-sample.mp4',
+    assetDataBase64: EMBEDDED_SAMPLE_VIDEO_BASE64,
+    assetCompression: 'none',
+    remoteMaxBytes: 8192,
   });
-  const showVideo = node(slug, 'show-video', 'ShowVideo', { x: 620, y: 120 });
+  const showVideo = node(slug, 'show-video', 'ShowVideo', { x: 620, y: 80 }, {
+    label: 'Play sample',
+  });
   const playbackDict = node(slug, 'playback-dict', 'DataStructure', { x: 940, y: 80 }, {
     variableName: 'playbackResume',
     dictKey: 'lastResult',
   });
-  const pickedDict = node(slug, 'picked-dict', 'DataStructure', { x: 940, y: 240 }, {
-    variableName: 'playbackResume',
-    dictKey: 'pickedSource',
-  });
-  const labelDict = node(slug, 'label-dict', 'DataStructure', { x: 940, y: 380 }, {
+  const labelDict = node(slug, 'label-dict', 'DataStructure', { x: 940, y: 220 }, {
     variableName: 'playbackResume',
     dictKey: 'label',
   });
@@ -851,14 +888,12 @@ function playbackResume(): WorkspaceFileV2 {
 
   return baseWorkspace(
     getExample(slug),
-    [input, pick, labelPrompt, getVideo, showVideo, playbackDict, pickedDict, labelDict, save, extendedOutput, output],
+    [input, labelPrompt, getVideo, showVideo, playbackDict, labelDict, save, extendedOutput, output],
     [
       edge(getVideo, 'result', showVideo, 'asset'),
       edge(showVideo, 'result', playbackDict, 'value'),
-      edge(pick, 'result', pickedDict, 'value'),
-      edge(playbackDict, 'result', pickedDict, 'dict'),
       edge(labelPrompt, 'result', labelDict, 'value'),
-      edge(pickedDict, 'result', labelDict, 'dict'),
+      edge(playbackDict, 'result', labelDict, 'dict'),
       edge(labelDict, 'result', save, 'value'),
       edge(save, 'result', extendedOutput, 'fileBlob'),
       edge(input, 'url', output, 'url'),
@@ -1296,7 +1331,7 @@ export function createBundledExampleWorkspaces(): WorkspaceFileV2[] {
     remoteTextFetchPreview(),
     remotePostSnapshot(),
     cleanWords(),
-    screenTime(),
+    breakReminder(),
     playbackResume(),
     overlayInputCapture(),
     snakeOverlayArcade(),

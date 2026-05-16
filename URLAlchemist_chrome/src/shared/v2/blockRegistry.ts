@@ -199,6 +199,7 @@ export const BLOCK_REGISTRY: Record<BlockKind, BlockDefinition> = {
     category: 'flow',
     inputs: [
       port('clipboard', 'Clipboard', 'string', { risk: 'high' }),
+      port('clipboardBinary', 'Clipboard (Binary)', 'asset', { risk: 'high' }),
       port('pageText', 'Page Text', 'string', { risk: 'high' }),
       port('domMutation', 'DOM Mutation', 'data', { risk: 'high' }),
       port('fileBlob', 'File Blob', 'data', { risk: 'high' }),

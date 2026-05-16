@@ -78,6 +78,9 @@ export function explainInstruction(instruction: GraphVmInstruction): string {
       if (instruction.destination === 'clipboard') {
         return 'Can write text to your clipboard.';
       }
+      if (instruction.destination === 'clipboardBinary') {
+        return 'Can write binary data (images, files) to your clipboard.';
+      }
       if (instruction.destination === 'pageText') {
         return 'Can replace visible page text.';
       }

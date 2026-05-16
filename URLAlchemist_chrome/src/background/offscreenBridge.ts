@@ -1,10 +1,15 @@
 import {
+  OFFSCREEN_CLIPBOARD_BINARY_WRITE_MESSAGE,
   OFFSCREEN_CLIPBOARD_MESSAGE,
   OFFSCREEN_CLIPBOARD_WRITE_MESSAGE,
   OFFSCREEN_REGEX_MESSAGE,
   type ClipboardResponse,
   type RuntimeResponse,
 } from '../shared/messages';
+import {
+  CLIPBOARD_BINARY_MAX_TIMEOUT_MS,
+  CLIPBOARD_BINARY_WORST_CASE_BYTES_PER_SECOND,
+} from '../shared/constants';
 import type { RegexExecutor } from '../shared/engine/runtime';
 import type { RegexJobResponse, RegexTransformRequest } from '../shared/types';
 
@@ -50,17 +55,30 @@ async function ensureOffscreenDocument(): Promise<void> {
 
 async function sendOffscreenMessage<T>(message: object): Promise<T> {
   await ensureOffscreenDocument();
-  const response = (await chrome.runtime.sendMessage(message)) as RuntimeResponse<T> | undefined;
+  const timeoutMs = 30_000;
+  let timeoutId: ReturnType<typeof globalThis.setTimeout> | undefined;
+  try {
+    const response = (await Promise.race([
+      chrome.runtime.sendMessage(message),
+      new Promise<undefined>((_, reject) => {
+        timeoutId = globalThis.setTimeout(() => reject(new Error(`Offscreen message timed out after ${timeoutMs}ms`)), timeoutMs);
+      }),
+    ])) as RuntimeResponse<T> | undefined;
 
-  if (!response) {
-    throw new Error('The offscreen document did not respond');
+    if (!response) {
+      throw new Error('The offscreen document did not respond');
+    }
+
+    if (!response.ok) {
+      throw new Error(response.error);
+    }
+
+    return response.data;
+  } finally {
+    if (timeoutId !== undefined) {
+      globalThis.clearTimeout(timeoutId);
+    }
   }
-
-  if (!response.ok) {
-    throw new Error(response.error);
-  }
-
-  return response.data;
 }
 
 export function createOffscreenRegexExecutor(timeoutMs?: number): RegexExecutor {
@@ -125,4 +143,61 @@ export async function writeClipboardFromOffscreen(text: string): Promise<void> {
     type: OFFSCREEN_CLIPBOARD_WRITE_MESSAGE,
     text,
   });
+}
+
+/**
+ * Derive a timeout for binary clipboard payloads based on data size.
+ *
+ * Formula: worst-case seconds-per-byte x payload bytes x 2 (safety margin),
+ * clamped between 30s (the generic offscreen message timeout) and 5min
+ * (prevents absurd values while never limiting realistic payloads).
+ */
+function clipboardBinaryTimeoutMs(payloadBytes: number): number {
+  const computed = Math.ceil(
+    (payloadBytes / CLIPBOARD_BINARY_WORST_CASE_BYTES_PER_SECOND) * 1000 * 2,
+  );
+  return Math.min(CLIPBOARD_BINARY_MAX_TIMEOUT_MS, Math.max(30_000, computed));
+}
+
+export async function writeClipboardBinaryFromOffscreen(mimeType: string, dataBase64: string): Promise<void> {
+  const permissionGranted = await chrome.permissions.contains({
+    permissions: ['clipboardWrite'],
+  });
+
+  if (!permissionGranted) {
+    throw new Error('Clipboard writes require the optional clipboardWrite permission');
+  }
+
+  const payloadBytes = new TextEncoder().encode(dataBase64).byteLength;
+  const timeoutMs = clipboardBinaryTimeoutMs(payloadBytes);
+
+  // Use a dedicated timeout instead of the shared 30s sendOffscreenMessage default.
+  const message = {
+    type: OFFSCREEN_CLIPBOARD_BINARY_WRITE_MESSAGE as typeof OFFSCREEN_CLIPBOARD_BINARY_WRITE_MESSAGE,
+    mimeType,
+    dataBase64,
+  };
+  await ensureOffscreenDocument();
+  let timeoutId: ReturnType<typeof globalThis.setTimeout> | undefined;
+  const response = (await Promise.race([
+    chrome.runtime.sendMessage(message),
+    new Promise<undefined>((_, reject) => {
+      timeoutId = globalThis.setTimeout(
+        () => reject(new Error(`Binary clipboard write timed out after ${timeoutMs}ms`)),
+        timeoutMs,
+      );
+    }),
+  ]).finally(() => {
+    if (timeoutId !== undefined) {
+      globalThis.clearTimeout(timeoutId);
+    }
+  })) as RuntimeResponse<null> | undefined;
+
+  if (!response) {
+    throw new Error('The offscreen document did not respond');
+  }
+
+  if (!response.ok) {
+    throw new Error(response.error);
+  }
 }

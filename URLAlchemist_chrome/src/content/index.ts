@@ -1,17 +1,33 @@
-import {
-  CONTENT_DISPLAY_MESSAGE,
+import type { ContentRuntimeMessage, RuntimeResponse } from '../shared/messages';
+import type { AssetRef, GraphValue, OverlayRuntimeEvent } from '../shared/v2/types';
+
+const HOTKEY_TRIGGER_MESSAGE = 'URL_ALCHEMIST_HOTKEY_TRIGGER';
+const CONTENT_INTERACTION_MESSAGE = 'URL_ALCHEMIST_CONTENT_INTERACTION';
+const CONTENT_DISPLAY_MESSAGE = 'URL_ALCHEMIST_CONTENT_DISPLAY';
+const CONTENT_MUTATE_TEXT_MESSAGE = 'URL_ALCHEMIST_CONTENT_MUTATE_TEXT';
+const CONTENT_READ_SOURCE_MESSAGE = 'URL_ALCHEMIST_CONTENT_READ_SOURCE';
+const CONTENT_OVERLAY_CONTROL_MESSAGE = 'URL_ALCHEMIST_CONTENT_OVERLAY_CONTROL';
+const CONTENT_OVERLAY_DRAW_MESSAGE = 'URL_ALCHEMIST_CONTENT_OVERLAY_DRAW';
+const OVERLAY_APP_EVENT_MESSAGE = 'URL_ALCHEMIST_OVERLAY_APP_EVENT';
+const CONTENT_RUNTIME_MESSAGE_TYPES = new Set<string>([
   CONTENT_INTERACTION_MESSAGE,
-  CONTENT_MUTATE_TEXT_MESSAGE,
+  CONTENT_DISPLAY_MESSAGE,
   CONTENT_OVERLAY_CONTROL_MESSAGE,
   CONTENT_OVERLAY_DRAW_MESSAGE,
+  CONTENT_MUTATE_TEXT_MESSAGE,
   CONTENT_READ_SOURCE_MESSAGE,
-  HOTKEY_TRIGGER_MESSAGE,
-  OVERLAY_APP_EVENT_MESSAGE,
-  isContentRuntimeMessage,
-  type ContentRuntimeMessage,
-  type RuntimeResponse,
-} from '../shared/messages';
-import type { AssetRef, GraphValue, OverlayRuntimeEvent } from '../shared/v2/types';
+]);
+
+function isContentRuntimeMessage(message: unknown): message is ContentRuntimeMessage {
+  return (
+    typeof message === 'object' &&
+    message !== null &&
+    'type' in message &&
+    'requestId' in message &&
+    typeof (message as { requestId?: unknown }).requestId === 'string' &&
+    CONTENT_RUNTIME_MESSAGE_TYPES.has(String((message as { type?: unknown }).type))
+  );
+}
 
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {

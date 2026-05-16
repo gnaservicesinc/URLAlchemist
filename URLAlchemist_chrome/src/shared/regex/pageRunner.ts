@@ -53,12 +53,12 @@ async function executeRegexJob(request: RegexWorkerRequestEnvelope['request']): 
 
 export function createPageRegexExecutor(timeoutMs = REGEX_TIMEOUT_MS): RegexExecutor {
   return {
-    async test(input, pattern) {
+    async test(input, pattern, requestTimeoutMs) {
       const response = await executeRegexJob({
         kind: 'test',
         input,
         pattern,
-        timeoutMs,
+        timeoutMs: requestTimeoutMs ?? timeoutMs,
       });
 
       return response.matched;
@@ -67,7 +67,7 @@ export function createPageRegexExecutor(timeoutMs = REGEX_TIMEOUT_MS): RegexExec
       const response = await executeRegexJob({
         kind: 'transform',
         ...request,
-        timeoutMs,
+        timeoutMs: request.timeoutMs ?? timeoutMs,
       });
 
       return {

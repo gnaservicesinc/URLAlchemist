@@ -420,7 +420,7 @@ function deriveRequiredPermissions(instructions: GraphVmInstruction[]): string[]
       permissions.add('clipboardRead');
     }
 
-    if (instruction.op === 'OUTPUT' && instruction.destination === 'clipboard') {
+    if (instruction.op === 'OUTPUT' && ['clipboard', 'clipboardBinary'].includes(instruction.destination)) {
       permissions.add('clipboardWrite');
     }
   });

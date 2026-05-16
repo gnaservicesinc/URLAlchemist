@@ -224,4 +224,22 @@ body {
   .workspace-port-handle-target {
     left: -30px !important;
   }
+
+  .workspace-port-handle-compact {
+    width: 24px !important;
+    height: 24px !important;
+  }
+
+  .workspace-port-handle-compact::after {
+    width: 9px;
+    height: 9px;
+  }
+
+  .workspace-port-handle-source.workspace-port-handle-compact {
+    right: -22px !important;
+  }
+
+  .workspace-port-handle-target.workspace-port-handle-compact {
+    left: -22px !important;
+  }
 }

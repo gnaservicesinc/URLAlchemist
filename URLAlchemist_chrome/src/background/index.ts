@@ -17,9 +17,10 @@ import {
 import { appendTraceEntry, loadStoredState } from '../shared/storage';
 import type { ActionPack, EngineIssue, GlobalSettings, TriggerType, WorkspaceTriggerType } from '../shared/types';
 import { base64FromBytes, readLimitedResponseBytes } from '../shared/v2/remoteBytes';
+import { validateRemoteUrl } from '../shared/v2/remoteUrl';
 import type { AssetRef, CompiledActionPackV2, GraphEventHandler, GraphValue, OverlayRuntimeEvent, WorkspaceInputSource } from '../shared/v2/types';
 import { executeCompiledActionPackV2, type AssetRequest, type DisplayRequest, type GraphRuntime, type OverlayControlRequest, type OverlayDrawRequest, type UserInteractionRequest } from '../shared/v2/vm';
-import { createOffscreenRegexExecutor, readClipboardFromOffscreen, writeClipboardFromOffscreen } from './offscreenBridge';
+import { createOffscreenRegexExecutor, readClipboardFromOffscreen, writeClipboardBinaryFromOffscreen, writeClipboardFromOffscreen } from './offscreenBridge';
 
 const redirectTrail = new Map<string, { url: string; depth: number; expiresAt: number }>();
 const fallbackTriggerHistory = new Map<string, number[]>();
@@ -139,7 +140,8 @@ async function resolveRemoteAsset(request: AssetRequest): Promise<AssetRef> {
   const controller = new AbortController();
   const timeout = globalThis.setTimeout(() => controller.abort(), request.timeoutMs);
   try {
-    const response = await fetch(request.url, {
+    const validatedUrl = validateRemoteUrl(request.url);
+    const response = await fetch(validatedUrl, {
       method: 'GET',
       redirect: 'error',
       signal: controller.signal,
@@ -172,6 +174,22 @@ async function resolveRemoteAsset(request: AssetRequest): Promise<AssetRef> {
   } finally {
     globalThis.clearTimeout(timeout);
   }
+}
+
+function getBinaryClipboardPayload(value: GraphValue): { mimeType: string; dataBase64: string } {
+  const payload = value.value;
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('Binary clipboard output requires an asset payload');
+  }
+
+  const record = payload as Record<string, unknown>;
+  const mimeType = typeof record.mimeType === 'string' ? record.mimeType.trim() : '';
+  const dataBase64 = typeof record.dataBase64 === 'string' ? record.dataBase64.trim() : '';
+  if (!mimeType || !dataBase64) {
+    throw new Error('Binary clipboard output requires an asset with mimeType and dataBase64');
+  }
+
+  return { mimeType, dataBase64 };
 }
 
 async function displayWithFallback(tabId: number | undefined, request: DisplayRequest): Promise<GraphValue> {
@@ -320,6 +338,9 @@ function createRunRuntime(context: RuntimeSourceContext = {}, settings?: GlobalS
     writeDestination: async (destination, value) => {
       if (destination === 'clipboard') {
         await writeClipboardFromOffscreen(typeof value.value === 'string' ? value.value : JSON.stringify(value.value));
+      } else if (destination === 'clipboardBinary') {
+        const { mimeType, dataBase64 } = getBinaryClipboardPayload(value);
+        await writeClipboardBinaryFromOffscreen(mimeType, dataBase64);
       }
     },
     resolveAsset: resolveRemoteAsset,

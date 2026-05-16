@@ -265,6 +265,7 @@ export type OverlayRuntimeEvent =
 export interface WorkspaceBlockSettings {
   label?: string;
   locked?: boolean;
+  collapsed?: boolean;
   alwaysProcess?: boolean;
   processBeforeRun?: boolean;
   pattern?: string;
