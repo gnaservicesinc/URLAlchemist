@@ -228,7 +228,7 @@ function handleStyle(color: string): CSSProperties {
   } as CSSProperties;
 }
 
-const blockInputClass = 'nodrag rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-800 outline-none focus:border-amber-400';
+const blockInputClass = 'nodrag rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-800 outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-100';
 const blockLabelClass = 'nodrag grid gap-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500';
 
 function BoundsText({ children }: { children: string }) {
@@ -320,7 +320,7 @@ function renderBlockSettings(
             >
               <input className={inputClass} placeholder="utm_source=[^&]+" value={settingText(node.settings.pattern)} onChange={(event) => onSettingsChange({ pattern: event.target.value, regexSourceMode: 'MANUAL', regexHelperInput: event.target.value })} />
             </SettingField>
-            <button aria-label="Open regex builder" className="nodrag self-end rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:border-amber-300 hover:bg-amber-50" type="button" onClick={onOpenRegexBuilder}>
+            <button aria-label="Open regex builder" className="nodrag self-end rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:border-teal-300 hover:bg-teal-50" type="button" onClick={onOpenRegexBuilder}>
               Builder
             </button>
           </div>
@@ -978,7 +978,7 @@ const WorkspaceBlockNode = memo(function WorkspaceBlockNode({ data, selected }: 
   );
 
   return (
-    <div className={`${collapsed ? 'w-56' : 'min-w-56'} rounded-xl border bg-white shadow-[0_14px_28px_rgba(15,23,42,0.12)] ${selected ? 'border-amber-500 ring-2 ring-amber-200' : 'border-slate-200'}`}>
+    <div className={`${collapsed ? 'w-56' : 'min-w-56'} rounded-lg border bg-white shadow-[0_12px_24px_rgba(31,41,55,0.11)] ${selected ? 'border-teal-600 ring-2 ring-teal-100' : 'border-slate-200'}`}>
       <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-4 py-3">
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold text-slate-900">{title}</div>
@@ -993,7 +993,7 @@ const WorkspaceBlockNode = memo(function WorkspaceBlockNode({ data, selected }: 
         <div className="flex items-center gap-1">
           <button
             aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${title}`}
-            className="nodrag flex h-6 w-6 items-center justify-center rounded-full border border-slate-200 bg-white text-[11px] font-bold text-slate-500 transition hover:border-amber-300 hover:bg-amber-50 hover:text-amber-700"
+            className="nodrag flex h-6 w-6 items-center justify-center rounded-full border border-slate-200 bg-white text-[11px] font-bold text-slate-500 transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-700"
             title={collapsed ? 'Expand block' : 'Collapse block'}
             type="button"
             onClick={(event) => {
@@ -1044,7 +1044,7 @@ const WorkspaceBlockNode = memo(function WorkspaceBlockNode({ data, selected }: 
       <div className="px-4 py-3">
         <SettingField help="Optional display name for this block. Leaving it empty uses the block type name." label="Block label">
           <input
-            className="nodrag w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-800 outline-none focus:border-amber-400"
+            className="nodrag w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-800 outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-100"
             value={node.settings.label ?? ''}
             placeholder={definition.label}
             onChange={(event) => onSettingsChange(node.id, { label: event.target.value })}
@@ -1584,11 +1584,11 @@ function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, inva
   }
 
   return (
-    <div className={`relative overflow-hidden rounded-[1.25rem] border border-slate-200 bg-white ${heightClassName}`}>
+    <div className={`relative overflow-hidden rounded-lg border border-slate-200 bg-white ${heightClassName}`}>
       <ReactFlow
         key={workspace.metadata.id}
         colorMode="light"
-        connectionLineStyle={{ stroke: '#c76a1a', strokeWidth: 2 }}
+        connectionLineStyle={{ stroke: '#0f766e', strokeWidth: 2 }}
         defaultViewport={workspace.viewport}
         deleteKeyCode={['Backspace', 'Delete']}
         edges={flowEdges}
@@ -1621,20 +1621,20 @@ function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, inva
         selectNodesOnDrag={false}
       >
         <Panel className="nodrag nowheel" position="top-left">
-          <div className="flex max-w-[min(760px,calc(100vw-56px))] flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white/90 p-2 text-xs shadow-[0_14px_34px_rgba(15,23,42,0.12)] backdrop-blur">
+          <div className="flex max-w-[min(760px,calc(100vw-56px))] flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white/90 p-2 text-xs shadow-[0_14px_34px_rgba(31,41,55,0.12)] backdrop-blur">
             <span className="rounded-full bg-slate-100 px-2.5 py-1 font-semibold text-slate-600">
               {workspace.nodes.length} blocks / {workspace.edges.length} links
             </span>
-            <button className="rounded-full border border-slate-200 px-2.5 py-1 font-semibold text-slate-700 hover:border-amber-300 hover:bg-amber-50" type="button" onClick={() => focusNodeIds(new Set(workspace.nodes.map((node) => node.id)))}>
+            <button className="rounded-md border border-slate-200 px-2.5 py-1 font-semibold text-slate-700 hover:border-teal-300 hover:bg-teal-50" type="button" onClick={() => focusNodeIds(new Set(workspace.nodes.map((node) => node.id)))}>
               Fit
             </button>
-            <button className="rounded-full border border-slate-200 px-2.5 py-1 font-semibold text-slate-700 hover:border-amber-300 hover:bg-amber-50" type="button" onClick={() => setAllBlocksCollapsed(true)}>
+            <button className="rounded-md border border-slate-200 px-2.5 py-1 font-semibold text-slate-700 hover:border-teal-300 hover:bg-teal-50" type="button" onClick={() => setAllBlocksCollapsed(true)}>
               Compact all
             </button>
-            <button className="rounded-full border border-slate-200 px-2.5 py-1 font-semibold text-slate-700 hover:border-amber-300 hover:bg-amber-50" type="button" onClick={() => setAllBlocksCollapsed(false)}>
+            <button className="rounded-md border border-slate-200 px-2.5 py-1 font-semibold text-slate-700 hover:border-teal-300 hover:bg-teal-50" type="button" onClick={() => setAllBlocksCollapsed(false)}>
               Expand all
             </button>
-            <button className="rounded-full border border-slate-200 px-2.5 py-1 font-semibold text-slate-700 hover:border-amber-300 hover:bg-amber-50" type="button" onClick={tidyEventLanes}>
+            <button className="rounded-md border border-slate-200 px-2.5 py-1 font-semibold text-slate-700 hover:border-teal-300 hover:bg-teal-50" type="button" onClick={tidyEventLanes}>
               Tidy lanes
             </button>
             {collapsedCount > 0 ? (
@@ -1643,7 +1643,7 @@ function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, inva
           </div>
         </Panel>
         <Panel className="nodrag nowheel" position="top-right">
-          <div className="grid gap-1 rounded-2xl border border-slate-200 bg-white/90 p-2 text-xs shadow-[0_14px_34px_rgba(15,23,42,0.12)] backdrop-blur">
+          <div className="grid gap-1 rounded-lg border border-slate-200 bg-white/90 p-2 text-xs shadow-[0_14px_34px_rgba(31,41,55,0.12)] backdrop-blur">
             {EVENT_LANE_DEFINITIONS.map((lane) => (
               <button
                 key={lane.id}
@@ -1666,7 +1666,7 @@ function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, inva
         </Panel>
         {declaredVariables.length > 0 ? (
           <Panel className="nodrag nowheel" position="bottom-right">
-            <div className="max-w-72 rounded-2xl border border-slate-200 bg-white/92 p-3 text-xs shadow-[0_14px_34px_rgba(15,23,42,0.14)] backdrop-blur">
+            <div className="max-w-72 rounded-lg border border-slate-200 bg-white/92 p-3 text-xs shadow-[0_14px_34px_rgba(31,41,55,0.14)] backdrop-blur">
               <p className="mb-2 font-semibold text-slate-900">Variables</p>
               <div className="flex flex-wrap gap-1.5">
                 {declaredVariables.map((variable) => {
@@ -1688,18 +1688,18 @@ function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, inva
         ) : null}
         <Background color="#e2e8f0" gap={22} />
         <Controls showInteractive={false} />
-        <MiniMap nodeColor="#c76a1a" pannable zoomable />
+        <MiniMap nodeColor="#0f766e" pannable zoomable />
       </ReactFlow>
 
       {contextMenu ? (
         <div
-          className="absolute z-20 grid max-h-96 w-64 gap-1 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-[0_20px_60px_rgba(15,23,42,0.22)]"
+          className="absolute z-20 grid max-h-96 w-64 gap-1 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 shadow-[0_20px_60px_rgba(31,41,55,0.22)]"
           style={{ left: contextMenu.x - 24, top: contextMenu.y - 128 }}
         >
           {BLOCK_DEFINITIONS.map((definition) => (
             <button
               key={definition.kind}
-              className="rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-amber-50"
+              className="rounded-lg px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-teal-50"
               type="button"
               onClick={() => addBlock(definition.kind, contextMenu.flowX, contextMenu.flowY)}
             >
@@ -1718,7 +1718,7 @@ function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, inva
         const draft = regexDraftFromNode(node);
         return (
           <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/55 px-4 py-10 backdrop-blur-md">
-            <div className="reveal-panel w-full max-w-5xl rounded-[1.75rem] border border-white/70 bg-[rgba(255,252,246,0.98)] p-5 shadow-[0_32px_90px_rgba(15,23,42,0.26)]">
+            <div className="reveal-panel w-full max-w-5xl rounded-xl border border-white/70 bg-white p-5 shadow-[0_32px_90px_rgba(31,41,55,0.26)]">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
                   <p className="eyebrow">Regex</p>
@@ -1797,7 +1797,7 @@ function BlockPicker({ onAddBlock }: { onAddBlock: (kind: BlockKind) => void }) 
         </div>
       </div>
       {open ? (
-        <div className="absolute left-0 top-12 z-30 w-[min(760px,calc(100vw-32px))] rounded-2xl border border-slate-200 bg-white p-3 shadow-[0_24px_70px_rgba(15,23,42,0.22)]">
+        <div className="absolute left-0 top-12 z-30 w-[min(760px,calc(100vw-32px))] rounded-lg border border-slate-200 bg-white p-3 shadow-[0_24px_70px_rgba(31,41,55,0.22)]">
           <div className="grid gap-3">
             <div className="flex flex-wrap items-center gap-2">
               <input
@@ -1812,7 +1812,7 @@ function BlockPicker({ onAddBlock }: { onAddBlock: (kind: BlockKind) => void }) 
             </div>
             <div className="flex flex-wrap gap-1.5">
               <button
-                className={`rounded-full border px-3 py-1 text-xs font-semibold ${category === 'all' ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
+                className={`rounded-md border px-3 py-1.5 text-xs font-semibold ${category === 'all' ? 'border-teal-300 bg-teal-50 text-teal-800' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
                 type="button"
                 onClick={() => setCategory('all')}
               >
@@ -1821,7 +1821,7 @@ function BlockPicker({ onAddBlock }: { onAddBlock: (kind: BlockKind) => void }) 
               {categories.map((entry) => (
                 <button
                   key={entry}
-                  className={`rounded-full border px-3 py-1 text-xs font-semibold ${category === entry ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
+                  className={`rounded-md border px-3 py-1.5 text-xs font-semibold ${category === entry ? 'border-teal-300 bg-teal-50 text-teal-800' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
                   type="button"
                   onClick={() => setCategory(entry)}
                 >
@@ -1833,7 +1833,7 @@ function BlockPicker({ onAddBlock }: { onAddBlock: (kind: BlockKind) => void }) 
               {matchingBlocks.map((definition) => (
                 <button
                   key={definition.kind}
-                  className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-left transition hover:border-amber-300 hover:bg-amber-50"
+                  className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left transition hover:border-teal-300 hover:bg-teal-50"
                   type="button"
                   onClick={() => {
                     onAddBlock(definition.kind);
@@ -2148,7 +2148,7 @@ export function WorkspaceEditor({
           </div>
         ) : null}
       </div> : (
-        <div className="mt-5 rounded-[1.25rem] border border-slate-200 bg-white/70 px-5 py-4">
+        <div className="mt-5 rounded-lg border border-slate-200 bg-white/70 px-5 py-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm font-semibold text-slate-900">{workspace.metadata.name}</p>
             <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
@@ -2160,13 +2160,13 @@ export function WorkspaceEditor({
 
       <div className="mt-5">
         {isPopout ? (
-          <div className="rounded-[1.25rem] border border-slate-200 bg-white/70 px-5 py-6 text-sm text-slate-500">
+          <div className="rounded-lg border border-slate-200 bg-white/70 px-5 py-6 text-sm text-slate-500">
             Workspace surface is open in the expanded editor.
           </div>
         ) : surface()}
       </div>
 
-      <div className="mt-5 rounded-[1.25rem] border border-slate-200 bg-white/75 px-5 py-4">
+      <div className="mt-5 rounded-lg border border-slate-200 bg-white/75 px-5 py-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-slate-900">Workspace debug run</p>
@@ -2208,7 +2208,7 @@ export function WorkspaceEditor({
           </label>
         </div>
         {debugTrace.length > 0 ? (
-          <div className="mt-4 max-h-72 overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50/80">
+          <div className="mt-4 max-h-72 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/80">
             <ol className="divide-y divide-slate-200 text-xs">
               {debugTrace.map((entry, index) => (
                 <li key={`${entry.nodeId}:${index}`} className="grid gap-1 px-4 py-3 md:grid-cols-[12rem_1fr]">
@@ -2226,7 +2226,7 @@ export function WorkspaceEditor({
       </div>
 
       <div className="mt-5 grid gap-4 lg:grid-cols-2">
-        <div className={`rounded-[1.25rem] border px-5 py-4 ${compileResult.validation.valid ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-800'}`}>
+        <div className={`rounded-lg border px-5 py-4 ${compileResult.validation.valid ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-800'}`}>
           <p className="text-sm font-semibold">{compileResult.validation.valid ? 'Workspace can build.' : 'Build is blocked.'}</p>
           {compileResult.validation.errors.length > 0 ? (
             <ul className="mt-2 list-disc pl-5 text-sm">
@@ -2236,7 +2236,7 @@ export function WorkspaceEditor({
             </ul>
           ) : null}
         </div>
-        <div className="rounded-[1.25rem] border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
           <p className="font-semibold">
             {compileResult.validation.risk.highest === 'high'
               ? 'Install warning: strong'
@@ -2282,7 +2282,7 @@ export function WorkspaceEditor({
       </div>
       {isPopout ? createPortal(
         <div className="fixed inset-0 z-40 bg-slate-950/60 p-2 backdrop-blur-sm">
-          <div className="flex h-full min-h-0 flex-col rounded-[1.25rem] border border-white/60 bg-[rgba(255,252,246,0.98)] p-3 shadow-[0_32px_90px_rgba(15,23,42,0.35)]">
+          <div className="flex h-full min-h-0 flex-col rounded-lg border border-white/60 bg-white p-3 shadow-[0_32px_90px_rgba(31,41,55,0.35)]">
             <div className="mb-3 flex shrink-0 flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="eyebrow">Workspace Surface</p>

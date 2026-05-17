@@ -890,28 +890,36 @@ function App() {
   } as CSSProperties;
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-7xl flex-col gap-6 px-4 py-6 md:px-8 md:py-10" style={scaleStyle}>
-      <header className="reveal-panel rounded-[1.75rem] border border-white/65 bg-[linear-gradient(135deg,rgba(255,249,242,0.93),rgba(252,236,217,0.88))] px-6 py-7 shadow-[0_24px_70px_rgba(15,23,42,0.16)] md:px-8">
-        <p className="eyebrow">URL Alchemist Chrome 2.0</p>
-        <div className="mt-3 flex flex-wrap items-end justify-between gap-5">
-          <div>
-            <h1 className="text-4xl font-semibold tracking-tight text-slate-950 md:text-5xl">Action Packs built from workspaces.</h1>
-            <p className="mt-4 max-w-3xl text-sm leading-6 text-slate-700 md:text-base">
-              Build node workspaces, compile optimized Action Packs, and review binary imports through a sandboxed transparency flow with {REGEX_TIMEOUT_MS}ms regex budgets.
-            </p>
+    <main className="mx-auto flex min-h-screen w-full max-w-[1500px] flex-col gap-5 px-4 py-5 sm:px-6 lg:px-8 lg:py-8" style={scaleStyle}>
+      <header className="reveal-panel overflow-hidden rounded-xl border border-slate-200 bg-white px-4 py-5 shadow-[0_18px_46px_rgba(31,41,55,0.08)] sm:px-6 lg:px-7">
+        <div className="flex flex-wrap items-start justify-between gap-5">
+          <div className="flex min-w-0 max-w-3xl gap-4">
+            <div className="mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-teal-700 text-sm font-black tracking-tight text-white shadow-[0_12px_24px_rgba(15,118,110,0.22)]">
+              UA
+            </div>
+            <div className="min-w-0">
+              <p className="eyebrow">URL Alchemist Chrome 2.0</p>
+              <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">Action Pack Workbench</h1>
+              <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600 sm:text-base">
+                Build workspace source files, compile optimized Action Packs, and stage binary imports through a sandboxed review flow with {REGEX_TIMEOUT_MS}ms regex budgets.
+              </p>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="ml-auto grid min-w-[220px] gap-2 sm:grid-cols-3 lg:min-w-[430px]">
+            <span className={`risk-badge ${state.settings.globalEnabled ? 'bg-teal-100 text-teal-800' : 'risk-badge-danger'}`}>
+              {state.settings.globalEnabled ? 'Engine on' : 'Engine off'}
+            </span>
             <span className="risk-badge risk-badge-soft">{state.actionPacksV2.length} Action Packs</span>
             <span className="risk-badge risk-badge-soft">{state.workspacesV2.length} workspaces</span>
           </div>
         </div>
       </header>
 
-      <nav className="panel-shell reveal-panel flex flex-wrap gap-2">
+      <nav className="panel-shell tab-scroll reveal-panel sticky top-3 z-30 flex gap-2 overflow-x-auto p-2" aria-label="Options sections">
         {OPTIONS_TABS.map((tab) => (
           <button
             key={tab.id}
-            className={activeTab === tab.id ? 'primary-button' : 'ghost-button'}
+            className={`${activeTab === tab.id ? 'primary-button' : 'ghost-button'} flex-none`}
             type="button"
             onClick={() => setActiveTab(tab.id)}
           >
@@ -933,7 +941,7 @@ function App() {
             onInstallActionPack={(example) => void installBundledActionPack(example)}
             onOpenWorkspace={(example) => void openBundledWorkspace(example)}
           />
-          {exampleMessage ? <p className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{exampleMessage}</p> : null}
+          {exampleMessage ? <p className="rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{exampleMessage}</p> : null}
         </>
       ) : null}
 
@@ -992,7 +1000,7 @@ function App() {
             onSwitchWorkspace={switchWorkspace}
             onWorkspaceChange={handleWorkspaceChange}
           />
-          {workspaceMessage ? <p className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{workspaceMessage}</p> : null}
+          {workspaceMessage ? <p className="rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{workspaceMessage}</p> : null}
         </>
       ) : null}
 

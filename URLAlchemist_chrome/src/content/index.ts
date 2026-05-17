@@ -236,7 +236,7 @@ function overlayShell(): { root: HTMLDivElement; panel: HTMLDivElement; close: H
     'position:fixed',
     'inset:0',
     'z-index:2147483647',
-    'background:rgba(15,23,42,0.44)',
+    'background:rgba(17,24,39,0.46)',
     'display:flex',
     'align-items:center',
     'justify-content:center',
@@ -249,9 +249,9 @@ function overlayShell(): { root: HTMLDivElement; panel: HTMLDivElement; close: H
     'max-height:calc(100vh - 32px)',
     'overflow:auto',
     'background:white',
-    'border:1px solid rgba(15,23,42,0.14)',
+    'border:1px solid #dbe4ee',
     'border-radius:12px',
-    'box-shadow:0 24px 80px rgba(15,23,42,0.34)',
+    'box-shadow:0 24px 80px rgba(31,41,55,0.28)',
     'padding:20px',
     'color:#0f172a',
   ].join(';');
@@ -259,7 +259,7 @@ function overlayShell(): { root: HTMLDivElement; panel: HTMLDivElement; close: H
   const close = document.createElement('button');
   close.type = 'button';
   close.textContent = 'Close';
-  close.style.cssText = 'margin-top:16px;border:1px solid #cbd5e1;background:#f8fafc;color:#0f172a;border-radius:8px;padding:8px 12px;font-weight:600;cursor:pointer';
+  close.style.cssText = 'margin-top:16px;border:1px solid #cbd5e1;background:#ffffff;color:#111827;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer';
 
   root.append(panel);
   document.documentElement.append(root);
@@ -356,7 +356,7 @@ function startOverlayApp(message: Extract<ContentRuntimeMessage, { type: typeof 
     'justify-content:space-between',
     'gap:16px',
     'padding:0 16px',
-    'border-bottom:1px solid #d4d4d8',
+    'border-bottom:1px solid #dbe4ee',
     'background:#ffffff',
     'box-sizing:border-box',
   ].join(';');
@@ -367,7 +367,7 @@ function startOverlayApp(message: Extract<ContentRuntimeMessage, { type: typeof 
   const close = document.createElement('button');
   close.type = 'button';
   close.textContent = 'Close';
-  close.style.cssText = 'border:1px solid #a1a1aa;background:#f4f4f5;color:#111827;border-radius:6px;padding:7px 11px;font-size:13px;font-weight:700;cursor:pointer';
+  close.style.cssText = 'border:1px solid #cbd5e1;background:#ffffff;color:#111827;border-radius:8px;padding:7px 11px;font-size:13px;font-weight:700;cursor:pointer';
   header.append(title, close);
 
   const stage = document.createElement('div');
@@ -396,7 +396,7 @@ function startOverlayApp(message: Extract<ContentRuntimeMessage, { type: typeof 
     'height:auto',
     'background:#ffffff',
     'border:1px solid #111827',
-    'box-shadow:0 10px 28px rgba(15,23,42,0.18)',
+    'box-shadow:0 10px 28px rgba(31,41,55,0.16)',
     'image-rendering:pixelated',
   ].join(';');
   const ctx = canvas.getContext('2d');
@@ -604,7 +604,7 @@ async function handleInteraction(message: Extract<ContentRuntimeMessage, { type:
       const yes = document.createElement('button');
       yes.type = 'button';
       yes.textContent = 'Confirm';
-      yes.style.cssText = 'border:0;background:#0f172a;color:white;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer';
+      yes.style.cssText = 'border:0;background:#0f766e;color:white;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer';
       no.addEventListener('click', () => finish(dict({ ok: true, cancelled: false, value: false, source: 'confirm' })));
       yes.addEventListener('click', () => finish(dict({ ok: true, cancelled: false, value: true, source: 'confirm' })));
       actions.append(no, yes);
@@ -627,7 +627,7 @@ async function handleInteraction(message: Extract<ContentRuntimeMessage, { type:
       const submit = document.createElement('button');
       submit.type = 'button';
       submit.textContent = 'Use';
-      submit.style.cssText = 'border:0;background:#0f172a;color:white;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer';
+      submit.style.cssText = 'border:0;background:#0f766e;color:white;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer';
       cancel.addEventListener('click', () => finish(dict({ ok: false, cancelled: true, value: null, source: 'user' })));
       submit.addEventListener('click', () => {
         const selected = file.files?.[0];
@@ -668,7 +668,7 @@ async function handleInteraction(message: Extract<ContentRuntimeMessage, { type:
     const submit = document.createElement('button');
     submit.type = 'button';
     submit.textContent = 'Submit';
-    submit.style.cssText = 'border:0;background:#0f172a;color:white;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer';
+    submit.style.cssText = 'border:0;background:#0f766e;color:white;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer';
     cancel.addEventListener('click', () => finish(dict({ ok: false, cancelled: true, value: null, source: 'user' })));
     submit.addEventListener('click', () => {
       const value = request.kind === 'PROMPT_NUMBER' ? Number(input.value) : input.value;

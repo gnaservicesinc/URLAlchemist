@@ -161,7 +161,7 @@ export function SecurityPanel({
         </div>
 
         <div className="mt-6 grid gap-4 lg:grid-cols-3">
-          <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-4">
+          <div className="rounded-lg border border-slate-200 bg-white/80 px-4 py-4">
             <span className="field-label flex items-center gap-2">
               VM instruction limit
               <HelpTooltip label="VM instruction limit" text="Caps the number of compiled VM instructions that can run for one Action Pack execution." />
@@ -186,7 +186,7 @@ export function SecurityPanel({
             />
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-4">
+          <div className="rounded-lg border border-slate-200 bg-white/80 px-4 py-4">
             <span className="field-label flex items-center gap-2">
               Redirect recursion
               <HelpTooltip label="Redirect recursion" text="Stops repeated redirects from the same pack on the same tab. The effective maximum is capped at 3." />
@@ -211,7 +211,7 @@ export function SecurityPanel({
             />
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-4">
+          <div className="rounded-lg border border-slate-200 bg-white/80 px-4 py-4">
             <span className="field-label flex items-center gap-2">
               Regex timeout
               <HelpTooltip label="Regex timeout" text="Maximum time budget for regex operations. Lower values reduce ReDoS risk but can reject slower valid patterns." />
@@ -244,10 +244,10 @@ export function SecurityPanel({
         <h3 className="text-xl font-semibold text-slate-900">Installed Action Pack tracing</h3>
         <div className="mt-4 grid gap-3">
           {actionPacks.length === 0 ? (
-            <div className="rounded-[1.25rem] border border-slate-200 bg-white/70 px-5 py-6 text-sm text-slate-500">No Action Packs installed.</div>
+            <div className="rounded-lg border border-slate-200 bg-white/70 px-5 py-6 text-sm text-slate-500">No Action Packs installed.</div>
           ) : (
             actionPacks.map((pack) => (
-              <div key={pack.manifest.id} className="flex flex-wrap items-center justify-between gap-4 rounded-[1.25rem] border border-slate-200 bg-white/75 p-4">
+              <div key={pack.manifest.id} className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-slate-200 bg-white/75 p-4">
                 <div>
                   <p className="font-semibold text-slate-900">{pack.manifest.name}</p>
                   <p className="text-sm text-slate-500">{traceRemaining(pack)}</p>
@@ -265,10 +265,10 @@ export function SecurityPanel({
         <h3 className="text-xl font-semibold text-slate-900">Alerts and issues</h3>
         <div className="mt-4 grid gap-3">
           {workspaceAlerts.length === 0 && traceEntries.every((entry) => entry.issues.length === 0) ? (
-            <div className="rounded-[1.25rem] border border-slate-200 bg-white/70 px-5 py-6 text-sm text-slate-500">No installed workspace alerts or trace issues.</div>
+            <div className="rounded-lg border border-slate-200 bg-white/70 px-5 py-6 text-sm text-slate-500">No installed workspace alerts or trace issues.</div>
           ) : null}
           {workspaceAlerts.map((alert) => (
-            <div key={`${alert.workspace.metadata.id}:${alert.message}`} className={`rounded-[1.25rem] border px-5 py-4 text-sm ${alert.severity === 'error' ? 'border-rose-200 bg-rose-50 text-rose-800' : 'border-amber-200 bg-amber-50 text-amber-900'}`}>
+            <div key={`${alert.workspace.metadata.id}:${alert.message}`} className={`rounded-lg border px-5 py-4 text-sm ${alert.severity === 'error' ? 'border-rose-200 bg-rose-50 text-rose-800' : 'border-amber-200 bg-amber-50 text-amber-900'}`}>
               <p className="font-semibold">{alert.workspace.metadata.name}</p>
               <p className="mt-1">{alert.message}</p>
             </div>
@@ -277,7 +277,7 @@ export function SecurityPanel({
             .filter((entry) => entry.issues.length > 0)
             .slice(0, 8)
             .map((entry) => (
-              <div key={entry.id} className="rounded-[1.25rem] border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-800">
+              <div key={entry.id} className="rounded-lg border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-800">
                 <p className="font-semibold">{entry.packName} · {formatTimestamp(entry.timestamp)}</p>
                 <ul className="mt-2 list-disc pl-5">
                   {entry.issues.map((issue) => (
@@ -303,7 +303,7 @@ export function SecurityPanel({
         </div>
 
         <div
-          className="mt-5 rounded-[1.5rem] border border-dashed border-slate-300 bg-white/70 px-6 py-12 text-center"
+          className="mt-5 rounded-lg border border-dashed border-slate-300 bg-white/70 px-6 py-12 text-center"
           onDragOver={(event) => event.preventDefault()}
           onDrop={(event) => void handleAuditDrop(event)}
         >
@@ -312,25 +312,25 @@ export function SecurityPanel({
         </div>
         <input ref={fileInputRef} accept=".workspace,.actionpack,application/octet-stream" className="hidden" type="file" onChange={(event) => void handleAuditChange(event)} />
 
-        {auditError ? <p className="mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{auditError}</p> : null}
+        {auditError ? <p className="mt-4 rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700">{auditError}</p> : null}
 
         {auditReport ? (
           <div className="mt-5 grid gap-4">
-            <div className={`rounded-[1.25rem] border px-5 py-4 ${auditReport.valid ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-800'}`}>
+            <div className={`rounded-lg border px-5 py-4 ${auditReport.valid ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-800'}`}>
               <p className="font-semibold">{auditReport.kind}: {auditReport.title}</p>
               <p className="mt-1 text-sm">{auditReport.summary}</p>
               <p className="mt-1 text-sm">Run: {auditReport.trigger} · {auditReport.instructions.length} instructions</p>
               <p className="mt-1 text-sm">Permissions: {auditReport.permissions.length > 0 ? auditReport.permissions.join(', ') : 'none'}</p>
             </div>
             {auditReport.errors.length > 0 ? (
-              <ul className="list-disc rounded-[1.25rem] border border-rose-200 bg-rose-50 px-8 py-4 text-sm text-rose-800">
+              <ul className="list-disc rounded-lg border border-rose-200 bg-rose-50 px-8 py-4 text-sm text-rose-800">
                 {auditReport.errors.map((error) => (
                   <li key={error}>{error}</li>
                 ))}
               </ul>
             ) : null}
             {auditReport.riskReasons.length > 0 ? (
-              <div className="rounded-[1.25rem] border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
                 <p className="font-semibold">Risk summary</p>
                 <ul className="mt-2 list-disc pl-5">
                   {auditReport.riskReasons.map((reason) => (
@@ -339,11 +339,11 @@ export function SecurityPanel({
                 </ul>
               </div>
             ) : null}
-            <div className="rounded-[1.25rem] border border-slate-200 bg-white/75 px-5 py-4">
+            <div className="rounded-lg border border-slate-200 bg-white/75 px-5 py-4">
               <p className="text-sm font-semibold text-slate-900">What it does</p>
               <ol className="mt-3 grid gap-2 text-sm text-slate-700">
                 {auditReport.instructions.map((instruction, index) => (
-                  <li key={`${instruction.nodeId}:${index}`} className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
+                  <li key={`${instruction.nodeId}:${index}`} className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3">
                     <span className="font-semibold text-slate-900">Step {index + 1}:</span> {explainInstruction(instruction)}
                   </li>
                 ))}

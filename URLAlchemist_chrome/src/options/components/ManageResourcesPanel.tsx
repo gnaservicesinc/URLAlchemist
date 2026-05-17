@@ -63,7 +63,7 @@ function WorkspaceCard({
   const compileResult = useMemo(() => compileWorkspace(workspace), [workspace]);
 
   return (
-    <article className="rounded-[1.25rem] border border-slate-200 bg-white/85 p-5 shadow-[0_12px_28px_rgba(15,23,42,0.07)]">
+    <article className="rounded-lg border border-slate-200 bg-white/85 p-5 shadow-[0_12px_28px_rgba(31,41,55,0.07)]">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="eyebrow">Workspace</p>
@@ -123,7 +123,7 @@ function WorkspaceCard({
       </div>
 
       {!compileResult.ok ? (
-        <ul className="mt-4 list-disc rounded-2xl border border-rose-200 bg-rose-50 px-6 py-3 text-sm text-rose-800">
+        <ul className="mt-4 list-disc rounded-lg border border-rose-200 bg-rose-50 px-6 py-3 text-sm text-rose-800">
           {compileResult.validation.errors.slice(0, 3).map((error) => (
             <li key={error}>{error}</li>
           ))}
@@ -172,7 +172,7 @@ function ActionPackCard({
   const traceActive = isTraceActive(pack);
 
   return (
-    <article className="rounded-[1.25rem] border border-slate-200 bg-white/85 p-5 shadow-[0_12px_28px_rgba(15,23,42,0.07)]">
+    <article className="rounded-lg border border-slate-200 bg-white/85 p-5 shadow-[0_12px_28px_rgba(31,41,55,0.07)]">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="eyebrow">Action Pack</p>
@@ -206,7 +206,7 @@ function ActionPackCard({
       <div className="mt-5 flex flex-wrap items-center gap-3">
         <label className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">
           Enabled
-          <input checked={pack.manifest.enabled} className="h-4 w-4 accent-amber-600" type="checkbox" onChange={() => onToggleActionPack(pack)} />
+          <input checked={pack.manifest.enabled} className="h-4 w-4 accent-teal-700" type="checkbox" onChange={() => onToggleActionPack(pack)} />
         </label>
         <button className="ghost-button" type="button" onClick={() => (traceActive ? onDisableTrace(pack) : onEnableTrace(pack))}>
           {traceActive ? 'Disable Trace' : 'Enable Trace'}
@@ -271,7 +271,7 @@ export function ManageResourcesPanel(props: ManageResourcesPanelProps) {
 
       <div className="mt-6 grid gap-5">
         {props.workspaces.length === 0 && props.actionPacks.length === 0 && props.legacyPacks.length === 0 ? (
-          <div className="rounded-[1.25rem] border border-slate-200 bg-white/70 px-5 py-8 text-center text-sm text-slate-500">
+          <div className="rounded-lg border border-slate-200 bg-white/70 px-5 py-8 text-center text-sm text-slate-500">
             No resources are installed yet. Use Examples or Import to add a workspace or Action Pack.
           </div>
         ) : null}
@@ -289,7 +289,7 @@ export function ManageResourcesPanel(props: ManageResourcesPanelProps) {
                 onUpdateWorkspaceMetadata={props.onUpdateWorkspaceMetadata}
               />
               <div className="hidden items-center justify-center lg:flex">
-                <div className={`h-1 w-full rounded-full ${pairedPacks.length > 0 ? 'bg-amber-400' : 'bg-slate-200'}`} />
+                <div className={`h-1 w-full rounded-full ${pairedPacks.length > 0 ? 'bg-teal-400' : 'bg-slate-200'}`} />
               </div>
               <div className="grid gap-4">
                 {pairedPacks.length > 0 ? (
@@ -309,7 +309,7 @@ export function ManageResourcesPanel(props: ManageResourcesPanelProps) {
                     />
                   ))
                 ) : (
-                  <div className="rounded-[1.25rem] border border-dashed border-slate-300 bg-white/65 px-5 py-8 text-center text-sm text-slate-500">
+                  <div className="rounded-lg border border-dashed border-slate-300 bg-white/65 px-5 py-8 text-center text-sm text-slate-500">
                     No installed Action Pack is compiled from this workspace.
                   </div>
                 )}
@@ -346,7 +346,7 @@ export function ManageResourcesPanel(props: ManageResourcesPanelProps) {
             <h3 className="text-lg font-semibold text-slate-900">Legacy v1 URL packs</h3>
             <div className="mt-3 grid gap-4 lg:grid-cols-2">
               {props.legacyPacks.map((pack) => (
-                <article key={pack.id} className="rounded-[1.25rem] border border-slate-200 bg-white/75 p-5">
+                <article key={pack.id} className="rounded-lg border border-slate-200 bg-white/75 p-5">
                   <div className="flex flex-wrap items-center gap-2">
                     <h4 className="text-lg font-semibold text-slate-900">{pack.name}</h4>
                     <span className="risk-badge risk-badge-soft">Legacy v1</span>
@@ -372,7 +372,7 @@ export function ManageResourcesPanel(props: ManageResourcesPanelProps) {
       </div>
       {logPack ? (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/55 px-4 py-10 backdrop-blur-md">
-          <div className="reveal-panel w-full max-w-5xl rounded-[1.75rem] border border-white/70 bg-[rgba(255,252,246,0.98)] p-5 shadow-[0_32px_90px_rgba(15,23,42,0.26)]">
+          <div className="reveal-panel w-full max-w-5xl rounded-xl border border-white/70 bg-white p-5 shadow-[0_32px_90px_rgba(31,41,55,0.26)]">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <p className="eyebrow">Action Pack Log</p>
@@ -388,7 +388,7 @@ export function ManageResourcesPanel(props: ManageResourcesPanelProps) {
                 </button>
               </div>
             </div>
-            <pre className="mt-5 max-h-[65vh] overflow-auto rounded-2xl border border-slate-200 bg-slate-950 p-4 text-xs leading-5 text-slate-100">
+            <pre className="mt-5 max-h-[65vh] overflow-auto rounded-lg border border-slate-200 bg-slate-950 p-4 text-xs leading-5 text-slate-100">
               {formatActionPackLogText(logPack.manifest.name, logEntries)}
             </pre>
           </div>

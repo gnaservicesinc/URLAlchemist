@@ -26,9 +26,9 @@ export function HotkeyRecorder({ onChange, validationError, value }: HotkeyRecor
         <HelpTooltip label="Hotkey" text="Chrome matches this shortcut per Action Pack through the content-script key listener." />
       </span>
       <button
-        className={`w-full rounded-2xl border px-4 py-3 text-left text-sm outline-none transition ${
+        className={`w-full rounded-lg border px-4 py-3 text-left text-sm outline-none transition ${
           isCapturing
-            ? 'border-amber-400 bg-amber-50 text-slate-900 ring-2 ring-amber-200'
+            ? 'border-teal-500 bg-teal-50 text-slate-900 ring-2 ring-teal-100'
             : 'border-slate-200 bg-white/90 text-slate-900 hover:border-slate-300'
         }`}
         type="button"
@@ -82,9 +82,9 @@ export function HotkeyRecorder({ onChange, validationError, value }: HotkeyRecor
       </div>
 
       {validationError ? (
-        <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{validationError}</p>
+        <p className="rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700">{validationError}</p>
       ) : statusMessage ? (
-        <p className="rounded-2xl bg-slate-100 px-4 py-3 text-sm text-slate-700">{statusMessage}</p>
+        <p className="rounded-lg bg-slate-100 px-4 py-3 text-sm text-slate-700">{statusMessage}</p>
       ) : null}
 
       <p className="text-xs text-slate-500">

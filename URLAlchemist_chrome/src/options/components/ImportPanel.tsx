@@ -27,11 +27,11 @@ export default function ImportPanel({ importBusy, importError, onFileDrop, onFil
       </div>
 
       <div
-        className="mt-5 rounded-[1.5rem] border border-dashed border-amber-300 bg-amber-50/70 px-6 py-20 text-center"
+        className="mt-5 rounded-lg border border-dashed border-teal-300 bg-teal-50/80 px-6 py-16 text-center"
         onDragOver={(event) => event.preventDefault()}
         onDrop={(event) => onFileDrop(event)}
       >
-        <p className="text-3xl font-bold text-amber-600">
+        <p className="text-2xl font-bold text-teal-800 sm:text-3xl">
           {importBusy ? 'Inspecting file...' : 'Drop file to inspect'}
         </p>
         <p className="mt-3 text-sm text-slate-600">
@@ -40,7 +40,7 @@ export default function ImportPanel({ importBusy, importError, onFileDrop, onFil
       </div>
 
       {importError ? (
-        <p className="mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{importError}</p>
+        <p className="mt-4 rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700">{importError}</p>
       ) : null}
 
       <input

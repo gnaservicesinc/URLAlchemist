@@ -26,6 +26,25 @@ interface SettingsPanelProps {
   onUiScaleChange: (value: number) => void;
 }
 
+function ToggleSwitch({ checked, label, onToggle }: { checked: boolean; label: string; onToggle: () => void }) {
+  return (
+    <button
+      aria-checked={checked}
+      aria-label={label}
+      className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition focus:outline-none focus:ring-2 focus:ring-teal-100 ${
+        checked ? 'border-teal-600 bg-teal-600' : 'border-slate-300 bg-slate-100'
+      }`}
+      role="switch"
+      type="button"
+      onClick={onToggle}
+    >
+      <span
+        className={`h-5 w-5 rounded-full bg-white shadow-sm transition ${checked ? 'translate-x-5' : 'translate-x-1'}`}
+      />
+    </button>
+  );
+}
+
 export function SettingsPanel({
   backupFileInputRef,
   builderUuidFileInputRef,
@@ -59,47 +78,47 @@ export function SettingsPanel({
       <p className="eyebrow">Settings</p>
       <h2 className="mt-2 text-2xl font-semibold text-slate-900">Local controls</h2>
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
-        <div className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white/80 px-4 py-3">
+        <div className="flex items-center justify-between gap-4 rounded-lg border border-slate-200 bg-white/80 px-4 py-3">
           <div>
             <p className="text-sm font-semibold text-slate-900">Engine Enabled</p>
             <p className="text-xs text-slate-500">
               Allow background navigation interception. <HelpTooltip label="Engine enabled" text="When disabled, installed Action Packs remain saved but will not run on navigation, hotkeys, intervals, or context-menu actions." />
             </p>
           </div>
-          <input aria-label="Engine Enabled" checked={settings.globalEnabled} className="h-5 w-5 accent-amber-600" type="checkbox" onChange={onGlobalEnabledToggle} />
+          <ToggleSwitch checked={settings.globalEnabled} label="Engine Enabled" onToggle={onGlobalEnabledToggle} />
         </div>
 
-        <div className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white/80 px-4 py-3">
+        <div className="flex items-center justify-between gap-4 rounded-lg border border-slate-200 bg-white/80 px-4 py-3">
           <div>
             <p className="text-sm font-semibold text-slate-900">Allow file URLs</p>
             <p className="text-xs text-slate-500">
               Disabled by default for local file safety. <HelpTooltip label="Allow file URLs" text="Allows transformed outputs to navigate to file:// URLs. Keep this off unless you explicitly need local file navigation." />
             </p>
           </div>
-          <input aria-label="Allow file URLs" checked={settings.allowLocalFiles} className="h-5 w-5 accent-amber-600" type="checkbox" onChange={onLocalFilesToggle} />
+          <ToggleSwitch checked={settings.allowLocalFiles} label="Allow file URLs" onToggle={onLocalFilesToggle} />
         </div>
 
-        <div className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white/80 px-4 py-3">
+        <div className="flex items-center justify-between gap-4 rounded-lg border border-slate-200 bg-white/80 px-4 py-3">
           <div>
             <p className="text-sm font-semibold text-slate-900">Advanced Mode</p>
             <p className="text-xs text-slate-500">
               Enable manual regex editing in supported builders. <HelpTooltip label="Advanced mode" text="Manual regex mode bypasses the visual helper and should be used only when you understand the pattern." />
             </p>
           </div>
-          <input aria-label="Advanced Mode" checked={settings.advancedModeEnabled} className="h-5 w-5 accent-amber-600" type="checkbox" onChange={onAdvancedModeToggle} />
+          <ToggleSwitch checked={settings.advancedModeEnabled} label="Advanced Mode" onToggle={onAdvancedModeToggle} />
         </div>
 
-        <div className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white/80 px-4 py-3">
+        <div className="flex items-center justify-between gap-4 rounded-lg border border-slate-200 bg-white/80 px-4 py-3">
           <div>
             <p className="text-sm font-semibold text-slate-900">Google Sync</p>
             <p className="text-xs text-slate-500">
               Best-effort sync for settings and small workspaces or Action Packs. <HelpTooltip label="Google Sync" text="Large workspaces and Action Packs stay local because Chrome sync has a small per-item quota." />
             </p>
           </div>
-          <input aria-label="Google Sync" checked={settings.syncEnabled} className="h-5 w-5 accent-amber-600" type="checkbox" onChange={onSyncEnabledToggle} />
+          <ToggleSwitch checked={settings.syncEnabled} label="Google Sync" onToggle={onSyncEnabledToggle} />
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-4 lg:col-span-2">
+        <div className="rounded-lg border border-slate-200 bg-white/80 px-4 py-4 lg:col-span-2">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-sm font-semibold text-slate-900">UI Scale</p>
@@ -140,7 +159,7 @@ export function SettingsPanel({
           </div>
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-4">
+        <div className="rounded-lg border border-slate-200 bg-white/80 px-4 py-4">
           <p className="text-sm font-semibold text-slate-900">Clipboard Permission</p>
           <p className="mt-1 text-xs text-slate-500">
             Needed for high-risk clipboard sources or outputs. <HelpTooltip label="Clipboard permission" text="Only grant clipboard access if you use packs that explicitly read from or write to the clipboard." />
@@ -155,7 +174,7 @@ export function SettingsPanel({
           </div>
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-4 lg:col-span-2">
+        <div className="rounded-lg border border-slate-200 bg-white/80 px-4 py-4 lg:col-span-2">
           <p className="text-sm font-semibold text-slate-900">Local Builder UUID</p>
           <p className="mt-1 text-xs text-slate-500">
             Identifies this browser as the workspace builder. <HelpTooltip label="Local Builder UUID" text="Export this UUID before reinstalling if you want future builds to keep the same builder identity." />
@@ -178,11 +197,11 @@ export function SettingsPanel({
               Save UUID
             </button>
           </div>
-          {builderUuidMessage ? <p className="mt-3 rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-700">{builderUuidMessage}</p> : null}
+          {builderUuidMessage ? <p className="mt-3 rounded-lg bg-slate-50 px-4 py-3 text-sm text-slate-700">{builderUuidMessage}</p> : null}
           <input ref={builderUuidFileInputRef} accept=".txt,text/plain" className="hidden" type="file" onChange={onBuilderUuidFileChange} />
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-4 lg:col-span-2">
+        <div className="rounded-lg border border-slate-200 bg-white/80 px-4 py-4 lg:col-span-2">
           <p className="text-sm font-semibold text-slate-900">Backup and Restore</p>
           <p className="mt-1 text-xs text-slate-500">
             Exports settings, workspaces, Action Packs, metadata, and checksums into one local backup blob. <HelpTooltip label="Backup and restore" text="Backups are the restore path if extension storage is cleared or the extension is uninstalled." />

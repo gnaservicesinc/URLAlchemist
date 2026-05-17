@@ -117,13 +117,13 @@ export function AboutPanel({ onResetEverything }: AboutPanelProps) {
         </button>
       </div>
 
-      {licenseMessage ? <p className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-700">{licenseMessage}</p> : null}
+      {licenseMessage ? <p className="mt-4 rounded-lg bg-slate-50 px-4 py-3 text-sm text-slate-700">{licenseMessage}</p> : null}
 
-      <div className="mt-5 max-h-80 overflow-auto rounded-[1.25rem] border border-slate-200 bg-slate-950 p-4 text-xs text-slate-100">
+      <div className="mt-5 max-h-80 overflow-auto rounded-lg border border-slate-200 bg-slate-950 p-4 text-xs text-slate-100">
         <pre>{licenseBusy ? 'Loading license...' : licenseText || 'Use Download or Copy to fetch the GPLv3 license text.'}</pre>
       </div>
 
-      <div className="mt-6 rounded-[1.25rem] border border-rose-200 bg-rose-50 px-5 py-4">
+      <div className="mt-6 rounded-lg border border-rose-200 bg-rose-50 px-5 py-4">
         <h3 className="text-lg font-semibold text-rose-900">Reset extension environment</h3>
         <p className="mt-2 text-sm text-rose-800">
           This clears installed workspaces, Action Packs, settings, traces, sync snapshots, session values, and temporary recovery drafts.

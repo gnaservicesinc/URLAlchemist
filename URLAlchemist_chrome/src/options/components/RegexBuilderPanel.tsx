@@ -71,7 +71,7 @@ export function RegexBuilderPanel({
 
   if (advancedModeEnabled) {
     return (
-      <div className="rounded-[1.45rem] border border-slate-200 bg-[rgba(248,250,252,0.7)] p-4 lg:col-span-2">
+      <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-4 lg:col-span-2">
         <label className="field-shell">
           <span className="field-label">
             <HintLabel
@@ -97,7 +97,7 @@ export function RegexBuilderPanel({
           editing that generated pattern by hand.
         </p>
         {validationError ? (
-          <p className="mt-3 rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{validationError}</p>
+          <p className="mt-3 rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700">{validationError}</p>
         ) : null}
       </div>
     );
@@ -105,14 +105,14 @@ export function RegexBuilderPanel({
 
   if (activity.regexSourceMode === 'MANUAL') {
     return (
-      <div className="rounded-[1.45rem] border border-slate-200 bg-[rgba(248,250,252,0.7)] p-4 lg:col-span-2">
-        <div className="rounded-3xl border border-amber-200 bg-amber-50/80 p-4">
+      <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-4 lg:col-span-2">
+        <div className="rounded-lg border border-amber-200 bg-amber-50/80 p-4">
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-700">Advanced Regex Hidden</p>
           <p className="mt-2 text-sm text-amber-950">
             This activity currently uses a manual regex. Beginner mode keeps it safe and read-only instead of trying
             to guess how to rebuild it visually.
           </p>
-          <div className="mt-3 rounded-2xl border border-amber-200 bg-white/85 px-4 py-3 font-mono text-xs text-slate-800">
+          <div className="mt-3 rounded-lg border border-amber-200 bg-white/85 px-4 py-3 font-mono text-xs text-slate-800">
             {activity.pattern || 'No regex stored yet.'}
           </div>
           <button
@@ -131,16 +131,16 @@ export function RegexBuilderPanel({
           </button>
         </div>
         {validationError ? (
-          <p className="mt-3 rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{validationError}</p>
+          <p className="mt-3 rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700">{validationError}</p>
         ) : null}
       </div>
     );
   }
 
   return (
-    <div className="rounded-[1.45rem] border border-slate-200 bg-[rgba(248,250,252,0.7)] p-4 lg:col-span-2">
+    <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-4 lg:col-span-2">
       <div className="space-y-4">
-        <section className="rounded-3xl border border-slate-200 bg-white/85 p-4">
+        <section className="rounded-lg border border-slate-200 bg-white/85 p-4">
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Step 1</p>
           <label className="field-shell mt-3">
             <span className="field-label">
@@ -189,9 +189,9 @@ export function RegexBuilderPanel({
           ) : null}
         </section>
 
-        <section className="rounded-3xl border border-slate-200 bg-white/85 p-4">
+        <section className="rounded-lg border border-slate-200 bg-white/85 p-4">
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Step 2</p>
-          <div className="mt-3 rounded-2xl border border-dashed border-amber-300 bg-amber-50/80 px-4 py-3">
+          <div className="mt-3 rounded-lg border border-dashed border-amber-300 bg-amber-50/80 px-4 py-3">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-700">Selected Text</p>
             <p className="mt-2 break-all font-mono text-sm text-amber-950">
               {selectedText || 'Nothing selected yet. Pick a quick suggestion or highlight text in the sample URL.'}
@@ -201,10 +201,10 @@ export function RegexBuilderPanel({
         </section>
 
         {activity.regexBuilder.tokens.length > 0 ? (
-          <section className="rounded-3xl border border-slate-200 bg-white/85 p-4">
+          <section className="rounded-lg border border-slate-200 bg-white/85 p-4">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Step 3</p>
             <p className="mt-3 text-sm text-slate-700">
-              Leave pieces cream when they must stay exact. Click a piece to turn it blue if that part can change.
+              Leave pieces neutral when they must stay exact. Click a piece to turn it blue if that part can change.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               {activity.regexBuilder.tokens.map((token) => (
@@ -238,7 +238,7 @@ export function RegexBuilderPanel({
                 {flexibleTokens.map((token) => (
                   <div
                     key={token.id}
-                    className="rounded-2xl border border-sky-200 bg-sky-50/80 px-4 py-3 sm:flex sm:items-center sm:justify-between sm:gap-4"
+                    className="rounded-lg border border-sky-200 bg-sky-50/80 px-4 py-3 sm:flex sm:items-center sm:justify-between sm:gap-4"
                   >
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">
@@ -284,7 +284,7 @@ export function RegexBuilderPanel({
       </div>
 
       {validationError ? (
-        <p className="mt-3 rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{validationError}</p>
+        <p className="mt-3 rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700">{validationError}</p>
       ) : null}
     </div>
   );

@@ -98,7 +98,7 @@ export function HelpPanel() {
       </div>
 
       <div className="mt-6 grid gap-5 lg:grid-cols-[280px_1fr]">
-        <aside className="rounded-[1.25rem] border border-slate-200 bg-white/75 p-4">
+        <aside className="rounded-lg border border-slate-200 bg-white/75 p-4">
           <label className="field-shell">
             <span className="field-label">Search help</span>
             <input className="field-input" placeholder="Search sections" value={query} onChange={(event) => setQuery(event.target.value)} />
@@ -107,7 +107,7 @@ export function HelpPanel() {
             {visibleDocuments.map((document) => (
               <button
                 key={document.path}
-                className={`rounded-2xl px-4 py-3 text-left transition ${activePath === document.path ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 hover:bg-amber-50'}`}
+                className={`rounded-lg px-4 py-3 text-left transition ${activePath === document.path ? 'bg-zinc-900 text-white' : 'bg-white text-slate-700 hover:bg-teal-50 hover:text-teal-900'}`}
                 type="button"
                 onClick={() => setActivePath(document.path)}
               >
@@ -115,11 +115,11 @@ export function HelpPanel() {
                 <span className={`mt-1 block text-xs ${activePath === document.path ? 'text-slate-200' : 'text-slate-500'}`}>{document.summary}</span>
               </button>
             ))}
-            {visibleDocuments.length === 0 ? <p className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-500">No help sections match that search.</p> : null}
+            {visibleDocuments.length === 0 ? <p className="rounded-lg bg-slate-50 px-4 py-3 text-sm text-slate-500">No help sections match that search.</p> : null}
           </div>
         </aside>
 
-        <article className="min-h-[640px] max-h-[760px] overflow-y-auto rounded-[1.25rem] border border-slate-200 bg-white shadow-[0_12px_28px_rgba(15,23,42,0.07)]">
+        <article className="min-h-[640px] max-h-[760px] overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-[0_12px_28px_rgba(31,41,55,0.07)]">
           {error ? (
             <p className="p-6 text-sm text-rose-700">{error}</p>
           ) : (

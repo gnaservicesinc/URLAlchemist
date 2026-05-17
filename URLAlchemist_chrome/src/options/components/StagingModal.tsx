@@ -85,7 +85,7 @@ export function StagingModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/55 px-4 py-10 backdrop-blur-md">
-      <div className="reveal-panel relative w-full max-w-6xl rounded-[2rem] border border-white/60 bg-[rgba(255,252,246,0.97)] p-6 shadow-[0_32px_90px_rgba(15,23,42,0.26)] md:p-8">
+      <div className="reveal-panel relative w-full max-w-6xl rounded-xl border border-white/60 bg-white p-6 shadow-[0_32px_90px_rgba(31,41,55,0.26)] md:p-8">
         <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="eyebrow">Staging Area</p>
@@ -100,21 +100,21 @@ export function StagingModal({
         </div>
 
         {pack.risk.highest === 'high' ? (
-          <div className="mb-5 rounded-[1.5rem] border-2 border-rose-300 bg-rose-100 px-5 py-4 text-rose-900">
+          <div className="mb-5 rounded-lg border-2 border-rose-300 bg-rose-100 px-5 py-4 text-rose-900">
               <p className="text-lg font-bold">High-risk pack</p>
               <p className="mt-1 text-sm">
                 {summarizePackBehavior(pack)}
               </p>
           </div>
         ) : pack.risk.highest === 'extended' ? (
-          <div className="mb-5 rounded-[1.5rem] border border-amber-300 bg-amber-100 px-5 py-4 text-amber-950">
+          <div className="mb-5 rounded-lg border border-amber-300 bg-amber-100 px-5 py-4 text-amber-950">
             <p className="font-semibold">Extended data access</p>
             <p className="mt-1 text-sm">Enable trace for the first day after install so you can inspect what the pack touches.</p>
           </div>
         ) : null}
 
         {remoteInstructions.length > 0 ? (
-          <div className="mb-5 rounded-[1.5rem] border-2 border-rose-300 bg-rose-100 px-5 py-4 text-rose-900">
+          <div className="mb-5 rounded-lg border-2 border-rose-300 bg-rose-100 px-5 py-4 text-rose-900">
             <p className="text-lg font-bold">Remote data access</p>
             <p className="mt-1 text-sm">
               This Action Pack can contact remote servers. Static hosts are shown below when known; dynamic remote hosts depend on runtime input data.
@@ -168,7 +168,7 @@ export function StagingModal({
             </dl>
 
             {pack.risk.reasons.length > 0 ? (
-              <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+              <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
                 <p className="font-semibold">Risk reasons</p>
                 <ul className="mt-2 list-disc pl-5">
                   {pack.risk.reasons.map((reason) => (
@@ -179,7 +179,7 @@ export function StagingModal({
             ) : null}
 
             {checksumHex ? (
-              <div className="mt-5 rounded-2xl border border-slate-200 bg-white/80 px-4 py-3">
+              <div className="mt-5 rounded-lg border border-slate-200 bg-white/80 px-4 py-3">
                 <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
                   Checksum
                   <HelpTooltip label="Checksum" text="The checksum proves file integrity, not safety. The staged validator still checks every compiled instruction." />
@@ -221,11 +221,11 @@ export function StagingModal({
               </div>
             </div>
 
-            <div className="mt-4 flex items-center gap-3 rounded-2xl border border-slate-200 bg-white/75 px-4 py-3 text-sm text-slate-700">
+            <div className="mt-4 flex items-center gap-3 rounded-lg border border-slate-200 bg-white/75 px-4 py-3 text-sm text-slate-700">
               <input
                 aria-label="Review acknowledged"
                 checked={reviewAcknowledged}
-                className="h-4 w-4 accent-amber-600"
+                className="h-4 w-4 accent-teal-700"
                 type="checkbox"
                 onChange={(event) => onReviewAcknowledgedChange(event.target.checked)}
               />
@@ -236,7 +236,7 @@ export function StagingModal({
             </div>
 
             {validationErrors.length > 0 ? (
-              <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50/90 px-4 py-3 text-sm text-rose-700">
+              <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50/90 px-4 py-3 text-sm text-rose-700">
                 <p className="font-semibold text-rose-900">Import is blocked until these issues are resolved:</p>
                 <ul className="mt-2 list-disc pl-5">
                   {validationErrors.map((error) => (
@@ -261,7 +261,7 @@ export function StagingModal({
           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-700">What This Pack Does</p>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             {pack.vm.instructions.map((instruction, index) => (
-              <article key={`${instruction.nodeId}-${index}`} className="rounded-2xl border border-slate-200 bg-white/85 p-4">
+              <article key={`${instruction.nodeId}-${index}`} className="rounded-lg border border-slate-200 bg-white/85 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Step {index + 1}</p>
                   <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">{instruction.op}</span>

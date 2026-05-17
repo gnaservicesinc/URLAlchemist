@@ -82,7 +82,7 @@ export function BundledExamplesPanel({
 
       <div className="mt-6 grid gap-3">
         <input
-          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-800 outline-none focus:border-amber-400"
+          className="field-input"
           placeholder="Search examples"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
@@ -91,7 +91,7 @@ export function BundledExamplesPanel({
           {categories.map((entry) => (
             <button
               key={entry}
-              className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${category === entry ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-white text-slate-600 hover:border-amber-300 hover:bg-amber-50'}`}
+              className={`rounded-md border px-3 py-1.5 text-xs font-bold transition ${category === entry ? 'border-teal-700 bg-teal-700 text-white' : 'border-slate-200 bg-white text-slate-600 hover:border-teal-300 hover:bg-teal-50 hover:text-teal-900'}`}
               type="button"
               onClick={() => setCategory(entry)}
             >
@@ -101,15 +101,15 @@ export function BundledExamplesPanel({
         </div>
       </div>
 
-      <div className="mt-6 grid gap-4 md:grid-cols-2">
+      <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {visibleExamples.map((example) => {
           const installed = installedPackIds.has(example.id);
           const savedWorkspace = savedWorkspaceIds.has(example.id);
 
           return (
-            <article key={example.id} className="rounded-[1.25rem] border border-slate-200 bg-white/85 p-5 shadow-[0_12px_28px_rgba(15,23,42,0.07)]">
+            <article key={example.id} className="flex h-full flex-col rounded-lg border border-slate-200 bg-white p-4 shadow-[0_8px_20px_rgba(31,41,55,0.06)]">
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
+                <div className="min-w-0">
                   <h3 className="text-lg font-semibold text-slate-900">{example.name}</h3>
                   <p className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-500">{example.category} / {formatRunType(example.trigger)}</p>
                 </div>
@@ -124,13 +124,13 @@ export function BundledExamplesPanel({
 
               <div className="mt-4 flex flex-wrap gap-2">
                 {example.features.map((feature) => (
-                  <span key={feature} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">
+                  <span key={feature} className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">
                     {feature}
                   </span>
                 ))}
               </div>
 
-              <div className="mt-5 flex flex-wrap gap-3">
+              <div className="mt-auto flex flex-wrap gap-2 pt-5">
                 <button className="primary-button" type="button" onClick={() => onInstallActionPack(example)}>
                   {installed ? 'Reinstall Action Pack' : 'Install Action Pack'}
                 </button>
