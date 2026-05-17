@@ -1677,7 +1677,7 @@ export function validateCompiledActionPackV2(candidate: unknown): ValidationResu
   candidate = migrateCompiledActionPackV2Candidate(candidate);
 
   if (!isRecord(candidate) || !hasExactKeys(candidate, ['kind', 'schemaVersion', 'manifest', 'builder', 'risk', 'triggerPlan', 'requiredPermissions', 'vm'], ['sourceWorkspaceId', 'checksumHex', 'traceEnabledUntil'])) {
-    return { ok: false, errors: ['The file is not a valid v2 Action Pack'] };
+    return { ok: false, errors: ['The file is not a valid Action Pack'] };
   }
 
   if (candidate.kind !== 'action-pack.v2') {

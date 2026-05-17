@@ -12,7 +12,7 @@
       "trigger": "INPUT_DATA",
       "risk": "safe",
       "features": [
-        "On page load",
+        "Run on input data",
         "Regex cleanup",
         "Safe URL output"
       ],

@@ -2089,7 +2089,7 @@ export function WorkspaceEditor({
         <label className="field-shell">
           <span className="field-label">Run</span>
           <select className="field-select" value={workspace.trigger.type} onChange={(event) => updateWorkspace({ trigger: { ...workspace.trigger, type: event.target.value as WorkspaceFileV2['trigger']['type'] } })}>
-            <option value="INPUT_DATA">On page load</option>
+            <option value="INPUT_DATA">Run on input data</option>
             <option value="HOTKEY">Hotkey</option>
             <option value="CONTEXT_MENU">Context Menu</option>
             <option value="INTERVAL">Recurring interval</option>

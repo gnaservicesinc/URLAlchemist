@@ -698,7 +698,7 @@ function App() {
         setStagedPack(result.pack);
         setStagedChecksum(artifact.checksumHex);
       }
-      setWorkspaceMessage(`Converted v1 pack "${artifact.pack.name}" into a v2 workspace.`);
+      setWorkspaceMessage(`Converted v1 pack "${artifact.pack.name}" into an editable workspace.`);
     } catch (error) {
       setImportError(error instanceof Error ? error.message : 'Unable to import this file');
     } finally {
@@ -892,16 +892,16 @@ function App() {
   return (
     <main className="mx-auto flex min-h-screen max-w-7xl flex-col gap-6 px-4 py-6 md:px-8 md:py-10" style={scaleStyle}>
       <header className="reveal-panel rounded-[1.75rem] border border-white/65 bg-[linear-gradient(135deg,rgba(255,249,242,0.93),rgba(252,236,217,0.88))] px-6 py-7 shadow-[0_24px_70px_rgba(15,23,42,0.16)] md:px-8">
-        <p className="eyebrow">URL Alchemist V2</p>
+        <p className="eyebrow">URL Alchemist Chrome 2.0</p>
         <div className="mt-3 flex flex-wrap items-end justify-between gap-5">
           <div>
-            <h1 className="text-4xl font-semibold tracking-tight text-slate-950 md:text-5xl">Visual Action Pack workspaces.</h1>
+            <h1 className="text-4xl font-semibold tracking-tight text-slate-950 md:text-5xl">Action Packs built from workspaces.</h1>
             <p className="mt-4 max-w-3xl text-sm leading-6 text-slate-700 md:text-base">
-              Build node workspaces, compile optimized Action Packs, and inspect binary imports through a sandboxed transparency flow with {REGEX_TIMEOUT_MS}ms regex budgets.
+              Build node workspaces, compile optimized Action Packs, and review binary imports through a sandboxed transparency flow with {REGEX_TIMEOUT_MS}ms regex budgets.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <span className="risk-badge risk-badge-soft">{state.actionPacksV2.length} v2 packs</span>
+            <span className="risk-badge risk-badge-soft">{state.actionPacksV2.length} Action Packs</span>
             <span className="risk-badge risk-badge-soft">{state.workspacesV2.length} workspaces</span>
           </div>
         </div>

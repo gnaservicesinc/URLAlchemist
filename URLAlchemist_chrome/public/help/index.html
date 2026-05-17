@@ -23,29 +23,42 @@
 
 <h1>URL Alchemist &mdash; Overview</h1>
 
-<p>URL Alchemist is a browser extension that acts as middleware for URL navigation. It intercepts, transforms, and redirects URLs based on user-defined <strong>Action Packs</strong>. You build transformation logic visually in a workspace editor, compile it into an optimized Action Pack, and the extension runs that logic on matching pages.</p>
+<p>URL Alchemist is a Chrome extension for building small browser workflows from visual blocks. It can clean URLs, route selected text or clipboard text, show page overlays, fetch remote data, play media, log runs, and redirect tabs when a compiled <strong>Action Pack</strong> produces a new URL.</p>
+
+<p>The extension is local-first. Workspaces, Action Packs, logs, and settings live in extension storage unless you export a file, restore a backup, or opt into Google Sync for small items.</p>
 
 <h2>Key Concepts</h2>
 
 <h3>Workspaces</h3>
-<p>A <strong>workspace</strong> (file extension <code>.workspace</code>) is a full-featured visual document where you design URL transformation logic using drag-and-drop blocks and connections. Workspaces are your editable source files. You can have multiple workspaces installed.</p>
+<p>A <strong>workspace</strong> (file extension <code>.workspace</code>) is the editable source document where you design behavior with blocks and connections. Workspaces store metadata, trigger settings, the saved canvas viewport, and the full source graph.</p>
 
 <h3>Action Packs</h3>
-<p>An <strong>Action Pack</strong> (file extension <code>.actionpack</code>) is a compiled, optimized, binary distribution of a workspace. Action Packs are what the extension engine actually executes at runtime. They are compact, validated, and include risk metadata so users can inspect them before installation.</p>
+<p>An <strong>Action Pack</strong> (file extension <code>.actionpack</code>) is the compiled binary runtime form of a workspace. Action Packs are compact, validated, and include risk metadata so they can be reviewed before installation.</p>
 
 <h3>The Engine</h3>
-<p>The background engine listens for navigation events and, when a matching Action Pack is installed and enabled, runs the compiled instruction set against the URL. Transformed URLs are applied to the tab silently.</p>
-<p>The editor calls the top-level schedule <strong>Run</strong>. <strong>On page load</strong> means the pack runs from page input data; keyboard, mouse, and overlay events are separate event-handler blocks inside the workspace.</p>
+<p>The background engine listens for navigation, hotkey, context-menu, interval, and overlay events. When a matching Action Pack is installed and enabled, the engine runs the compiled instruction set with strict instruction, redirect, remote request, and regex budgets.</p>
+<p>The editor calls the top-level schedule <strong>Run</strong>. <strong>Run on input data</strong> means the pack runs from configured input sources such as URL, selected text, link URL, page title, clipboard, page text, or page metadata. Keyboard, mouse, and tick events are separate event-handler blocks inside the workspace.</p>
 
 <h2>Quick Start</h2>
 
 <ol>
-  <li>Open the <strong>Examples</strong> tab to browse built-in Action Packs.</li>
-  <li>Click <strong>Install Action Pack</strong> on an example to try it immediately, or <strong>Open Workspace</strong> to inspect and modify the source.</li>
+  <li>Open the <strong>Examples</strong> tab and search by task, such as cleanup, search, media, remote data, or overlays.</li>
+  <li>Click <strong>Install Action Pack</strong> to try a compiled example, or <strong>Open Workspace</strong> to inspect and modify the source first.</li>
   <li>Use the <strong>Workspace Editor</strong> to build your own transformations from scratch.</li>
   <li>When your workspace is valid, click <strong>Build &amp; Install</strong> to compile it into an Action Pack and activate it.</li>
-  <li>Use <strong>Export</strong> to share your Action Pack as a <code>.actionpack</code> file.</li>
+  <li>Use <strong>Manage Resources</strong> to view logs, export files, update metadata, or delete installed resources.</li>
+  <li>Use <strong>Settings</strong> to export a backup before reinstalling Chrome or the extension.</li>
 </ol>
+
+<h2>Built-In Examples To Try</h2>
+<ul>
+  <li><strong>Clean Campaign Links</strong> removes common tracking query parameters as input URLs arrive.</li>
+  <li><strong>Search Selected Text</strong> turns selected page text into a search URL from a hotkey.</li>
+  <li><strong>Remote Text Fetch Preview</strong> demonstrates remote HTTPS fetch review without changing navigation.</li>
+  <li><strong>Clean Words</strong> shows how page text mutation and overlay review work together.</li>
+  <li><strong>Playback Resume</strong> plays bundled video and stores structured playback details.</li>
+  <li><strong>Snake Overlay Arcade</strong> demonstrates a real-time overlay built from generic event and draw blocks.</li>
+</ul>
 
 <h2>Tab Reference</h2>
 
@@ -64,6 +77,9 @@
 <p><strong>Overlay Input</strong> opens a temporary overlay and returns a bounded summary of keyboard and mouse events captured while that overlay is open.</p>
 <p>For real-time applications, use the event-handler blocks: <strong>On Trigger Event</strong>, <strong>Keyboard In</strong>, <strong>Mouse In</strong>, and <strong>Overlay Tick In</strong>. Pair them with <strong>Overlay Control</strong>, <strong>Overlay Draw</strong>, and shared state blocks to build interactive overlay workflows without custom JavaScript.</p>
 <p>The bundled <strong>Snake Overlay Arcade</strong> example demonstrates a classic arcade game built from those generic workspace blocks.</p>
+<h2>Import Safety</h2>
+<p>Imported Action Packs open in the staging gate instead of saving immediately. Review the manifest, risk badges, plain-language steps, and sandbox result before confirming import.</p>
+<p class="warning">Treat clipboard, raw page, remote request, page mutation, and overlay input behavior as sensitive. URL Alchemist surfaces these risks so you can decide before the pack is installed.</p>
 <h2>Debugging</h2>
 <p>Manage Resources includes <strong>View Log</strong> and <strong>Export Log</strong> actions for each installed Action Pack. Logs record run timestamps, exit codes, issues, and entries written by <strong>Save string to log</strong>.</p>
 <p>Use <strong>Abort</strong> when a workflow needs to stop mid-run after a boolean guard becomes true. Abort returns exit code <code>130</code> and stops later instructions in that run.</p>

@@ -34,7 +34,7 @@ export const BUNDLED_ACTION_PACK_EXAMPLES: BundledActionPackExample[] = [
     category: 'URL cleanup',
     trigger: 'INPUT_DATA',
     risk: 'safe',
-    features: ['On page load', 'Regex cleanup', 'Safe URL output'],
+    features: ['Run on input data', 'Regex cleanup', 'Safe URL output'],
     workspacePath: 'bundled-actionpacks/workspaces/clean-campaign-links.workspace',
     actionPackPath: 'bundled-actionpacks/action-packs/clean-campaign-links.actionpack',
   },

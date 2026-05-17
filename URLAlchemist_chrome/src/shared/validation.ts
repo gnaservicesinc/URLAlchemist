@@ -355,7 +355,7 @@ export function validateStoredState(candidate: unknown): ValidationResult<Valida
   }
 
   if (candidate.actionPacksV2 !== undefined && !Array.isArray(candidate.actionPacksV2)) {
-    warnings.push('Stored v2 Action Packs were not an array; resetting to empty.');
+    warnings.push('Stored Action Packs were not an array; resetting to empty.');
   }
 
   const candidateActionPacksV2 = Array.isArray(candidate.actionPacksV2) ? candidate.actionPacksV2 : [];
@@ -372,10 +372,10 @@ export function validateStoredState(candidate: unknown): ValidationResult<Valida
       if (validation.ok) {
         actionPacksV2.push(validation.pack);
       } else {
-        warnings.push(`Dropped v2 Action Pack at index ${index}: ${validation.errors.join('; ')}`);
+        warnings.push(`Dropped Action Pack at index ${index}: ${validation.errors.join('; ')}`);
       }
     } else {
-      warnings.push(`Dropped v2 Action Pack at index ${index}: missing required fields or wrong kind/schemaVersion.`);
+      warnings.push(`Dropped Action Pack at index ${index}: missing required fields or wrong kind/schemaVersion.`);
     }
   });
 

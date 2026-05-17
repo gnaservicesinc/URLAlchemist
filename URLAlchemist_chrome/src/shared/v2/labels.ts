@@ -2,7 +2,7 @@ export function formatRunType(type: string | undefined): string {
   switch (type) {
     case 'ALWAYS':
     case 'INPUT_DATA':
-      return 'On page load';
+      return 'Run on input data';
     case 'HOTKEY':
       return 'Hotkey';
     case 'CONTEXT_MENU':

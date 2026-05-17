@@ -18,7 +18,7 @@ export default function ImportPanel({ importBusy, importError, onFileDrop, onFil
           <p className="eyebrow">Import</p>
           <h2 className="mt-2 text-2xl font-semibold text-slate-900">Open workspace or stage pack</h2>
           <p className="mt-2 max-w-3xl text-sm text-slate-600">
-            Drop a v2 workspace, v2 Action Pack, or v1 <span className="font-mono">.urlpack</span>. File contents decide the route, not the extension. <HelpTooltip label="Import routing" text="Workspaces open as editable source. Action Packs go through the staging gate before they can be installed." />
+            Drop a workspace, Action Pack, or legacy v1 <span className="font-mono">.urlpack</span>. File contents decide the route, not the extension. <HelpTooltip label="Import routing" text="Workspaces open as editable source. Action Packs go through the staging gate before they can be installed." />
           </p>
         </div>
         <button className="primary-button" type="button" onClick={() => fileInputRef.current?.click()}>

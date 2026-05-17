@@ -80,7 +80,7 @@ async function auditBytes(bytes: Uint8Array): Promise<AuditReport> {
   }
 
   return {
-    errors: ['Legacy v1 URL packs can be imported and converted from the Import tab, but the Security audit accepts v2 workspaces and Action Packs.'],
+    errors: ['Legacy v1 URL packs can be imported and converted from the Import tab, but the Security audit accepts current workspaces and Action Packs.'],
     instructions: [],
     kind: 'Legacy URL pack',
     permissions: [],
@@ -244,7 +244,7 @@ export function SecurityPanel({
         <h3 className="text-xl font-semibold text-slate-900">Installed Action Pack tracing</h3>
         <div className="mt-4 grid gap-3">
           {actionPacks.length === 0 ? (
-            <div className="rounded-[1.25rem] border border-slate-200 bg-white/70 px-5 py-6 text-sm text-slate-500">No v2 Action Packs installed.</div>
+            <div className="rounded-[1.25rem] border border-slate-200 bg-white/70 px-5 py-6 text-sm text-slate-500">No Action Packs installed.</div>
           ) : (
             actionPacks.map((pack) => (
               <div key={pack.manifest.id} className="flex flex-wrap items-center justify-between gap-4 rounded-[1.25rem] border border-slate-200 bg-white/75 p-4">
@@ -294,7 +294,7 @@ export function SecurityPanel({
           <div>
             <h3 className="text-xl font-semibold text-slate-900">Audit uninstalled file</h3>
             <p className="mt-2 text-sm text-slate-600">
-              Drop a v2 workspace or Action Pack to validate structure and inspect behavior without installing it. <HelpTooltip label="Audit uninstalled file" text="The audit decodes and validates the artifact in memory; it does not save the file to extension storage." />
+              Drop a workspace or Action Pack to validate structure and inspect behavior without installing it. <HelpTooltip label="Audit uninstalled file" text="The audit decodes and validates the artifact in memory; it does not save the file to extension storage." />
             </p>
           </div>
           <button className="primary-button" type="button" onClick={() => fileInputRef.current?.click()}>

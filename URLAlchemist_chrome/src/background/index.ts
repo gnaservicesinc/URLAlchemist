@@ -452,7 +452,7 @@ async function recordTriggerOrSkip(pack: CompiledActionPackV2): Promise<boolean>
   const safety = pack.triggerPlan.safety;
   const recent = history.filter((timestamp) => now - timestamp <= safety.burstWindowMs);
   if (recent.length >= safety.burstLimit) {
-    console.warn(`[URL Alchemist V2] Burst guard skipped ${pack.manifest.name}`);
+    console.warn(`[URL Alchemist] Burst guard skipped ${pack.manifest.name}`);
     return false;
   }
 
@@ -476,7 +476,7 @@ function logV2Issues(pack: CompiledActionPackV2, issues: EngineIssue[]): void {
   }
 
   issues.forEach((issue) => {
-    console.warn(`[URL Alchemist V2] ${pack.manifest.name}: ${issue.message}`, issue.activityId ?? '');
+    console.warn(`[URL Alchemist] ${pack.manifest.name}: ${issue.message}`, issue.activityId ?? '');
   });
 }
 
@@ -667,7 +667,7 @@ async function applyPacksToTab(
       }
     } catch (error) {
       console.warn(
-        `[URL Alchemist V2] Scope regex failed for ${pack.manifest.name}`,
+        `[URL Alchemist] Scope regex failed for ${pack.manifest.name}`,
         error instanceof Error ? error.message : error,
       );
       continue;
@@ -679,7 +679,7 @@ async function applyPacksToTab(
 
     const redirectDepth = getRedirectDepth(tabId, pack.manifest.id, currentUrl);
     if (redirectDepth >= redirectDepthLimit) {
-      console.warn(`[URL Alchemist V2] Loop protection skipped ${pack.manifest.name} on ${currentUrl}`);
+      console.warn(`[URL Alchemist] Loop protection skipped ${pack.manifest.name} on ${currentUrl}`);
       continue;
     }
 
@@ -846,7 +846,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ handled: true });
       })
       .catch((error) => {
-        console.warn('[URL Alchemist V2] Overlay event failed', error instanceof Error ? error.message : error);
+        console.warn('[URL Alchemist] Overlay event failed', error instanceof Error ? error.message : error);
         sendResponse({ handled: false });
       });
 

@@ -7,11 +7,11 @@ interface HelpDocument {
 }
 
 const HELP_DOCUMENTS: HelpDocument[] = [
-  { path: 'help/index.html', title: 'Overview', summary: 'Core concepts, tabs, and quick start.' },
-  { path: 'help/workspaces.html', title: 'Workspaces', summary: 'Build, save, restore, and edit workspace source files.' },
-  { path: 'help/action-packs.html', title: 'Action Packs', summary: 'Compile, import, export, pair, and manage Action Packs.' },
-  { path: 'help/security.html', title: 'Security', summary: 'Transparency, sandboxing, tracing, hardening, and audits.' },
-  { path: 'help/regex-builder.html', title: 'Regex Builder', summary: 'Use the visual regex helper and advanced manual mode.' },
+  { path: 'help/index.html', title: 'Overview', summary: 'Core concepts, first steps, examples, and import safety.' },
+  { path: 'help/workspaces.html', title: 'Workspaces', summary: 'Build, save, restore, trigger, and edit source files.' },
+  { path: 'help/action-packs.html', title: 'Action Packs', summary: 'Compile, import, export, pair, share, and manage Action Packs.' },
+  { path: 'help/security.html', title: 'Security', summary: 'Transparency, sandboxing, tracing, hardening, audits, and backups.' },
+  { path: 'help/regex-builder.html', title: 'Regex Builder', summary: 'Use visual pattern building, advanced mode, and substitution.' },
   { path: 'help/overlay-input.html', title: 'Overlay Input', summary: 'Capture keyboard and mouse input while an overlay is active.' },
   { path: 'help/interactive-overlays.html', title: 'Interactive Overlays', summary: 'Build event-driven overlay apps with generic blocks.' },
 ];

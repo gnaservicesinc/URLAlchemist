@@ -17,10 +17,12 @@
 <p>The Overlay Input block opens a temporary overlay and records keyboard or mouse events while that overlay is active. It returns a dictionary containing a bounded event list, currently pressed keys, last pointer position, duration, and close reason.</p>
 <h2>What It Enables</h2>
 <p>This block is kept for workflows that need a captured input summary. It is useful for prompts, control recording, and replay/debug data, but it is not the real-time event model.</p>
+<p>The overlay is visible and owned by URL Alchemist so users can tell when input is being captured.</p>
 <h2>Security</h2>
 <p class="warning">Keyboard and mouse capture only happen while the overlay is open. Closing the overlay, pressing Escape, or reaching the timeout stops capture.</p>
 <h2>Real-Time Workflows</h2>
 <p>Use <strong>On Trigger Event</strong>, <strong>Overlay Control</strong>, <strong>Keyboard In</strong>, <strong>Mouse In</strong>, <strong>Overlay Tick In</strong>, and <strong>Overlay Draw</strong> when a workspace needs to respond as events happen. Those blocks run connected handlers while a URL Alchemist overlay session is active.</p>
+<p>Real-time handlers share session state with the normal Run chain, which lets a workflow update state, draw an overlay, and respond to keyboard, mouse, or timer events without custom JavaScript.</p>
 <h2>Example</h2>
 <p>The bundled <strong>Overlay Input Capture</strong> example opens the overlay from a hotkey and stores the captured event summary with Save Load so you can inspect the shape of the returned data.</p>
 </body>

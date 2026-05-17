@@ -16,12 +16,15 @@
 <h1>Workspaces</h1>
 <p>A workspace is the editable source document for URL Alchemist. It stores blocks, connections, metadata, Run settings, and the saved canvas viewport.</p>
 <h2>Editing</h2>
-<p>Use the Workspace Editor to add blocks, connect compatible ports, and configure metadata. Workspaces can be saved while incomplete, but compiling requires a valid graph and at least one output path.</p>
+<p>Use the Workspace Editor to add blocks, connect compatible ports, and configure metadata. Start from a bundled example when you want a practical pattern, then save a copy and adjust the blocks. Workspaces can be saved while incomplete, but compiling requires a valid graph and at least one output path.</p>
+<h2>Run Settings</h2>
+<p><strong>Run on input data</strong> starts a pack when configured inputs arrive, such as URL, selected text, link URL, page title, clipboard, page text, or page metadata. Hotkey, context-menu, interval, conditional, keyboard, mouse, and tick events are separate triggers or event handlers.</p>
 <h2>Saving and Recovery</h2>
 <p>The Save Workspace command writes the current source document into installed workspaces. While editing, URL Alchemist also writes a temporary recovery draft so browser crashes or tab closes do not discard hours of work.</p>
 <p class="note">Viewport changes are saved with the workspace so the editor reopens at the same pan and zoom.</p>
 <h2>Installed Workspaces</h2>
 <p>The Manage Resources tab lists installed workspaces. You can open, edit metadata, export, compile, or delete a workspace without deleting any compiled Action Pack that came from it.</p>
+<p>When a workspace and Action Pack share the same source ID, Manage Resources shows the pairing so you can understand what source produced the runtime pack.</p>
 <h2>Variables And Substitution</h2>
 <p>Declared variables appear in the editor side panel. Fields that reference a declared variable change color so usage is visible while you build.</p>
 <p><strong>Substitution</strong> formats strings without writing a regex. Connect values to <code>$1</code>, <code>$2</code>, and later inputs, then type those tokens into the pattern field. A dollar sign followed by a number is reserved for these connector variables.</p>
@@ -31,5 +34,7 @@
 <p>Interaction blocks can ask for input, show overlays, play media, capture a bounded input summary, or run event handlers from a URL Alchemist-owned overlay. Keyboard, mouse, and tick event chains share session state with the normal Run chain so a workspace can behave like one small application.</p>
 <p><strong>Get Image</strong>, <strong>Get Video</strong>, and <strong>Get Audio</strong> use an asset byte budget for remote or bundled media. The default is 10 MB and the editor allows up to 50 MB with normal timeout handling.</p>
 <p>Use <strong>Overlay Control</strong> to create the visible overlay session before keyboard, mouse, or tick events can run. <strong>Overlay Draw</strong> renders reusable grid cells and text into that session. Closing the overlay stops event routing.</p>
+<h2>Backups</h2>
+<p>Export a local backup from Settings before uninstalling the extension, changing browsers, or doing release testing. Chrome removes extension local storage when an extension is removed.</p>
 </body>
 </html>
