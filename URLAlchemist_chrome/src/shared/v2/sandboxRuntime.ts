@@ -113,6 +113,9 @@ export function createSandboxGraphRuntime(runtime: GraphRuntime, sourceValues: P
         cells: { type: 'number', value: Array.isArray(request.cells?.value) ? request.cells.value.length : 0 },
       },
     }),
+    writeLog: async () => {
+      // Staged imports must not write Action Pack logs before confirmation.
+    },
     sleep: async () => {
       // Staged imports must not delay import review.
     },

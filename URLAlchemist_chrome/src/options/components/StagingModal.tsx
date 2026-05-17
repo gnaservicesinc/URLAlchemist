@@ -1,5 +1,6 @@
 import type { CompiledActionPackV2 } from '../../shared/v2/types';
 import { explainInstruction, explainRiskReason, summarizePackBehavior } from '../../shared/v2/explain';
+import { formatRunType } from '../../shared/v2/labels';
 import { HelpTooltip } from './HelpTooltip';
 
 interface StagingModalProps {
@@ -146,8 +147,8 @@ export function StagingModal({
 
             <dl className="mt-5 grid gap-3 text-sm text-slate-700 sm:grid-cols-2">
               <div className="info-chip">
-                <dt className="font-semibold text-slate-900">Trigger</dt>
-                <dd>{pack.triggerPlan.type}</dd>
+                <dt className="font-semibold text-slate-900">Run</dt>
+                <dd>{formatRunType(pack.triggerPlan.type)}</dd>
               </div>
               <div className="info-chip">
                 <dt className="font-semibold text-slate-900">Instructions</dt>
@@ -156,7 +157,7 @@ export function StagingModal({
               <div className="info-chip sm:col-span-2">
                 <dt className="flex items-center gap-2 font-semibold text-slate-900">
                   Input Filters
-                  <HelpTooltip label="Input filters" text="Filters decide which input sources are allowed to trigger this pack." />
+                  <HelpTooltip label="Input filters" text="Filters decide which input sources are allowed to run this pack." />
                 </dt>
                 <dd className="break-all">{pack.triggerPlan.sourceFilters.map((filter) => `${filter.source}: ${filter.pattern}`).join(', ') || 'No input filters'}</dd>
               </div>

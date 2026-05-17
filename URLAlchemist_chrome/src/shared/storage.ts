@@ -1,5 +1,6 @@
 import { DEFAULT_SETTINGS, STORAGE_KEY } from './constants';
-import type { ActionPack, GlobalSettings, StoredState, StoredTraceEntry } from './types';
+import { capLogMessage } from './logs';
+import type { ActionPack, GlobalSettings, StoredActionPackLogEntry, StoredState, StoredTraceEntry } from './types';
 import { normalizeStoredState } from './validation';
 import { validateWorkspaceFile } from './v2/workspace';
 import type { CompiledActionPackV2, WorkspaceFileV2, WorkspaceViewport } from './v2/types';
@@ -45,6 +46,7 @@ function createSyncSnapshot(state: StoredState): StoredState {
     actionPacksV2,
     workspacesV2,
     traceEntries: [],
+    actionPackLogs: [],
   };
 
   while (jsonBytes(snapshot) > SYNC_MAX_TOTAL_BYTES && snapshot.workspacesV2.length > 0) {
@@ -67,6 +69,7 @@ function createSyncSnapshot(state: StoredState): StoredState {
     actionPacksV2: [],
     workspacesV2: [],
     traceEntries: [],
+    actionPackLogs: [],
   };
 }
 
@@ -119,6 +122,7 @@ export function getDefaultState(): StoredState {
     actionPacksV2: [],
     workspacesV2: [],
     traceEntries: [],
+    actionPackLogs: [],
   };
 }
 
@@ -251,6 +255,7 @@ export async function deleteActionPackV2(packId: string): Promise<StoredState> {
   const nextState = {
     ...state,
     actionPacksV2: state.actionPacksV2.filter((pack) => pack.manifest.id !== packId),
+    actionPackLogs: state.actionPackLogs.filter((entry) => entry.packId !== packId),
   };
 
   await saveStoredState(nextState);
@@ -342,6 +347,53 @@ export async function appendTraceEntry(entry: StoredTraceEntry): Promise<StoredS
   const nextState = {
     ...state,
     traceEntries: [capTraceEntry(entry), ...state.traceEntries].slice(0, 100),
+  };
+
+  await saveStoredState(nextState);
+  return nextState;
+}
+
+const MAX_ACTION_PACK_LOG_ENTRIES_PER_PACK = 300;
+const MAX_ACTION_PACK_LOG_ENTRIES_TOTAL = 1_500;
+const MAX_LOG_URL_LENGTH = 2048;
+
+function capLogUrl(value: string | undefined): string | undefined {
+  if (!value) {
+    return value;
+  }
+
+  return value.length > MAX_LOG_URL_LENGTH ? `${value.slice(0, MAX_LOG_URL_LENGTH)}...` : value;
+}
+
+function capActionPackLogEntry(entry: StoredActionPackLogEntry): StoredActionPackLogEntry {
+  return {
+    ...entry,
+    message: capLogMessage(entry.message),
+    inputUrl: capLogUrl(entry.inputUrl),
+    outputUrl: capLogUrl(entry.outputUrl),
+  };
+}
+
+function capActionPackLogs(entries: StoredActionPackLogEntry[], packId: string): StoredActionPackLogEntry[] {
+  let packCount = 0;
+  const perPackCapped = entries.filter((entry) => {
+    if (entry.packId !== packId) {
+      return true;
+    }
+
+    packCount += 1;
+    return packCount <= MAX_ACTION_PACK_LOG_ENTRIES_PER_PACK;
+  });
+
+  return perPackCapped.slice(0, MAX_ACTION_PACK_LOG_ENTRIES_TOTAL);
+}
+
+export async function appendActionPackLogEntry(entry: StoredActionPackLogEntry): Promise<StoredState> {
+  const state = await loadStoredState();
+  const nextLogs = capActionPackLogs([capActionPackLogEntry(entry), ...state.actionPackLogs], entry.packId);
+  const nextState = {
+    ...state,
+    actionPackLogs: nextLogs,
   };
 
   await saveStoredState(nextState);

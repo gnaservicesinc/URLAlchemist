@@ -15,10 +15,13 @@
 <h1>Action Packs</h1>
 <p>An Action Pack is the compiled binary runtime form of a workspace. The extension executes Action Packs, not workspace source files.</p>
 <h2>Compilation</h2>
-<p>Compilation validates required connections, block compatibility, regex safety, risk metadata, permissions, and trigger details. A valid workspace can be compiled and exported from the editor or Manage Resources.</p>
+<p>Compilation validates required connections, block compatibility, regex safety, risk metadata, permissions, and Run details. A valid workspace can be compiled and exported from the editor or Manage Resources.</p>
 <h2>Import Review</h2>
 <p>Imported Action Packs open in the staging gate. The gate shows metadata, risk warnings, plain-language behavior steps, and an interactive sandbox before the Confirm Import button unlocks.</p>
 <p>Action Packs cannot run imported JavaScript. They execute only the compiled instruction types that URL Alchemist knows how to validate, explain, and run.</p>
+<h2>Logs</h2>
+<p>Each installed Action Pack has a local log in Manage Resources. Every run records a timestamp, exit code, handler, issue count, and URL summary.</p>
+<p>The <strong>Save string to log</strong> block writes a formatted entry with a severity level. Logs stay in local extension storage until you export the text file or delete/reset the pack.</p>
 <h2>Pairing</h2>
 <p>Manage Resources draws a connection between an installed workspace and any installed Action Pack compiled from it. You may delete either resource independently.</p>
 <h2>Overlay Interaction</h2>

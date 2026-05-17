@@ -1,5 +1,5 @@
 import type { BlockDefinition, BlockKind, GraphDataType, GraphPortDefinition, RiskLevel, WorkspaceNodeV2 } from './types';
-import { BLOCK_TYPE_IDS } from './types';
+import { BLOCK_TYPE_IDS, DEFAULT_ASSET_MAX_BYTES } from './types';
 
 function port(
   id: string,
@@ -379,7 +379,7 @@ export const BLOCK_REGISTRY: Record<BlockKind, BlockDefinition> = {
       assetKind: 'image',
       assetUrl: '',
       remoteTimeoutMs: 5000,
-      remoteMaxBytes: 512 * 1024,
+      remoteMaxBytes: DEFAULT_ASSET_MAX_BYTES,
     },
     risk: 'high',
   },
@@ -395,7 +395,7 @@ export const BLOCK_REGISTRY: Record<BlockKind, BlockDefinition> = {
       assetKind: 'video',
       assetUrl: '',
       remoteTimeoutMs: 5000,
-      remoteMaxBytes: 512 * 1024,
+      remoteMaxBytes: DEFAULT_ASSET_MAX_BYTES,
     },
     risk: 'high',
   },
@@ -411,7 +411,7 @@ export const BLOCK_REGISTRY: Record<BlockKind, BlockDefinition> = {
       assetKind: 'audio',
       assetUrl: '',
       remoteTimeoutMs: 5000,
-      remoteMaxBytes: 512 * 1024,
+      remoteMaxBytes: DEFAULT_ASSET_MAX_BYTES,
     },
     risk: 'high',
   },
@@ -630,6 +630,47 @@ export const BLOCK_REGISTRY: Record<BlockKind, BlockDefinition> = {
     },
     risk: 'safe',
   },
+  SaveStringToLog: {
+    kind: 'SaveStringToLog',
+    typeId: BLOCK_TYPE_IDS.SaveStringToLog,
+    label: 'Save string to log',
+    category: 'debug',
+    inputs: [port('message', 'Message', 'string')],
+    outputs: [port('result', 'Result', 'bool')],
+    flags: defaultFlags,
+    defaultSettings: {
+      literalValue: '',
+      logSeverity: 'info',
+    },
+    risk: 'safe',
+  },
+  Abort: {
+    kind: 'Abort',
+    typeId: BLOCK_TYPE_IDS.Abort,
+    label: 'Abort',
+    category: 'debug',
+    inputs: [port('condition', 'Condition', 'bool')],
+    outputs: [port('result', 'Result', 'bool')],
+    flags: defaultFlags,
+    defaultSettings: {
+      abortMessage: 'Workflow requested abort.',
+    },
+    risk: 'safe',
+  },
+  Substitution: {
+    kind: 'Substitution',
+    typeId: BLOCK_TYPE_IDS.Substitution,
+    label: 'Substitution',
+    category: 'data',
+    inputs: [port('value1', '$1', 'Any')],
+    outputs: [port('result', 'Result', 'string')],
+    flags: defaultFlags,
+    defaultSettings: {
+      substitutionTemplate: '',
+      substitutionInputCount: 1,
+    },
+    risk: 'safe',
+  },
 };
 
 export const BLOCK_DEFINITIONS = Object.values(BLOCK_REGISTRY);
@@ -683,6 +724,15 @@ export function getEffectivePortDefinitions(
   node: Pick<WorkspaceNodeV2, 'type' | 'settings'>,
   direction: 'input' | 'output',
 ): GraphPortDefinition[] {
+  if (node.type === 'Substitution') {
+    if (direction === 'output') {
+      return [port('result', 'Result', 'string')];
+    }
+
+    const count = Math.max(1, Math.min(24, Math.trunc(node.settings.substitutionInputCount ?? 1)));
+    return Array.from({ length: count }, (_, index) => port(`value${index + 1}`, `$${index + 1}`, 'Any'));
+  }
+
   if (node.type === 'Convert') {
     return effectiveConvertPorts(node, direction);
   }

@@ -82,12 +82,33 @@ export interface StoredTraceEntry {
   issues: EngineIssue[];
 }
 
+export type ActionPackLogSeverity = 'debug' | 'info' | 'warn' | 'error';
+export type ActionPackLogKind = 'run' | 'message';
+
+export interface StoredActionPackLogEntry {
+  id: string;
+  packId: string;
+  packName: string;
+  timestamp: number;
+  kind: ActionPackLogKind;
+  severity: ActionPackLogSeverity;
+  message: string;
+  nodeId?: string;
+  handler?: WorkspaceTriggerType | string;
+  inputUrl?: string;
+  outputUrl?: string;
+  changed?: boolean;
+  exitCode?: number;
+  issueCount?: number;
+}
+
 export interface StoredState {
   settings: GlobalSettings;
   packs: ActionPack[];
   actionPacksV2: CompiledActionPackV2[];
   workspacesV2: WorkspaceFileV2[];
   traceEntries: StoredTraceEntry[];
+  actionPackLogs: StoredActionPackLogEntry[];
 }
 
 export interface EngineIssue {

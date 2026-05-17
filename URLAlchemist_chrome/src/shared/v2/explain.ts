@@ -40,6 +40,9 @@ export function explainRiskReason(reason: string): string {
   if (lower.includes('session storage') || lower.includes('shared state')) {
     return 'Can save temporary values for other handlers in the same session.';
   }
+  if (lower.includes('logging')) {
+    return 'Can write entries to this Action Pack\'s local log.';
+  }
   if (lower.includes('overlay') || lower.includes('display')) {
     return 'Can show an overlay on top of the current page.';
   }
@@ -53,7 +56,7 @@ export function explainInstruction(instruction: GraphVmInstruction): string {
         return 'Reads the current page URL.';
       }
       if (instruction.source === 'triggered' || instruction.source === 'event') {
-        return 'Reads details from the normal workspace trigger event.';
+        return 'Reads details from the normal workspace Run event.';
       }
       if (instruction.source.startsWith('keyboard')) {
         return 'Reads a keyboard event from the active URL Alchemist overlay.';
@@ -160,6 +163,12 @@ export function explainInstruction(instruction: GraphVmInstruction): string {
       return 'Chooses between two values from a boolean condition.';
     case 'RANDOM_INT':
       return `Generates a random integer from ${instruction.fallbackMin} to ${instruction.fallbackMax}.`;
+    case 'SUBSTITUTE':
+      return 'Builds text from a template using connected inputs and declared variables.';
+    case 'LOG':
+      return `Writes a ${instruction.severity} entry to this Action Pack's local log.`;
+    case 'ABORT':
+      return 'Can stop this Action Pack run when its condition is true.';
     case 'OVERLAY_CONTROL':
       return `${instruction.action === 'STATUS' ? 'Checks' : instruction.action.toLowerCase()} the visible URL Alchemist overlay session.`;
     case 'OVERLAY_DRAW':

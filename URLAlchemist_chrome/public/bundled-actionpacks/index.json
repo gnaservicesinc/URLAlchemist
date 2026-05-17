@@ -12,7 +12,7 @@
       "trigger": "INPUT_DATA",
       "risk": "safe",
       "features": [
-        "Input-data trigger",
+        "On page load",
         "Regex cleanup",
         "Safe URL output"
       ],
@@ -114,6 +114,22 @@
       ],
       "workspacePath": "bundled-actionpacks/workspaces/copy-page-title.workspace",
       "actionPackPath": "bundled-actionpacks/action-packs/copy-page-title.actionpack"
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200017",
+      "name": "Debug Page Logger",
+      "slug": "debug-page-logger",
+      "description": "Formats page title and URL with the Substitution block, writes the message to the Action Pack log, and aborts cleanly when the title is empty.",
+      "category": "Page tools",
+      "trigger": "CONTEXT_MENU",
+      "risk": "extended",
+      "features": [
+        "Substitution block",
+        "Action Pack log",
+        "Abort guard"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/debug-page-logger.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/debug-page-logger.actionpack"
     },
     {
       "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200007",

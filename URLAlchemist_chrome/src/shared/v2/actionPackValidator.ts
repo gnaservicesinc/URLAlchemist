@@ -21,6 +21,7 @@ import {
   INPUT_TRIGGER_BURST_LIMIT,
   INPUT_TRIGGER_BURST_WINDOW_MS,
   INPUT_TRIGGER_HISTORY_LIMIT,
+  MAX_ASSET_MAX_BYTES,
   MIN_INTERVAL_TRIGGER_MS,
   SUPPORTED_ACTION_PACK_SCHEMA_VERSIONS,
 } from './types';
@@ -49,6 +50,7 @@ const GRAPH_EVENT_HANDLERS = ['trigger', 'keyboard', 'mouse', 'tick'] as const;
 const OVERLAY_CONTROL_ACTIONS = ['START', 'STOP', 'TOGGLE', 'STATUS'] as const;
 const SHARED_STATE_MODES = ['GET', 'SET', 'DELETE', 'EXISTS'] as const;
 const LIST_OPERATIONS = ['APPEND', 'PREPEND', 'DROP_LAST', 'GET', 'LENGTH', 'CONTAINS_POINT'] as const;
+const LOG_SEVERITIES = ['debug', 'info', 'warn', 'error'] as const;
 const ASSET_KINDS = ['image', 'video', 'audio', 'unknown'] as const;
 const ASSET_SOURCES = ['remote', 'embedded', 'picked-file'] as const;
 const ASSET_COMPRESSION = ['gzip', 'none'] as const;
@@ -303,8 +305,8 @@ function validateAssetRef(value: unknown, prefix: string, errors: string[]): boo
     ok = false;
   }
 
-  if (value.sizeBytes !== undefined && (!isNonNegativeInteger(value.sizeBytes) || value.sizeBytes > 512 * 1024)) {
-    addError(errors, prefix, 'asset size must be between 0 and 524288 bytes');
+  if (value.sizeBytes !== undefined && (!isNonNegativeInteger(value.sizeBytes) || value.sizeBytes > MAX_ASSET_MAX_BYTES)) {
+    addError(errors, prefix, `asset size must be between 0 and ${MAX_ASSET_MAX_BYTES} bytes`);
     ok = false;
   }
 
@@ -313,7 +315,7 @@ function validateAssetRef(value: unknown, prefix: string, errors: string[]): boo
     ok = false;
   }
 
-  if (value.dataBase64 !== undefined && (!isString(value.dataBase64) || value.dataBase64.length > 1024 * 1024)) {
+  if (value.dataBase64 !== undefined && (!isString(value.dataBase64) || value.dataBase64.length > Math.ceil((MAX_ASSET_MAX_BYTES * 4) / 3) + 8)) {
     addError(errors, prefix, 'asset data is too large');
     ok = false;
   }
@@ -771,8 +773,8 @@ function validateInstruction(
         addError(errors, prefix, 'timeoutMs must be between 500 and 30000');
       }
 
-      if (!isPositiveInteger(instruction.maxBytes) || instruction.maxBytes < 1024 || instruction.maxBytes > 512 * 1024) {
-        addError(errors, prefix, 'maxBytes must be between 1024 and 524288');
+      if (!isPositiveInteger(instruction.maxBytes) || instruction.maxBytes < 1 || instruction.maxBytes > MAX_ASSET_MAX_BYTES) {
+        addError(errors, prefix, `maxBytes must be between 1 and ${MAX_ASSET_MAX_BYTES}`);
       }
 
       addRisk(derivedRisk, 'high', instruction.embedded === undefined ? 'Remote media access is high risk.' : 'Embedded media access is high risk.', 'input');
@@ -1072,6 +1074,62 @@ function validateInstruction(
 
       return instruction as GraphVmInstruction;
     }
+    case 'SUBSTITUTE': {
+      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'template', 'values'])) {
+        addError(errors, prefix, 'SUBSTITUTE instruction has invalid keys');
+        return null;
+      }
+
+      assertReference(errors, symbolTable, instruction.output, `${prefix}.output`, true);
+      if (!isString(instruction.template) || instruction.template.length > 4_000) {
+        addError(errors, prefix, 'template must be a string of 4000 characters or less');
+      }
+
+      if (!Array.isArray(instruction.values) || instruction.values.length > 24) {
+        addError(errors, prefix, 'values must contain 24 or fewer references');
+      } else {
+        instruction.values.forEach((value, valueIndex) => {
+          if (value !== '') {
+            assertReference(errors, symbolTable, value, `${prefix}.values[${valueIndex}]`);
+          }
+        });
+      }
+
+      return instruction as GraphVmInstruction;
+    }
+    case 'LOG': {
+      if (!hasExactKeys(instruction, ['op', 'nodeId', 'severity', 'fallbackMessage'], ['message', 'output'])) {
+        addError(errors, prefix, 'LOG instruction has invalid keys');
+        return null;
+      }
+
+      assertReference(errors, symbolTable, instruction.message, `${prefix}.message`);
+      assertReference(errors, symbolTable, instruction.output, `${prefix}.output`);
+      if (!isEnumValue(LOG_SEVERITIES, instruction.severity)) {
+        addError(errors, prefix, 'severity is invalid');
+      }
+
+      if (!isString(instruction.fallbackMessage) || instruction.fallbackMessage.length > 4_000) {
+        addError(errors, prefix, 'fallbackMessage must be a string of 4000 characters or less');
+      }
+
+      addRisk(derivedRisk, 'extended', 'Action Pack logging stores local run data.', 'output');
+      return instruction as GraphVmInstruction;
+    }
+    case 'ABORT': {
+      if (!hasExactKeys(instruction, ['op', 'nodeId', 'message'], ['condition', 'output'])) {
+        addError(errors, prefix, 'ABORT instruction has invalid keys');
+        return null;
+      }
+
+      assertReference(errors, symbolTable, instruction.condition, `${prefix}.condition`);
+      assertReference(errors, symbolTable, instruction.output, `${prefix}.output`);
+      if (!isString(instruction.message) || instruction.message.length > 1_000) {
+        addError(errors, prefix, 'message must be a string of 1000 characters or less');
+      }
+
+      return instruction as GraphVmInstruction;
+    }
     case 'OVERLAY_CONTROL': {
       if (!hasExactKeys(instruction, ['op', 'nodeId', 'action', 'message', 'width', 'height', 'cellSize', 'tickMs', 'background'], ['enabled', 'messageInput', 'output'])) {
         addError(errors, prefix, 'OVERLAY_CONTROL instruction has invalid keys');
@@ -1311,7 +1369,7 @@ function validateSafetyPolicy(value: unknown, errors: string[]): GraphVmSafetyPo
     errors.push('vm.safety.remoteTimeoutMs is invalid');
   }
 
-  if (!isPositiveInteger(value.remoteMaxBytes) || value.remoteMaxBytes > 512 * 1024) {
+  if (!isPositiveInteger(value.remoteMaxBytes) || value.remoteMaxBytes > MAX_ASSET_MAX_BYTES) {
     errors.push('vm.safety.remoteMaxBytes is invalid');
   }
 

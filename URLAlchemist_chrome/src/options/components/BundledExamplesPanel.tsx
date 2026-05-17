@@ -1,4 +1,5 @@
 import type { BundledActionPackExample } from '../../shared/v2/bundledExamples';
+import { formatRunType } from '../../shared/v2/labels';
 import { useMemo, useState } from 'react';
 
 interface BundledExamplesPanelProps {
@@ -59,6 +60,7 @@ export function BundledExamplesPanel({
         example.name,
         example.description,
         example.trigger,
+        formatRunType(example.trigger),
         example.category,
         ...example.features,
       ].join(' ').toLowerCase().includes(normalized);
@@ -109,7 +111,7 @@ export function BundledExamplesPanel({
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h3 className="text-lg font-semibold text-slate-900">{example.name}</h3>
-                  <p className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-500">{example.category} / {example.trigger}</p>
+                  <p className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-500">{example.category} / {formatRunType(example.trigger)}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <span className={`risk-badge ${riskClass(example.risk)}`}>{riskLabel(example.risk)}</span>

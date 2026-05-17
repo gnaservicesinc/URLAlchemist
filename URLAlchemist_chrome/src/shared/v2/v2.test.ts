@@ -268,10 +268,131 @@ describe('v2 workspace compiler and VM', () => {
 
     expect(result.trace).toContainEqual(expect.objectContaining({
       op: 'DECLARE',
-      message: 'Declared greeting',
+      message: 'Declared $greeting',
       valueType: 'string',
       preview: 'hello',
     }));
+  });
+
+  it('builds substitution strings from connectors and declared variables', async () => {
+    const workspace = createDefaultWorkspace();
+    const declaration = createWorkspaceNode('Declarations', { x: 180, y: 40 }, {
+      variableName: 'name',
+      literalValue: 'Alice',
+      literalDataType: 'string',
+    });
+    const constant = createWorkspaceNode('Constant', { x: 180, y: 180 }, {
+      literalValue: 'World',
+      literalDataType: 'string',
+    });
+    const substitution = createWorkspaceNode('Substitution', { x: 440, y: 120 }, {
+      substitutionTemplate: 'Hello $1 from $name',
+      substitutionInputCount: 2,
+    });
+    const extendedOut = createWorkspaceNode('ExtendedDataOut', { x: 700, y: 120 });
+    let written = '';
+    const compiled = compileWorkspace({
+      ...workspace,
+      nodes: [...workspace.nodes.filter((node) => node.type !== 'DataFlowOut'), declaration, constant, substitution, extendedOut],
+      edges: [
+        createEdge(constant.id, 'value', substitution.id, 'value1'),
+        createEdge(substitution.id, 'result', extendedOut.id, 'pageText'),
+      ],
+    });
+
+    expect(compiled.ok, compiled.validation.errors.join('; ')).toBe(true);
+    await executeCompiledActionPackV2('https://example.com/', compiled.pack!, {
+      ...runtime,
+      writeDestination: async (_destination, value) => {
+        written = String(value.value);
+      },
+    }, DEFAULT_SETTINGS);
+
+    expect(written).toBe('Hello World from Alice');
+  });
+
+  it('reserves numbered dollar names for substitution inputs', () => {
+    const workspace = createDefaultWorkspace();
+    const declaration = createWorkspaceNode('Declarations', { x: 260, y: 120 }, {
+      variableName: '$1',
+      literalValue: 'bad',
+      literalDataType: 'string',
+    });
+    const message = createWorkspaceNode('ShowMessage', { x: 520, y: 120 }, {
+      promptMessage: 'Terminal display',
+    });
+    const compiled = compileWorkspace({
+      ...workspace,
+      nodes: [...workspace.nodes.filter((node) => node.type !== 'DataFlowOut'), declaration, message],
+      edges: [],
+    });
+
+    expect(compiled.ok).toBe(false);
+    expect(compiled.validation.errors.join(' ')).toContain('reserved for substitution connector inputs');
+  });
+
+  it('writes Action Pack log entries from the debug log block', async () => {
+    const workspace = createDefaultWorkspace();
+    const log = createWorkspaceNode('SaveStringToLog', { x: 260, y: 120 }, {
+      literalValue: 'Reached checkpoint',
+      logSeverity: 'warn',
+    });
+    const compiled = compileWorkspace({
+      ...workspace,
+      nodes: [...workspace.nodes.filter((node) => node.type !== 'DataFlowOut'), log],
+      edges: [],
+    });
+    const entries: Array<{ severity: string; message: string; nodeId: string }> = [];
+
+    expect(compiled.ok, compiled.validation.errors.join('; ')).toBe(true);
+    const result = await executeCompiledActionPackV2('https://example.com/', compiled.pack!, {
+      ...runtime,
+      writeLog: async (entry) => {
+        entries.push(entry);
+      },
+    }, DEFAULT_SETTINGS);
+
+    expect(result.exitCode).toBe(0);
+    expect(entries).toEqual([expect.objectContaining({ severity: 'warn', message: 'Reached checkpoint', nodeId: log.id })]);
+    expect(result.trace).toContainEqual(expect.objectContaining({ op: 'LOG', message: 'Logged warn' }));
+  });
+
+  it('aborts the current run when the Abort condition is true', async () => {
+    const workspace = createDefaultWorkspace();
+    const condition = createWorkspaceNode('Constant', { x: 180, y: 80 }, {
+      literalValue: 'true',
+      literalDataType: 'bool',
+    });
+    const abort = createWorkspaceNode('Abort', { x: 420, y: 80 }, {
+      abortMessage: 'Stop here',
+    });
+    const saveAfterAbort = createWorkspaceNode('SharedState', { x: 680, y: 80 }, {
+      sharedStateMode: 'SET',
+      literalValue: 'after-abort',
+      selectFalseValue: 'ran',
+      literalDataType: 'string',
+    });
+    const session = new Map<string, GraphValue>();
+    const compiled = compileWorkspace({
+      ...workspace,
+      nodes: [...workspace.nodes.filter((node) => node.type !== 'DataFlowOut'), condition, abort, saveAfterAbort],
+      edges: [
+        createEdge(condition.id, 'value', abort.id, 'condition'),
+        createEdge(abort.id, 'result', saveAfterAbort.id, 'enabled'),
+      ],
+    });
+
+    expect(compiled.ok, compiled.validation.errors.join('; ')).toBe(true);
+    const result = await executeCompiledActionPackV2('https://example.com/', compiled.pack!, {
+      ...runtime,
+      saveSessionValue: async (key, value) => {
+        session.set(key, value);
+      },
+    }, DEFAULT_SETTINGS);
+
+    expect(result.aborted).toBe(true);
+    expect(result.exitCode).toBe(130);
+    expect(session.has('after-abort')).toBe(false);
   });
 
   it('migrates older Declare fallback literals during import validation', () => {
@@ -703,7 +824,7 @@ describe('v2 workspace compiler and VM', () => {
       ...compiled.pack!,
       vm: {
         ...compiled.pack!.vm,
-        instructions: compiled.pack!.vm.instructions.map((instruction) => instruction.op === 'GET_ASSET' ? { ...instruction, maxBytes: 9999999 } : instruction),
+        instructions: compiled.pack!.vm.instructions.map((instruction) => instruction.op === 'GET_ASSET' ? { ...instruction, maxBytes: 99_999_999 } : instruction),
       },
     }).ok).toBe(false);
 

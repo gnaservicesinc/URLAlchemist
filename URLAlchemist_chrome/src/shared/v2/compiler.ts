@@ -33,19 +33,20 @@ import type {
 } from './types';
 import {
   ACTION_PACK_SCHEMA_VERSION,
+  DEFAULT_ASSET_MAX_BYTES,
   DEFAULT_INTERVAL_TRIGGER_MS,
   DEFAULT_REMOTE_MAX_BYTES,
   DEFAULT_REMOTE_TIMEOUT_MS,
   INPUT_TRIGGER_BURST_LIMIT,
   INPUT_TRIGGER_BURST_WINDOW_MS,
   INPUT_TRIGGER_HISTORY_LIMIT,
+  MAX_ASSET_MAX_BYTES,
   MIN_INTERVAL_TRIGGER_MS,
 } from './types';
 
 const VM_STEP_BUDGET = 300;
 const VM_LOOP_BUDGET = 500;
 const VM_VALUE_BYTE_LIMIT = 256 * 1024;
-const ASSET_MAX_BYTES = 512 * 1024;
 const EVENT_HANDLERS: GraphEventHandler[] = ['trigger', 'keyboard', 'mouse', 'tick'];
 const EVENT_SOURCE_BLOCKS = new Map<BlockKind, GraphEventHandler>([
   ['DataFlowIn', 'trigger'],
@@ -64,6 +65,8 @@ const SIDE_EFFECT_BLOCKS = new Set<BlockKind>([
   'OverlayControl',
   'OverlayDraw',
   'Sleep',
+  'SaveStringToLog',
+  'Abort',
 ]);
 const WORKSPACE_INPUT_SOURCE_IDS = new Set<WorkspaceInputSource>([
   'url',
@@ -245,6 +248,33 @@ function hasRunnableTerminalNode(workspace: WorkspaceFileV2, edgesByTarget: Map<
 
     return isTerminalNode(node);
   });
+}
+
+function normalizedVariableName(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed || trimmed.startsWith('$') || trimmed.startsWith('_')) {
+    return trimmed;
+  }
+
+  return `$${trimmed}`;
+}
+
+function variableNameError(name: string): string | null {
+  const trimmed = name.trim();
+  const normalized = normalizedVariableName(trimmed);
+  if (!normalized) {
+    return 'variable name is required.';
+  }
+
+  if (/^\$?\d+$/.test(trimmed) || /^\$\d+/.test(normalized)) {
+    return 'variable names like $1 are reserved for substitution connector inputs.';
+  }
+
+  if (!/^(_[A-Za-z][A-Za-z0-9_]*|\$[A-Za-z_][A-Za-z0-9_]*|[A-Za-z][A-Za-z0-9_]*)$/.test(trimmed)) {
+    return 'variable names can use letters, numbers, and underscores, and may start with $ or _.';
+  }
+
+  return null;
 }
 
 function collectHandlerReachability(workspace: WorkspaceFileV2): Record<GraphEventHandler, Set<string>> {
@@ -518,9 +548,13 @@ function validateWorkspace(workspace: WorkspaceFileV2): WorkspaceValidationState
         errors.push(`${node.settings.label || definition.label}: timeout must be between 500ms and 30000ms.`);
       }
 
-      const maxBytes = Math.trunc(node.settings.remoteMaxBytes ?? DEFAULT_REMOTE_MAX_BYTES);
-      if (maxBytes < 1_024 || maxBytes > 512 * 1024) {
+      const maxBytes = Math.trunc(node.settings.remoteMaxBytes ?? (remoteDataNode ? DEFAULT_REMOTE_MAX_BYTES : DEFAULT_ASSET_MAX_BYTES));
+      if (remoteDataNode && (maxBytes < 1_024 || maxBytes > 512 * 1024)) {
         errors.push(`${node.settings.label || definition.label}: max bytes must be between 1KB and 512KB.`);
+      }
+
+      if (!remoteDataNode && (maxBytes < 1 || maxBytes > MAX_ASSET_MAX_BYTES)) {
+        errors.push(`${node.settings.label || definition.label}: asset byte budget must be between 1 byte and ${Math.round(MAX_ASSET_MAX_BYTES / (1024 * 1024))}MB.`);
       }
 
       if (node.type === 'HttpRequest' && !['GET', 'POST'].includes(node.settings.remoteMethod ?? 'GET')) {
@@ -559,8 +593,26 @@ function validateWorkspace(workspace: WorkspaceFileV2): WorkspaceValidationState
       }
     }
 
-    if (node.type === 'Declarations' && !node.settings.variableName?.trim()) {
-      warnings.push(`${node.settings.label || definition.label} has no variable name and will be ignored.`);
+    if (node.type === 'SaveStringToLog' && !['debug', 'info', 'warn', 'error'].includes(node.settings.logSeverity ?? 'info')) {
+      errors.push(`${node.settings.label || definition.label}: severity must be Debug, Info, Warn, or Error.`);
+    }
+
+    if (node.type === 'Substitution') {
+      const inputCount = Math.trunc(node.settings.substitutionInputCount ?? 1);
+      if (inputCount < 1 || inputCount > 24) {
+        errors.push(`${node.settings.label || definition.label}: substitution connectors must be between 1 and 24.`);
+      }
+    }
+
+    if (node.type === 'Declarations') {
+      if (!node.settings.variableName?.trim()) {
+        warnings.push(`${node.settings.label || definition.label} has no variable name and will be ignored.`);
+      } else {
+        const error = variableNameError(node.settings.variableName);
+        if (error) {
+          errors.push(`${node.settings.label || definition.label}: ${error}`);
+        }
+      }
     }
   });
 
@@ -790,7 +842,7 @@ function instructionForNode(
             }
           : undefined,
         timeoutMs: Math.max(500, Math.min(30_000, Math.trunc(node.settings.remoteTimeoutMs ?? DEFAULT_REMOTE_TIMEOUT_MS))),
-        maxBytes: Math.max(1_024, Math.min(ASSET_MAX_BYTES, Math.trunc(node.settings.remoteMaxBytes ?? ASSET_MAX_BYTES))),
+        maxBytes: Math.max(1, Math.min(MAX_ASSET_MAX_BYTES, Math.trunc(node.settings.remoteMaxBytes ?? DEFAULT_ASSET_MAX_BYTES))),
         });
       }
       break;
@@ -917,6 +969,36 @@ function instructionForNode(
         fallbackMax: Math.trunc(node.settings.randomMax ?? 10),
       });
       break;
+    case 'Substitution': {
+      const inputCount = Math.max(1, Math.min(24, Math.trunc(node.settings.substitutionInputCount ?? 1)));
+      instructions.push({
+        op: 'SUBSTITUTE',
+        nodeId: node.id,
+        output: symbol(node.id, 'result'),
+        template: node.settings.substitutionTemplate ?? '',
+        values: Array.from({ length: inputCount }, (_, index) => connectedInput(edgesByTarget, node.id, `value${index + 1}`) ?? ''),
+      });
+      break;
+    }
+    case 'SaveStringToLog':
+      instructions.push({
+        op: 'LOG',
+        nodeId: node.id,
+        message: connectedInput(edgesByTarget, node.id, 'message'),
+        output: symbol(node.id, 'result'),
+        severity: node.settings.logSeverity ?? 'info',
+        fallbackMessage: node.settings.literalValue ?? '',
+      });
+      break;
+    case 'Abort':
+      instructions.push({
+        op: 'ABORT',
+        nodeId: node.id,
+        condition: connectedInput(edgesByTarget, node.id, 'condition'),
+        output: symbol(node.id, 'result'),
+        message: node.settings.abortMessage ?? 'Workflow requested abort.',
+      });
+      break;
     case 'OverlayControl':
       instructions.push({
         op: 'OVERLAY_CONTROL',
@@ -986,7 +1068,7 @@ function instructionForNode(
         instructions.push({
           op: 'DECLARE',
           nodeId: node.id,
-          name: node.settings.variableName,
+          name: normalizedVariableName(node.settings.variableName),
           value: connectedInput(edgesByTarget, node.id, 'value'),
           fallbackValue: literalGraphValue(node.settings.literalValue, node.settings.literalDataType ?? 'string'),
         });
@@ -1141,11 +1223,18 @@ function compileTriggerPlan(workspace: WorkspaceFileV2, inputSources: WorkspaceI
 }
 
 function buildSafetyPolicy(instructions: GraphVmInstruction[]): GraphVmSafetyPolicy {
+  const remoteMaxBytes = Math.max(
+    DEFAULT_REMOTE_MAX_BYTES,
+    ...instructions
+      .filter((instruction) => instruction.op === 'FETCH_GET' || instruction.op === 'HTTP_REQUEST' || instruction.op === 'GET_ASSET')
+      .map((instruction) => instruction.maxBytes),
+  );
+
   return {
     abortOnFailure: true,
     regexTimeoutMs: REGEX_TIMEOUT_MS,
     remoteTimeoutMs: DEFAULT_REMOTE_TIMEOUT_MS,
-    remoteMaxBytes: DEFAULT_REMOTE_MAX_BYTES,
+    remoteMaxBytes,
     rules: instructions.map((instruction) => {
       if (instruction.op === 'REGEX_TRANSFORM') {
         return {
@@ -1181,6 +1270,15 @@ function buildSafetyPolicy(instructions: GraphVmInstruction[]): GraphVmSafetyPol
           op: instruction.op,
           requiresWatchdog: false,
           rangeCheck: `loop count is capped at ${instruction.loopLimit}`,
+        };
+      }
+
+      if (instruction.op === 'ABORT') {
+        return {
+          nodeId: instruction.nodeId,
+          op: instruction.op,
+          requiresWatchdog: false,
+          rangeCheck: 'abort exits the current Action Pack run when the condition is true',
         };
       }
 
@@ -1339,6 +1437,10 @@ export function compileWorkspace(workspace: WorkspaceFileV2, options: CompileOpt
 
     if (instruction.op === 'SHARED_STATE') {
       addRisk(risk, 'extended', 'Session-scoped shared state is extended risk.', 'output');
+    }
+
+    if (instruction.op === 'LOG') {
+      addRisk(risk, 'extended', 'Action Pack logging stores local run data.', 'output');
     }
 
     if (instruction.op === 'OVERLAY_CONTROL' || instruction.op === 'OVERLAY_DRAW') {

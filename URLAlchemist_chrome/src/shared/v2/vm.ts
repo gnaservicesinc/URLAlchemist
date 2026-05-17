@@ -1,6 +1,7 @@
 import { ALLOWED_NAVIGATION_PROTOCOLS } from '../constants';
 import { effectiveVmInstructionLimit } from '../hardening';
-import type { EngineIssue, GlobalSettings } from '../types';
+import { capLogMessage } from '../logs';
+import type { ActionPackLogSeverity, EngineIssue, GlobalSettings } from '../types';
 import type { EngineRuntime } from '../engine/runtime';
 import { validateRemoteUrl } from './remoteUrl';
 import { readLimitedResponseBytes } from './remoteBytes';
@@ -74,6 +75,7 @@ export interface GraphRuntime extends EngineRuntime {
   displayOverlay?: (request: DisplayRequest) => Promise<GraphValue>;
   overlayControl?: (request: OverlayControlRequest) => Promise<GraphValue>;
   overlayDraw?: (request: OverlayDrawRequest) => Promise<GraphValue>;
+  writeLog?: (entry: { severity: ActionPackLogSeverity; message: string; nodeId: string }) => Promise<void>;
   sleep?: (durationMs: number) => Promise<void>;
   mutatePageText?: (value: GraphValue) => Promise<void>;
 }
@@ -90,6 +92,8 @@ export interface GraphExecutionResult {
   appliedPackIds: string[];
   issues: EngineIssue[];
   trace: GraphTraceEntry[];
+  exitCode: number;
+  aborted: boolean;
 }
 
 export interface GraphTraceEntry {
@@ -108,6 +112,8 @@ interface VmState {
   issues: EngineIssue[];
   trace: GraphTraceEntry[];
   outputs: Map<string, GraphValue>;
+  aborted: boolean;
+  exitCode: number;
 }
 
 function issue(message: string, activityId?: string): EngineIssue {
@@ -482,6 +488,19 @@ function setValue(state: VmState, key: string, value: GraphValue, limit: number)
   state.values.set(key, value);
 }
 
+function setAssetValue(state: VmState, key: string, value: GraphValue, maxBytes: number): void {
+  const asset = value.type === 'asset' ? value.value : null;
+  const assetSize = asset?.sizeBytes ?? (
+    asset?.dataBase64 ? Math.ceil((asset.dataBase64.length * 3) / 4) : 0
+  );
+  if (assetSize > maxBytes) {
+    state.issues.push(issue(`Asset for ${key} exceeded the configured byte limit`));
+    return;
+  }
+
+  state.values.set(key, value);
+}
+
 function parseVariableOrLiteral(state: VmState, raw: string): GraphValue {
   const trimmed = raw.trim();
   const parsedNumber = Number.parseFloat(trimmed);
@@ -509,9 +528,38 @@ function parseVariableOrLiteral(state: VmState, raw: string): GraphValue {
     return global;
   }
 
+  if (!trimmed.startsWith('$')) {
+    const dollarGlobal = state.globals.get(`$${trimmed}`);
+    if (dollarGlobal) {
+      return dollarGlobal;
+    }
+  }
+
   const initialized: GraphValue = { type: 'number', value: 0 };
   state.globals.set(trimmed, initialized);
   return initialized;
+}
+
+function lookupVariable(state: VmState, token: string): GraphValue | undefined {
+  if (token.startsWith('_')) {
+    return state.locals.get(token);
+  }
+
+  return state.globals.get(token) ?? (!token.startsWith('$') ? state.globals.get(`$${token}`) : undefined);
+}
+
+function applySubstitutionTemplate(template: string, inputs: Array<GraphValue | undefined>, state: VmState): string {
+  return template
+    .replace(/\$\$/g, '\u0000')
+    .replace(/\$([A-Za-z_][A-Za-z0-9_]*|\d+)/g, (_match, token: string) => {
+      const numericIndex = Number.parseInt(token, 10);
+      if (Number.isFinite(numericIndex) && String(numericIndex) === token) {
+        return asString(inputs[numericIndex - 1]);
+      }
+
+      return asString(lookupVariable(state, `$${token}`) ?? lookupVariable(state, token));
+    })
+    .replace(/\u0000/g, '$');
 }
 
 function eventDict(event: OverlayRuntimeEvent | undefined, inputUrl: string): GraphValue {
@@ -789,7 +837,7 @@ async function executeInstruction(
               maxBytes: instruction.maxBytes,
             }),
           };
-      setValue(state, instruction.output, value, pack.vm.valueByteLimit);
+      setAssetValue(state, instruction.output, value, instruction.maxBytes);
       trace(state, instruction, instruction.embedded ? 'Loaded embedded asset' : 'Resolved remote asset', value);
       break;
     }
@@ -911,6 +959,9 @@ async function executeInstruction(
         state.locals.set(instruction.name, rawValue ?? { type: 'number', value: 0 });
       } else {
         state.globals.set(instruction.name, rawValue ?? { type: 'number', value: 0 });
+        if (!instruction.name.startsWith('$')) {
+          state.globals.set(`$${instruction.name}`, rawValue ?? { type: 'number', value: 0 });
+        }
       }
       trace(state, instruction, `Declared ${instruction.name}`, rawValue);
       break;
@@ -1090,6 +1141,41 @@ async function executeInstruction(
       trace(state, instruction, 'Generated random integer', value);
       break;
     }
+    case 'SUBSTITUTE': {
+      const inputValues = instruction.values.map((entry) => getValue(state, entry));
+      const value: GraphValue = { type: 'string', value: applySubstitutionTemplate(instruction.template, inputValues, state) };
+      setValue(state, instruction.output, value, pack.vm.valueByteLimit);
+      trace(state, instruction, 'Applied substitution', value);
+      break;
+    }
+    case 'LOG': {
+      const message = capLogMessage(instruction.message ? asString(getValue(state, instruction.message)) : instruction.fallbackMessage);
+      await runtime.writeLog?.({
+        severity: instruction.severity,
+        message,
+        nodeId: instruction.nodeId,
+      });
+      if (instruction.output) {
+        setValue(state, instruction.output, { type: 'bool', value: 1 }, pack.vm.valueByteLimit);
+      }
+      trace(state, instruction, `Logged ${instruction.severity}`, { type: 'string', value: message });
+      break;
+    }
+    case 'ABORT': {
+      const shouldAbort = instruction.condition === undefined || truthy(getValue(state, instruction.condition));
+      if (instruction.output) {
+        setValue(state, instruction.output, { type: 'bool', value: shouldAbort ? 1 : 0 }, pack.vm.valueByteLimit);
+      }
+      if (!shouldAbort) {
+        trace(state, instruction, 'Abort skipped');
+        break;
+      }
+
+      state.aborted = true;
+      state.exitCode = 130;
+      trace(state, instruction, instruction.message || 'Action Pack aborted');
+      break;
+    }
     case 'OVERLAY_CONTROL': {
       if (!enabledValue(state, instruction.enabled)) {
         if (instruction.output) {
@@ -1182,6 +1268,8 @@ export async function executeCompiledActionPackV2(
     issues: [],
     trace: [],
     outputs: new Map(),
+    aborted: false,
+    exitCode: 0,
   };
 
   if (/^file:/i.test(inputUrl) && !settings.allowLocalFiles) {
@@ -1192,13 +1280,15 @@ export async function executeCompiledActionPackV2(
       appliedPackIds: [],
       issues: [issue('Local file URLs are blocked by global settings')],
       trace: [],
+      exitCode: 1,
+      aborted: false,
     };
   }
 
   try {
     const stepBudget = effectiveVmInstructionLimit(settings, pack.vm.stepBudget);
     const instructions = eventInstructions(pack, options.handler ?? 'trigger');
-    for (const [index, instruction] of instructions.entries()) {
+      for (const [index, instruction] of instructions.entries()) {
       if (index >= stepBudget) {
         state.issues.push(issue('VM step budget exceeded; pack execution was aborted'));
         break;
@@ -1206,12 +1296,17 @@ export async function executeCompiledActionPackV2(
 
       const issueCount = state.issues.length;
       await executeInstruction(instruction, state, runtime, pack, inputUrl, event);
-      if (state.issues.length > issueCount && pack.vm.safety.abortOnFailure) {
+      if (state.aborted || (state.issues.length > issueCount && pack.vm.safety.abortOnFailure)) {
         break;
       }
     }
   } catch (error) {
     state.issues.push(issue(error instanceof Error ? error.message : 'The compiled graph failed during execution'));
+    state.exitCode = 1;
+  }
+
+  if (state.exitCode === 0 && state.issues.length > 0) {
+    state.exitCode = 1;
   }
 
   const outputUrl = state.outputs.get('url');
@@ -1232,5 +1327,7 @@ export async function executeCompiledActionPackV2(
     appliedPackIds: finalUrl !== inputUrl ? [pack.manifest.id] : [],
     issues: state.issues,
     trace: state.trace,
+    exitCode: state.exitCode,
+    aborted: state.aborted,
   };
 }

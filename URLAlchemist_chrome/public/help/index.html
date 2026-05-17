@@ -35,6 +35,7 @@
 
 <h3>The Engine</h3>
 <p>The background engine listens for navigation events and, when a matching Action Pack is installed and enabled, runs the compiled instruction set against the URL. Transformed URLs are applied to the tab silently.</p>
+<p>The editor calls the top-level schedule <strong>Run</strong>. <strong>On page load</strong> means the pack runs from page input data; keyboard, mouse, and overlay events are separate event-handler blocks inside the workspace.</p>
 
 <h2>Quick Start</h2>
 
@@ -63,6 +64,9 @@
 <p><strong>Overlay Input</strong> opens a temporary overlay and returns a bounded summary of keyboard and mouse events captured while that overlay is open.</p>
 <p>For real-time applications, use the event-handler blocks: <strong>On Trigger Event</strong>, <strong>Keyboard In</strong>, <strong>Mouse In</strong>, and <strong>Overlay Tick In</strong>. Pair them with <strong>Overlay Control</strong>, <strong>Overlay Draw</strong>, and shared state blocks to build interactive overlay workflows without custom JavaScript.</p>
 <p>The bundled <strong>Snake Overlay Arcade</strong> example demonstrates a classic arcade game built from those generic workspace blocks.</p>
+<h2>Debugging</h2>
+<p>Manage Resources includes <strong>View Log</strong> and <strong>Export Log</strong> actions for each installed Action Pack. Logs record run timestamps, exit codes, issues, and entries written by <strong>Save string to log</strong>.</p>
+<p>Use <strong>Abort</strong> when a workflow needs to stop mid-run after a boolean guard becomes true. Abort returns exit code <code>130</code> and stops later instructions in that run.</p>
 
 </body>
 </html>

@@ -39,6 +39,7 @@ import { getHotkeyValidationError } from '../../shared/hotkeys';
 import type { Activity } from '../../shared/types';
 import { BLOCK_DEFINITIONS, getBlockDefinition, getEffectivePortDefinitions } from '../../shared/v2/blockRegistry';
 import { compileWorkspace, getConnectionValidationError } from '../../shared/v2/compiler';
+import { formatEventHandler, formatRunType } from '../../shared/v2/labels';
 import { createSandboxGraphRuntime } from '../../shared/v2/sandboxRuntime';
 import { createEdge, createWorkspaceNode } from '../../shared/v2/workspace';
 import type { BlockDefinition, BlockKind, GraphEventHandler, GraphPortDefinition, GraphValue, WorkspaceBlockSettings, WorkspaceFileV2, WorkspaceNodeV2 } from '../../shared/v2/types';
@@ -77,11 +78,19 @@ interface WorkspaceBlockData {
   invalidInputs: string[];
   node: WorkspaceNodeV2;
   outputs: GraphPortDefinition[];
+  variables: DeclaredVariable[];
   onCollapseToggle: (nodeId: string) => void;
   onDeleteNode: (nodeId: string) => void;
   onLockToggle: (nodeId: string) => void;
   onOpenRegexBuilder: (nodeId: string) => void;
   onSettingsChange: (nodeId: string, settings: Partial<WorkspaceBlockSettings>) => void;
+}
+
+interface DeclaredVariable {
+  nodeId: string;
+  rawName: string;
+  token: string;
+  dataType: string;
 }
 
 type WorkspaceFlowNode = Node<WorkspaceBlockData, 'workspaceBlock'>;
@@ -102,6 +111,7 @@ const DATA_TYPE_COLORS: Record<string, string> = {
 const CATEGORY_LABELS: Record<BlockDefinition['category'], string> = {
   convert: 'Convert',
   data: 'Data',
+  debug: 'Debug',
   flow: 'Flow',
   interaction: 'Interaction',
   logic: 'Logic',
@@ -141,6 +151,75 @@ function categoryLabel(category: BlockDefinition['category']): string {
 
 function settingText(value: unknown): string {
   return value === undefined || value === null ? '' : String(value);
+}
+
+function variableToken(rawName: string): string {
+  const trimmed = rawName.trim();
+  if (!trimmed || trimmed.startsWith('$') || trimmed.startsWith('_')) {
+    return trimmed;
+  }
+
+  return `$${trimmed}`;
+}
+
+function isReservedVariableName(rawName: string): boolean {
+  const trimmed = rawName.trim();
+  return /^\$?\d+$/.test(trimmed) || /^\$\d+/.test(variableToken(trimmed));
+}
+
+function collectDeclaredVariables(workspace: WorkspaceFileV2): DeclaredVariable[] {
+  return workspace.nodes
+    .filter((node) => node.type === 'Declarations' && node.settings.variableName?.trim())
+    .map((node) => ({
+      nodeId: node.id,
+      rawName: node.settings.variableName!.trim(),
+      token: variableToken(node.settings.variableName!),
+      dataType: node.settings.literalDataType ?? 'Any',
+    }));
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function fieldUsesVariable(value: unknown, variables: DeclaredVariable[]): boolean {
+  const text = settingText(value);
+  if (!text) {
+    return false;
+  }
+
+  return variables.some((variable) => {
+    const token = variable.token;
+    if (!token) {
+      return false;
+    }
+    const pattern = new RegExp(`${escapeRegExp(token)}(?![A-Za-z0-9_])`);
+    return pattern.test(text);
+  });
+}
+
+function usedVariableTokens(workspace: WorkspaceFileV2, variables: DeclaredVariable[]): Set<string> {
+  const used = new Set<string>();
+  workspace.nodes.forEach((node) => {
+    Object.entries(node.settings).forEach(([key, value]) => {
+      if (key === 'variableName') {
+        return;
+      }
+
+      variables.forEach((variable) => {
+        if (fieldUsesVariable(value, [variable])) {
+          used.add(variable.token);
+        }
+      });
+    });
+  });
+  return used;
+}
+
+function variableAwareClass(value: unknown, variables: DeclaredVariable[], baseClass: string): string {
+  return fieldUsesVariable(value, variables)
+    ? `${baseClass} border-amber-300 bg-amber-50 text-amber-950`
+    : baseClass;
 }
 
 function handleStyle(color: string): CSSProperties {
@@ -217,6 +296,7 @@ function updateNodeSettings(workspace: WorkspaceFileV2, nodeId: string, settings
 function renderBlockSettings(
   node: WorkspaceNodeV2,
   connectedInputs: Set<string>,
+  variables: DeclaredVariable[],
   onSettingsChange: (settings: Partial<WorkspaceBlockSettings>) => void,
   onOpenRegexBuilder: (() => void) | undefined,
 ) {
@@ -271,7 +351,7 @@ function renderBlockSettings(
             help="Replacement text. It is ignored for Remove and disabled when a payload input is connected."
             label="Payload"
           >
-            <textarea className={`${inputClass} min-h-14 disabled:bg-slate-100 disabled:text-slate-400`} disabled={payloadConnected} placeholder={payloadConnected ? 'Connected payload input' : 'Replacement text'} value={payloadConnected ? '' : settingText(node.settings.payload)} onChange={(event) => onSettingsChange({ payload: event.target.value })} />
+            <textarea className={`${variableAwareClass(node.settings.payload, variables, inputClass)} min-h-14 disabled:bg-slate-100 disabled:text-slate-400`} disabled={payloadConnected} placeholder={payloadConnected ? 'Connected payload input' : 'Replacement text'} value={payloadConnected ? '' : settingText(node.settings.payload)} onChange={(event) => onSettingsChange({ payload: event.target.value })} />
           </SettingField>
           <label className="nodrag flex items-center gap-2 text-[11px] text-slate-600">
             <input checked={Boolean(node.settings.payloadVars)} type="checkbox" onChange={(event) => onSettingsChange({ payloadVars: event.target.checked })} />
@@ -350,6 +430,11 @@ function renderBlockSettings(
           <SettingField help="Names starting with _ are local to this run. Other names are shared within the pack execution." label="Variable name">
             <input className={inputClass} placeholder="Global or _local" value={settingText(node.settings.variableName)} onChange={(event) => onSettingsChange({ variableName: event.target.value })} />
           </SettingField>
+          {node.settings.variableName && isReservedVariableName(node.settings.variableName) ? (
+            <p className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] text-rose-700">
+              $1, $2, and other numbered names are reserved for substitution connector inputs.
+            </p>
+          ) : null}
           {!isConnected('value') ? <SettingField help="Controls how the initial value is parsed." label="Initial value type">
             <select className={inputClass} value={node.settings.literalDataType ?? 'string'} onChange={(event) => onSettingsChange({ literalDataType: event.target.value as WorkspaceBlockSettings['literalDataType'] })}>
               <option value="bool">Bool</option>
@@ -613,6 +698,65 @@ function renderBlockSettings(
           </SettingField>
         </div>
       );
+    case 'Substitution': {
+      const template = settingText(node.settings.substitutionTemplate);
+      return (
+        <div className="mt-3 grid gap-2">
+          <SettingField
+            help="Builds a string from this template. $1, $2, and so on use the connected inputs in order. Declared variables like $name are substituted from the current run."
+            label="String pattern"
+          >
+            <textarea
+              className={`${variableAwareClass(template, variables, inputClass)} min-h-16`}
+              placeholder="Hello $1 from $name"
+              value={template}
+              onChange={(event) => onSettingsChange({ substitutionTemplate: event.target.value })}
+            />
+          </SettingField>
+          <SettingField help="Visible connector count. Connecting the last connector automatically adds another one." hint="1-24 connectors" label="Connectors">
+            <input
+              className={inputClass}
+              min={1}
+              max={24}
+              type="number"
+              value={node.settings.substitutionInputCount ?? 1}
+              onChange={(event) => onSettingsChange({ substitutionInputCount: Math.max(1, Math.min(24, Number.parseInt(event.target.value || '1', 10))) })}
+            />
+          </SettingField>
+        </div>
+      );
+    }
+    case 'SaveStringToLog':
+      return (
+        <div className="mt-3 grid gap-2">
+          <SettingField help="Severity used in the Action Pack log entry." label="Severity">
+            <select className={inputClass} value={node.settings.logSeverity ?? 'info'} onChange={(event) => onSettingsChange({ logSeverity: event.target.value as WorkspaceBlockSettings['logSeverity'] })}>
+              <option value="debug">Debug</option>
+              <option value="info">Info</option>
+              <option value="warn">Warn</option>
+              <option value="error">Error</option>
+            </select>
+          </SettingField>
+          {!isConnected('message') ? (
+            <SettingField help="Text written to the local log when the Message input is not connected." label="Message">
+              <textarea className={`${variableAwareClass(node.settings.literalValue, variables, inputClass)} min-h-16`} value={settingText(node.settings.literalValue)} onChange={(event) => onSettingsChange({ literalValue: event.target.value })} />
+            </SettingField>
+          ) : connectedNote('Message')}
+        </div>
+      );
+    case 'Abort':
+      return (
+        <div className="mt-3 grid gap-2">
+          <SettingField help="Recorded in the trace when the condition is true and the Action Pack exits." label="Abort message">
+            <input className={variableAwareClass(node.settings.abortMessage, variables, inputClass)} value={settingText(node.settings.abortMessage)} onChange={(event) => onSettingsChange({ abortMessage: event.target.value })} />
+          </SettingField>
+          {!isConnected('condition') ? (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-800">
+              Connect a bool to Condition. Without a connection, this block aborts whenever it runs.
+            </p>
+          ) : connectedNote('Condition')}
+        </div>
+      );
     case 'Sleep':
       return (
         <div className="mt-3">
@@ -784,8 +928,8 @@ function renderBlockSettings(
           <SettingField help="Aborts the media request when this time budget expires." hint="500-30000 ms" label="Timeout (ms)">
             <input className={inputClass} min={500} max={30000} type="number" value={node.settings.remoteTimeoutMs ?? 5000} onChange={(event) => onSettingsChange({ remoteTimeoutMs: Number.parseInt(event.target.value || '5000', 10) })} />
           </SettingField>
-          <SettingField help="Stops reading the media response after this many bytes." hint="1024-524288 bytes" label="Max response bytes">
-            <input className={inputClass} min={1024} max={524288} type="number" value={node.settings.remoteMaxBytes ?? 524288} onChange={(event) => onSettingsChange({ remoteMaxBytes: Number.parseInt(event.target.value || '524288', 10) })} />
+          <SettingField help="Streams and reassembles the media response up to this safety budget, then aborts the request." hint="Default 10MB, maximum 50MB" label="Asset byte budget">
+            <input className={inputClass} min={1} max={52428800} type="number" value={node.settings.remoteMaxBytes ?? 10485760} onChange={(event) => onSettingsChange({ remoteMaxBytes: Number.parseInt(event.target.value || '10485760', 10) })} />
           </SettingField>
         </div>
       );
@@ -795,7 +939,7 @@ function renderBlockSettings(
 }
 
 const WorkspaceBlockNode = memo(function WorkspaceBlockNode({ data, selected }: NodeProps<WorkspaceFlowNode>) {
-  const { connectedInputs, definition, inputs, invalidInputs, node, outputs, onCollapseToggle, onDeleteNode, onLockToggle, onOpenRegexBuilder, onSettingsChange } = data;
+  const { connectedInputs, definition, inputs, invalidInputs, node, outputs, variables, onCollapseToggle, onDeleteNode, onLockToggle, onOpenRegexBuilder, onSettingsChange } = data;
   const locked = Boolean(node.settings.locked);
   const collapsed = Boolean(node.settings.collapsed);
   const title = blockTitle(node, definition);
@@ -910,6 +1054,7 @@ const WorkspaceBlockNode = memo(function WorkspaceBlockNode({ data, selected }: 
         {renderBlockSettings(
           node,
           new Set(connectedInputs),
+          data.variables,
           (settings) => onSettingsChange(node.id, settings),
           node.type === 'RegExpression' ? () => onOpenRegexBuilder(node.id) : undefined,
         )}
@@ -1136,6 +1281,8 @@ function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, inva
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; flowX: number; flowY: number } | null>(null);
   const [flowInstance, setFlowInstance] = useState<ReactFlowInstance | null>(null);
   const [regexBuilderNodeId, setRegexBuilderNodeId] = useState<string | null>(null);
+  const declaredVariables = useMemo(() => collectDeclaredVariables(workspace), [workspace]);
+  const usedVariables = useMemo(() => usedVariableTokens(workspace, declaredVariables), [workspace, declaredVariables]);
 
   const handleSettingsChange = useCallback(
     (nodeId: string, settings: Partial<WorkspaceBlockSettings>): void => {
@@ -1219,6 +1366,7 @@ function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, inva
             invalidInputs,
             node,
             outputs,
+            variables: declaredVariables,
             onCollapseToggle: handleCollapseToggle,
             onDeleteNode: handleDeleteNode,
             onLockToggle: handleLockToggle,
@@ -1229,7 +1377,7 @@ function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, inva
           draggable: !node.settings.locked,
         };
       }),
-    [workspace, invalidEdgeIds, handleCollapseToggle, handleDeleteNode, handleLockToggle, handleSettingsChange],
+    [workspace, invalidEdgeIds, declaredVariables, handleCollapseToggle, handleDeleteNode, handleLockToggle, handleSettingsChange],
   );
 
   const workspaceEdges = useMemo<Edge[]>(
@@ -1353,10 +1501,30 @@ function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, inva
     const nextEdges = workspace.edges.filter(
       (edge) => !(edge.target === nextEdge.target && edge.targetHandle === nextEdge.targetHandle),
     );
+    const targetNode = workspace.nodes.find((node) => node.id === nextEdge.target);
+    const substitutionMatch = /^value(\d+)$/.exec(nextEdge.targetHandle);
+    const nodes = targetNode?.type === 'Substitution' && substitutionMatch
+      ? workspace.nodes.map((node) => {
+          if (node.id !== targetNode.id) {
+            return node;
+          }
+
+          const usedIndex = Number.parseInt(substitutionMatch[1], 10);
+          const currentCount = Math.max(1, Math.trunc(node.settings.substitutionInputCount ?? 1));
+          return {
+            ...node,
+            settings: {
+              ...node.settings,
+              substitutionInputCount: Math.max(currentCount, Math.min(24, usedIndex + 1)),
+            },
+          };
+        })
+      : workspace.nodes;
 
     onWorkspaceChange({
       ...workspace,
       metadata: { ...workspace.metadata, updated_at: Date.now() },
+      nodes,
       edges: [...nextEdges, nextEdge],
     });
   }
@@ -1496,6 +1664,28 @@ function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, inva
             ) : null}
           </div>
         </Panel>
+        {declaredVariables.length > 0 ? (
+          <Panel className="nodrag nowheel" position="bottom-right">
+            <div className="max-w-72 rounded-2xl border border-slate-200 bg-white/92 p-3 text-xs shadow-[0_14px_34px_rgba(15,23,42,0.14)] backdrop-blur">
+              <p className="mb-2 font-semibold text-slate-900">Variables</p>
+              <div className="flex flex-wrap gap-1.5">
+                {declaredVariables.map((variable) => {
+                  const used = usedVariables.has(variable.token);
+                  return (
+                    <button
+                      key={`${variable.nodeId}:${variable.token}`}
+                      className={`rounded-full border px-2.5 py-1 font-mono text-[10px] font-semibold ${used ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-slate-200 bg-slate-50 text-slate-500'}`}
+                      type="button"
+                      onClick={() => focusNodeIds(new Set([variable.nodeId]))}
+                    >
+                      {variable.token}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </Panel>
+        ) : null}
         <Background color="#e2e8f0" gap={22} />
         <Controls showInteractive={false} />
         <MiniMap nodeColor="#c76a1a" pannable zoomable />
@@ -1591,7 +1781,7 @@ function BlockPicker({ onAddBlock }: { onAddBlock: (kind: BlockKind) => void }) 
           Add Block
         </button>
         <div className="flex flex-wrap gap-1.5">
-          {['RegExpression', 'Logical', 'Math', 'SharedState', 'OverlayControl', 'OverlayDraw'].map((kind) => {
+          {['RegExpression', 'Substitution', 'Logical', 'Math', 'SaveStringToLog', 'Abort', 'SharedState', 'OverlayControl', 'OverlayDraw'].map((kind) => {
             const definition = getBlockDefinition(kind as BlockKind);
             return (
               <button
@@ -1759,13 +1949,14 @@ export function WorkspaceEditor({
         },
       );
       const sideEffects = execution.trace
-        .filter((entry) => ['OUTPUT', 'DISPLAY', 'USER_INTERACTION', 'OVERLAY_CONTROL', 'OVERLAY_DRAW', 'SLEEP', 'SAVELOAD', 'SHARED_STATE'].includes(entry.op))
+        .filter((entry) => ['OUTPUT', 'DISPLAY', 'USER_INTERACTION', 'OVERLAY_CONTROL', 'OVERLAY_DRAW', 'SLEEP', 'SAVELOAD', 'SHARED_STATE', 'LOG', 'ABORT'].includes(entry.op))
         .map((entry) => entry.message)
         .filter((message, index, messages) => messages.indexOf(message) === index);
 
       setDebugOutput([
         `Final URL: ${execution.finalUrl}`,
         `URL changed: ${execution.changed ? 'yes' : 'no'}`,
+        `Exit code: ${execution.exitCode}`,
         `Side effects: ${sideEffects.length > 0 ? sideEffects.join('; ') : 'none'}`,
         execution.issues.length > 0 ? `Issues: ${execution.issues.map((entry) => entry.message).join('; ')}` : 'Issues: none',
       ].join('\n'));
@@ -1896,9 +2087,9 @@ export function WorkspaceEditor({
           <input className="field-input" value={workspace.metadata.author ?? ''} onChange={(event) => updateWorkspace({ metadata: { ...workspace.metadata, author: event.target.value } })} />
         </label>
         <label className="field-shell">
-          <span className="field-label">Trigger</span>
+          <span className="field-label">Run</span>
           <select className="field-select" value={workspace.trigger.type} onChange={(event) => updateWorkspace({ trigger: { ...workspace.trigger, type: event.target.value as WorkspaceFileV2['trigger']['type'] } })}>
-            <option value="INPUT_DATA">Run on input data</option>
+            <option value="INPUT_DATA">On page load</option>
             <option value="HOTKEY">Hotkey</option>
             <option value="CONTEXT_MENU">Context Menu</option>
             <option value="INTERVAL">Recurring interval</option>
@@ -1961,7 +2152,7 @@ export function WorkspaceEditor({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm font-semibold text-slate-900">{workspace.metadata.name}</p>
             <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
-              v{workspace.metadata.version} · {workspace.trigger.type}
+              v{workspace.metadata.version} · {formatRunType(workspace.trigger.type)}
             </p>
           </div>
         </div>
@@ -1993,10 +2184,10 @@ export function WorkspaceEditor({
           <label className="field-shell">
             <span className="field-label">Handler</span>
             <select className="field-select" value={debugHandler} onChange={(event) => setDebugHandler(event.target.value as GraphEventHandler)}>
-              <option value="trigger">Trigger</option>
-              <option value="keyboard">Keyboard</option>
-              <option value="mouse">Mouse</option>
-              <option value="tick">Tick</option>
+              <option value="trigger">{formatEventHandler('trigger')}</option>
+              <option value="keyboard">{formatEventHandler('keyboard')}</option>
+              <option value="mouse">{formatEventHandler('mouse')}</option>
+              <option value="tick">{formatEventHandler('tick')}</option>
             </select>
           </label>
           <label className="field-shell">

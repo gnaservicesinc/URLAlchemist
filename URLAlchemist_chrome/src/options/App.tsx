@@ -5,6 +5,7 @@ import { MAX_ACTION_PACK_BINARY_BYTES, REGEX_TIMEOUT_MS } from '../shared/consta
 import { exportBackupState, importBackupState } from '../shared/backup';
 import { simulateActionPack } from '../shared/engine/engine';
 import type { EngineRuntime } from '../shared/engine/runtime';
+import { formatActionPackLogText } from '../shared/logs';
 import { effectiveRegexTimeoutMs, normalizeUiScale } from '../shared/hardening';
 import {
   clearOpenWorkspaceDraft,
@@ -556,6 +557,14 @@ function App() {
     );
   }
 
+  async function exportInstalledActionPackLog(pack: CompiledActionPackV2): Promise<void> {
+    const entries = state.actionPackLogs.filter((entry) => entry.packId === pack.manifest.id);
+    await downloadText(
+      formatActionPackLogText(pack.manifest.name, entries),
+      `logs/${slugify(pack.manifest.name) || 'action-pack'}.log.txt`,
+    );
+  }
+
   async function exportBuilderUuid(): Promise<void> {
     await downloadText(
       `URL_ALCHEMIST_BUILDER_UUID=${state.settings.builderUuid}\n`,
@@ -863,7 +872,7 @@ function App() {
   }
 
   async function resetEverything(): Promise<void> {
-    if (!window.confirm('This will delete all settings, workspaces, Action Packs, traces, and temporary drafts. Continue?')) {
+    if (!window.confirm('This will delete all settings, workspaces, Action Packs, logs, traces, and temporary drafts. Continue?')) {
       return;
     }
 
@@ -931,6 +940,7 @@ function App() {
       {activeTab === 'manage-resources' ? (
         <ManageResourcesPanel
           actionPacks={state.actionPacksV2}
+          actionPackLogs={state.actionPackLogs}
           legacyPacks={state.packs}
           workspaces={state.workspacesV2}
           onCompileExportWorkspace={(targetWorkspace) => void exportActionPackFromWorkspace(targetWorkspace)}
@@ -940,6 +950,7 @@ function App() {
           onDisableTrace={(pack) => void disableTraceForPack(pack)}
           onEnableTrace={(pack) => void enableTraceForPack(pack)}
           onExportActionPack={(pack) => void exportInstalledActionPack(pack)}
+          onExportActionPackLog={(pack) => void exportInstalledActionPackLog(pack)}
           onExportActionPackVersionFile={(pack) => void exportInstalledActionPackVersionFile(pack)}
           onExportLegacyPack={(pack) => void downloadLegacyPack(pack)}
           onExportWorkspace={(targetWorkspace) => void exportWorkspaceFile(targetWorkspace)}

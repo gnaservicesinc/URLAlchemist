@@ -34,7 +34,7 @@ export const BUNDLED_ACTION_PACK_EXAMPLES: BundledActionPackExample[] = [
     category: 'URL cleanup',
     trigger: 'INPUT_DATA',
     risk: 'safe',
-    features: ['Input-data trigger', 'Regex cleanup', 'Safe URL output'],
+    features: ['On page load', 'Regex cleanup', 'Safe URL output'],
     workspacePath: 'bundled-actionpacks/workspaces/clean-campaign-links.workspace',
     actionPackPath: 'bundled-actionpacks/action-packs/clean-campaign-links.actionpack',
   },
@@ -109,6 +109,18 @@ export const BUNDLED_ACTION_PACK_EXAMPLES: BundledActionPackExample[] = [
     features: ['Page title input', 'Clipboard output', 'No redirect'],
     workspacePath: 'bundled-actionpacks/workspaces/copy-page-title.workspace',
     actionPackPath: 'bundled-actionpacks/action-packs/copy-page-title.actionpack',
+  },
+  {
+    id: '0f6b6d50-9d44-4a86-9d0f-80a9e8200017',
+    name: 'Debug Page Logger',
+    slug: 'debug-page-logger',
+    description: 'Formats page title and URL with the Substitution block, writes the message to the Action Pack log, and aborts cleanly when the title is empty.',
+    category: 'Page tools',
+    trigger: 'CONTEXT_MENU',
+    risk: 'extended',
+    features: ['Substitution block', 'Action Pack log', 'Abort guard'],
+    workspacePath: 'bundled-actionpacks/workspaces/debug-page-logger.workspace',
+    actionPackPath: 'bundled-actionpacks/action-packs/debug-page-logger.actionpack',
   },
   {
     id: '0f6b6d50-9d44-4a86-9d0f-80a9e8200007',
@@ -612,6 +624,57 @@ function copyPageTitle(): WorkspaceFileV2 {
       type: 'CONTEXT_MENU',
       hotkey: 'Ctrl+Shift+U',
       inputSources: ['pageTitle'],
+      sourceFilters: [{ source: 'url', pattern: '^https?://' }],
+    },
+  );
+}
+
+function debugPageLogger(): WorkspaceFileV2 {
+  const slug = 'debug-page-logger';
+  const input = node(slug, 'input', 'DataFlowIn', { x: 0, y: 160 }, { locked: true });
+  const label = node(slug, 'label', 'Declarations', { x: 0, y: 0 }, {
+    label: 'Declare log label',
+    variableName: 'labelPrefix',
+    literalValue: 'Visited',
+    literalDataType: 'string',
+  });
+  const titleMissing = node(slug, 'title-missing', 'Logical', { x: 320, y: 240 }, {
+    label: 'Title is empty',
+    operator: 'EQ',
+    compareValue: '',
+    booleanOutput: true,
+  });
+  const abort = node(slug, 'abort-empty-title', 'Abort', { x: 640, y: 240 }, {
+    label: 'Stop blank log',
+    abortMessage: 'Page title was empty, so Debug Page Logger stopped before writing a blank entry.',
+  });
+  const formatLog = node(slug, 'format-log', 'Substitution', { x: 320, y: 40 }, {
+    label: 'Format log message',
+    substitutionTemplate: '$labelPrefix $1 - $2',
+    substitutionInputCount: 2,
+  });
+  const writeLog = node(slug, 'write-log', 'SaveStringToLog', { x: 640, y: 40 }, {
+    label: 'Write Action Pack log',
+    literalValue: 'Debug Page Logger ran.',
+    logSeverity: 'info',
+  });
+  const output = node(slug, 'output', 'DataFlowOut', { x: 960, y: 160 }, { locked: true });
+
+  return baseWorkspace(
+    getExample(slug),
+    [input, label, titleMissing, abort, formatLog, writeLog, output],
+    [
+      edge(input, 'pageTitle', titleMissing, 'input'),
+      edge(titleMissing, 'result', abort, 'condition'),
+      edge(input, 'pageTitle', formatLog, 'value1'),
+      edge(input, 'url', formatLog, 'value2'),
+      edge(formatLog, 'result', writeLog, 'message'),
+      edge(input, 'url', output, 'url'),
+    ],
+    {
+      type: 'CONTEXT_MENU',
+      hotkey: 'Ctrl+Shift+L',
+      inputSources: ['url', 'pageTitle'],
       sourceFilters: [{ source: 'url', pattern: '^https?://' }],
     },
   );
@@ -1394,6 +1457,7 @@ export function createBundledExampleWorkspaces(): WorkspaceFileV2[] {
     clipboardSearchLauncher(),
     rememberCurrentPage(),
     copyPageTitle(),
+    debugPageLogger(),
     researchNoteSnapshot(),
     uppercaseSelectionClipboard(),
     remoteTextFetchPreview(),

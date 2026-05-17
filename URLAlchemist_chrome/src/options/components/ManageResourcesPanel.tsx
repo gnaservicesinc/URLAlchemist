@@ -1,12 +1,15 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 
 import { formatTimestamp, packUsesClipboard } from '../../shared/helpers';
-import type { ActionPack } from '../../shared/types';
+import { formatActionPackLogText } from '../../shared/logs';
+import type { ActionPack, StoredActionPackLogEntry } from '../../shared/types';
 import { compileWorkspace } from '../../shared/v2/compiler';
+import { formatRunType } from '../../shared/v2/labels';
 import type { CompiledActionPackV2, WorkspaceFileV2, WorkspaceMetadata } from '../../shared/v2/types';
 
 interface ManageResourcesPanelProps {
   actionPacks: CompiledActionPackV2[];
+  actionPackLogs: StoredActionPackLogEntry[];
   legacyPacks: ActionPack[];
   workspaces: WorkspaceFileV2[];
   onCompileExportWorkspace: (workspace: WorkspaceFileV2) => void;
@@ -16,6 +19,7 @@ interface ManageResourcesPanelProps {
   onEnableTrace: (pack: CompiledActionPackV2) => void;
   onDisableTrace: (pack: CompiledActionPackV2) => void;
   onExportActionPack: (pack: CompiledActionPackV2) => void;
+  onExportActionPackLog: (pack: CompiledActionPackV2) => void;
   onExportActionPackVersionFile: (pack: CompiledActionPackV2) => void;
   onExportLegacyPack: (pack: ActionPack) => void;
   onExportWorkspace: (workspace: WorkspaceFileV2) => void;
@@ -105,8 +109,8 @@ function WorkspaceCard({
           />
         </label>
         <label className="field-shell">
-          <span className="field-label">Trigger</span>
-          <input className="field-input" readOnly value={workspace.trigger.type} />
+          <span className="field-label">Run</span>
+          <input className="field-input" readOnly value={formatRunType(workspace.trigger.type)} />
         </label>
         <label className="field-shell md:col-span-2">
           <span className="field-label">Description</span>
@@ -145,12 +149,15 @@ function WorkspaceCard({
 }
 
 function ActionPackCard({
+  logCount,
   pack,
   onDeleteActionPack,
   onDisableTrace,
   onEnableTrace,
   onExportActionPack,
+  onExportActionPackLog,
   onExportActionPackVersionFile,
+  onViewActionPackLog,
   onToggleActionPack,
 }: Pick<
   ManageResourcesPanelProps,
@@ -158,9 +165,10 @@ function ActionPackCard({
   | 'onDisableTrace'
   | 'onEnableTrace'
   | 'onExportActionPack'
+  | 'onExportActionPackLog'
   | 'onExportActionPackVersionFile'
   | 'onToggleActionPack'
-> & { pack: CompiledActionPackV2 }) {
+> & { pack: CompiledActionPackV2; logCount: number; onViewActionPackLog: (pack: CompiledActionPackV2) => void }) {
   const traceActive = isTraceActive(pack);
 
   return (
@@ -170,7 +178,7 @@ function ActionPackCard({
           <p className="eyebrow">Action Pack</p>
           <h3 className="mt-1 text-lg font-semibold text-slate-900">{pack.manifest.name}</h3>
           <p className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-500">
-            {pack.triggerPlan.type} · {pack.vm.instructions.length} instructions · Built {formatTimestamp(pack.builder.buildTimeUtc * 1000)}
+            {formatRunType(pack.triggerPlan.type)} · {pack.vm.instructions.length} instructions · Built {formatTimestamp(pack.builder.buildTimeUtc * 1000)}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -206,6 +214,12 @@ function ActionPackCard({
         <button className="ghost-button" type="button" onClick={() => onExportActionPack(pack)}>
           Export
         </button>
+        <button className="ghost-button" type="button" onClick={() => onViewActionPackLog(pack)}>
+          View Log{logCount > 0 ? ` (${logCount})` : ''}
+        </button>
+        <button className="ghost-button" type="button" onClick={() => onExportActionPackLog(pack)}>
+          Export Log
+        </button>
         <button className="ghost-button" type="button" onClick={() => onExportActionPackVersionFile(pack)}>
           Export Version File
         </button>
@@ -218,6 +232,7 @@ function ActionPackCard({
 }
 
 export function ManageResourcesPanel(props: ManageResourcesPanelProps) {
+  const [logPackId, setLogPackId] = useState<string | null>(null);
   const packsByWorkspaceId = useMemo(() => {
     const map = new Map<string, CompiledActionPackV2[]>();
     props.actionPacks.forEach((pack) => {
@@ -228,6 +243,15 @@ export function ManageResourcesPanel(props: ManageResourcesPanelProps) {
   }, [props.actionPacks]);
   const workspaceIds = useMemo(() => new Set(props.workspaces.map((workspace) => workspace.metadata.id)), [props.workspaces]);
   const unpairedPacks = props.actionPacks.filter((pack) => !workspaceIds.has(pairedWorkspaceId(pack)));
+  const logsByPackId = useMemo(() => {
+    const map = new Map<string, StoredActionPackLogEntry[]>();
+    props.actionPackLogs.forEach((entry) => {
+      map.set(entry.packId, [...(map.get(entry.packId) ?? []), entry]);
+    });
+    return map;
+  }, [props.actionPackLogs]);
+  const logPack = props.actionPacks.find((pack) => pack.manifest.id === logPackId) ?? null;
+  const logEntries = logPack ? logsByPackId.get(logPack.manifest.id) ?? [] : [];
 
   return (
     <section className="panel-shell reveal-panel">
@@ -273,12 +297,15 @@ export function ManageResourcesPanel(props: ManageResourcesPanelProps) {
                     <ActionPackCard
                       key={pack.manifest.id}
                       pack={pack}
+                      logCount={logsByPackId.get(pack.manifest.id)?.length ?? 0}
                       onDeleteActionPack={props.onDeleteActionPack}
                       onDisableTrace={props.onDisableTrace}
                       onEnableTrace={props.onEnableTrace}
                       onExportActionPack={props.onExportActionPack}
+                      onExportActionPackLog={props.onExportActionPackLog}
                       onExportActionPackVersionFile={props.onExportActionPackVersionFile}
                       onToggleActionPack={props.onToggleActionPack}
+                      onViewActionPackLog={(targetPack) => setLogPackId(targetPack.manifest.id)}
                     />
                   ))
                 ) : (
@@ -299,12 +326,15 @@ export function ManageResourcesPanel(props: ManageResourcesPanelProps) {
                 <ActionPackCard
                   key={pack.manifest.id}
                   pack={pack}
+                  logCount={logsByPackId.get(pack.manifest.id)?.length ?? 0}
                   onDeleteActionPack={props.onDeleteActionPack}
                   onDisableTrace={props.onDisableTrace}
                   onEnableTrace={props.onEnableTrace}
                   onExportActionPack={props.onExportActionPack}
+                  onExportActionPackLog={props.onExportActionPackLog}
                   onExportActionPackVersionFile={props.onExportActionPackVersionFile}
                   onToggleActionPack={props.onToggleActionPack}
+                  onViewActionPackLog={(targetPack) => setLogPackId(targetPack.manifest.id)}
                 />
               ))}
             </div>
@@ -340,6 +370,30 @@ export function ManageResourcesPanel(props: ManageResourcesPanelProps) {
           </div>
         ) : null}
       </div>
+      {logPack ? (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/55 px-4 py-10 backdrop-blur-md">
+          <div className="reveal-panel w-full max-w-5xl rounded-[1.75rem] border border-white/70 bg-[rgba(255,252,246,0.98)] p-5 shadow-[0_32px_90px_rgba(15,23,42,0.26)]">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="eyebrow">Action Pack Log</p>
+                <h3 className="mt-2 text-2xl font-semibold text-slate-900">{logPack.manifest.name}</h3>
+                <p className="mt-1 text-sm text-slate-600">{logEntries.length} stored entries in local extension storage.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button className="ghost-button" type="button" onClick={() => props.onExportActionPackLog(logPack)}>
+                  Export Log
+                </button>
+                <button className="ghost-button" type="button" onClick={() => setLogPackId(null)}>
+                  Close
+                </button>
+              </div>
+            </div>
+            <pre className="mt-5 max-h-[65vh] overflow-auto rounded-2xl border border-slate-200 bg-slate-950 p-4 text-xs leading-5 text-slate-100">
+              {formatActionPackLogText(logPack.manifest.name, logEntries)}
+            </pre>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

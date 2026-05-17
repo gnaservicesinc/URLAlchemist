@@ -5,7 +5,7 @@ import {
   MATCH_MODES,
   TRIGGER_TYPES,
 } from './types';
-import type { ActionPack, Activity, ActivityCondition, StoredState } from './types';
+import type { ActionPack, ActionPackLogSeverity, Activity, ActivityCondition, StoredState } from './types';
 import { DEFAULT_SETTINGS } from './constants';
 import {
   normalizeHardeningMaxInstructions,
@@ -45,7 +45,9 @@ const PACK_KEYS = ['id', 'name', 'version', 'enabled', 'metadata', 'trigger', 'a
 const METADATA_KEYS = ['author', 'description', 'created_at'];
 const TRIGGER_KEYS = ['type', 'hotkey', 'scope_regex'];
 const CONDITION_KEYS = ['type', 'value', 'target'];
-const STORED_STATE_KEYS = ['settings', 'packs', 'actionPacksV2', 'workspacesV2', 'traceEntries'];
+const STORED_STATE_KEYS = ['settings', 'packs', 'actionPacksV2', 'workspacesV2', 'traceEntries', 'actionPackLogs'];
+const ACTION_PACK_LOG_KINDS = ['run', 'message'] as const;
+const ACTION_PACK_LOG_SEVERITIES = ['debug', 'info', 'warn', 'error'] as const;
 const SETTINGS_KEYS = [
   'globalEnabled',
   'allowLocalFiles',
@@ -101,6 +103,14 @@ function isPositiveInteger(value: unknown): value is number {
 
 function isNonNegativeInteger(value: unknown): value is number {
   return Number.isInteger(value) && (value as number) >= 0;
+}
+
+function isLogKind(value: unknown): value is StoredState['actionPackLogs'][number]['kind'] {
+  return typeof value === 'string' && (ACTION_PACK_LOG_KINDS as readonly string[]).includes(value);
+}
+
+function isLogSeverity(value: unknown): value is ActionPackLogSeverity {
+  return typeof value === 'string' && (ACTION_PACK_LOG_SEVERITIES as readonly string[]).includes(value);
 }
 
 function validateCondition(candidate: unknown, prefix: string): ValidationResult<ActivityCondition> {
@@ -324,6 +334,7 @@ export function validateStoredState(candidate: unknown): ValidationResult<Valida
   const actionPacksV2: CompiledActionPackV2[] = [];
   const workspacesV2: StoredState['workspacesV2'] = [];
   const traceEntries: StoredState['traceEntries'] = [];
+  const actionPackLogs: StoredState['actionPackLogs'] = [];
   const warnings: string[] = [];
   let droppedLegacyPacks = 0;
 
@@ -391,6 +402,39 @@ export function validateStoredState(candidate: unknown): ValidationResult<Valida
     });
   }
 
+  const candidateActionPackLogs = Array.isArray(candidate.actionPackLogs) ? candidate.actionPackLogs : [];
+  if (candidateActionPackLogs.length > 0) {
+    candidateActionPackLogs.forEach((entry) => {
+      if (
+        isRecord(entry) &&
+        typeof entry.id === 'string' &&
+        typeof entry.packId === 'string' &&
+        typeof entry.packName === 'string' &&
+        isNonNegativeInteger(entry.timestamp) &&
+        isLogKind(entry.kind) &&
+        isLogSeverity(entry.severity) &&
+        typeof entry.message === 'string'
+      ) {
+        actionPackLogs.push({
+          id: entry.id,
+          packId: entry.packId,
+          packName: entry.packName,
+          timestamp: entry.timestamp,
+          kind: entry.kind,
+          severity: entry.severity,
+          message: entry.message,
+          nodeId: typeof entry.nodeId === 'string' ? entry.nodeId : undefined,
+          handler: typeof entry.handler === 'string' ? entry.handler : undefined,
+          inputUrl: typeof entry.inputUrl === 'string' ? entry.inputUrl : undefined,
+          outputUrl: typeof entry.outputUrl === 'string' ? entry.outputUrl : undefined,
+          changed: typeof entry.changed === 'boolean' ? entry.changed : undefined,
+          exitCode: isNonNegativeInteger(entry.exitCode) ? entry.exitCode : undefined,
+          issueCount: isNonNegativeInteger(entry.issueCount) ? entry.issueCount : undefined,
+        });
+      }
+    });
+  }
+
   const state: StoredState = {
     settings: {
       globalEnabled: candidate.settings.globalEnabled,
@@ -407,6 +451,7 @@ export function validateStoredState(candidate: unknown): ValidationResult<Valida
     actionPacksV2,
     workspacesV2,
     traceEntries,
+    actionPackLogs,
   };
 
   return {
@@ -431,5 +476,6 @@ export function normalizeStoredState(candidate: unknown): StoredState {
     actionPacksV2: [],
     workspacesV2: [],
     traceEntries: [],
+    actionPackLogs: [],
   };
 }

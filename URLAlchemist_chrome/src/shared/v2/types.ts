@@ -1,4 +1,4 @@
-import type { ActionPack, ActionType, MatchMode, WorkspaceTriggerType } from '../types';
+import type { ActionPack, ActionPackLogSeverity, ActionType, MatchMode, WorkspaceTriggerType } from '../types';
 
 export const WORKSPACE_SCHEMA_VERSION = 5;
 export const LEGACY_WORKSPACE_SCHEMA_VERSION = 4;
@@ -23,6 +23,8 @@ export const MIN_INTERVAL_TRIGGER_MS = 30_000;
 export const DEFAULT_INTERVAL_TRIGGER_MS = 60_000;
 export const DEFAULT_REMOTE_TIMEOUT_MS = 5_000;
 export const DEFAULT_REMOTE_MAX_BYTES = 128 * 1024;
+export const DEFAULT_ASSET_MAX_BYTES = 10 * 1024 * 1024;
+export const MAX_ASSET_MAX_BYTES = 50 * 1024 * 1024;
 
 export type GraphDataType =
   | 'bool'
@@ -105,6 +107,9 @@ export const BLOCK_TYPE_IDS = {
   ConditionSelect: 37,
   RandomNumber: 38,
   Constant: 39,
+  SaveStringToLog: 40,
+  Abort: 41,
+  Substitution: 42,
 } as const;
 
 export type BlockKind = keyof typeof BLOCK_TYPE_IDS;
@@ -130,7 +135,7 @@ export interface BlockDefinition {
   kind: BlockKind;
   typeId: BlockTypeId;
   label: string;
-  category: 'flow' | 'logic' | 'regex' | 'math' | 'storage' | 'convert' | 'data' | 'interaction' | 'media';
+  category: 'flow' | 'logic' | 'regex' | 'math' | 'storage' | 'convert' | 'data' | 'interaction' | 'media' | 'debug';
   inputs: GraphPortDefinition[];
   outputs: GraphPortDefinition[];
   flags: BlockFlags;
@@ -331,6 +336,10 @@ export interface WorkspaceBlockSettings {
   overlayBackground?: string;
   overlayText?: string;
   sleepMs?: number;
+  logSeverity?: ActionPackLogSeverity;
+  abortMessage?: string;
+  substitutionTemplate?: string;
+  substitutionInputCount?: number;
   randomMin?: number;
   randomMax?: number;
   selectTrueValue?: string;
@@ -644,6 +653,28 @@ export type GraphVmInstruction =
 	      output: string;
 	      fallbackMin: number;
 	      fallbackMax: number;
+	    }
+	  | {
+	      op: 'SUBSTITUTE';
+	      nodeId: string;
+	      output: string;
+	      template: string;
+	      values: string[];
+	    }
+	  | {
+	      op: 'LOG';
+	      nodeId: string;
+	      message?: string;
+	      output?: string;
+	      severity: ActionPackLogSeverity;
+	      fallbackMessage: string;
+	    }
+	  | {
+	      op: 'ABORT';
+	      nodeId: string;
+	      condition?: string;
+	      output?: string;
+	      message: string;
 	    }
 	  | {
 	      op: 'OVERLAY_CONTROL';

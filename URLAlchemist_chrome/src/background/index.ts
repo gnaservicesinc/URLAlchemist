@@ -14,7 +14,7 @@ import {
   type ContentGraphResponse,
   type RuntimeSourceContext,
 } from '../shared/messages';
-import { appendTraceEntry, loadStoredState } from '../shared/storage';
+import { appendActionPackLogEntry, appendTraceEntry, loadStoredState } from '../shared/storage';
 import type { ActionPack, EngineIssue, GlobalSettings, TriggerType, WorkspaceTriggerType } from '../shared/types';
 import { base64FromBytes, readLimitedResponseBytes } from '../shared/v2/remoteBytes';
 import { validateRemoteUrl } from '../shared/v2/remoteUrl';
@@ -290,7 +290,7 @@ async function drawOverlay(tabId: number | undefined, packId: string | undefined
   });
 }
 
-function createRunRuntime(context: RuntimeSourceContext = {}, settings?: GlobalSettings, packId?: string, inputUrl?: string): GraphRuntime {
+function createRunRuntime(context: RuntimeSourceContext = {}, settings?: GlobalSettings, packId?: string, inputUrl?: string, packName = ''): GraphRuntime {
   return {
     ...baseRuntime,
     regex: createOffscreenRegexExecutor(settings ? effectiveRegexTimeoutMs(settings) : undefined),
@@ -352,6 +352,22 @@ function createRunRuntime(context: RuntimeSourceContext = {}, settings?: GlobalS
     displayOverlay: async (request: DisplayRequest) => displayWithFallback(context.tabId, request),
     overlayControl: async (request: OverlayControlRequest) => controlOverlay(context.tabId, packId, inputUrl, request),
     overlayDraw: async (request: OverlayDrawRequest) => drawOverlay(context.tabId, packId, request),
+    writeLog: async (entry) => {
+      if (!packId) {
+        return;
+      }
+
+      await appendActionPackLogEntry({
+        id: crypto.randomUUID(),
+        packId,
+        packName,
+        timestamp: Date.now(),
+        kind: 'message',
+        severity: entry.severity,
+        message: entry.message,
+        nodeId: entry.nodeId,
+      });
+    },
     sleep: (durationMs) => new Promise<void>((resolve) => globalThis.setTimeout(resolve, durationMs)),
     mutatePageText: async (value) => {
       await sendContentGraphMessage(context.tabId, {
@@ -461,6 +477,33 @@ function logV2Issues(pack: CompiledActionPackV2, issues: EngineIssue[]): void {
 
   issues.forEach((issue) => {
     console.warn(`[URL Alchemist V2] ${pack.manifest.name}: ${issue.message}`, issue.activityId ?? '');
+  });
+}
+
+async function appendV2RunLog(
+  pack: CompiledActionPackV2,
+  result: Awaited<ReturnType<typeof executeCompiledActionPackV2>>,
+  handler: GraphEventHandler | WorkspaceTriggerType,
+  inputUrl: string,
+): Promise<void> {
+  await appendActionPackLogEntry({
+    id: crypto.randomUUID(),
+    packId: pack.manifest.id,
+    packName: pack.manifest.name,
+    timestamp: Date.now(),
+    kind: 'run',
+    severity: result.exitCode === 0 ? 'info' : result.aborted ? 'warn' : 'error',
+    message: result.aborted
+      ? 'Action Pack aborted by workflow.'
+      : result.issues.length > 0
+        ? result.issues.map((entry) => entry.message).join('; ')
+        : 'Action Pack completed.',
+    handler,
+    inputUrl,
+    outputUrl: result.finalUrl,
+    changed: result.changed,
+    exitCode: result.exitCode,
+    issueCount: result.issues.length,
   });
 }
 
@@ -608,7 +651,7 @@ async function applyPacksToTab(
   }
 
   for (const pack of state.actionPacksV2) {
-    const packRuntime = createRunRuntime({ ...context, tabId }, state.settings, pack.manifest.id, currentUrl);
+    const packRuntime = createRunRuntime({ ...context, tabId }, state.settings, pack.manifest.id, currentUrl, pack.manifest.name);
     if (onlyPackId && pack.manifest.id !== onlyPackId) {
       continue;
     }
@@ -649,6 +692,7 @@ async function applyPacksToTab(
       },
     });
     logV2Issues(pack, result.issues);
+    await appendV2RunLog(pack, result, trigger, currentUrl);
 
     if (pack.traceEnabledUntil && pack.traceEnabledUntil > Date.now()) {
       await appendTraceEntry({
@@ -723,9 +767,10 @@ async function runOverlayEvent(tabId: number, url: string, packId: string, event
     return;
   }
 
-  const runtime = createRunRuntime({ ...context, tabId }, state.settings, pack.manifest.id, url);
+  const runtime = createRunRuntime({ ...context, tabId }, state.settings, pack.manifest.id, url, pack.manifest.name);
   const result = await executeCompiledActionPackV2(url, pack, runtime, state.settings, { handler, event });
   logV2Issues(pack, result.issues);
+  await appendV2RunLog(pack, result, handler, url);
 
   if (pack.traceEnabledUntil && pack.traceEnabledUntil > Date.now()) {
     await appendTraceEntry({

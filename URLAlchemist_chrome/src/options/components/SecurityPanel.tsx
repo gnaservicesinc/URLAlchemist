@@ -4,6 +4,7 @@ import { formatTimestamp } from '../../shared/helpers';
 import type { GlobalSettings, StoredTraceEntry } from '../../shared/types';
 import { compileWorkspace } from '../../shared/v2/compiler';
 import { explainInstruction, explainRiskReason, summarizePackBehavior } from '../../shared/v2/explain';
+import { formatRunType } from '../../shared/v2/labels';
 import type { CompiledActionPackV2, GraphVmInstruction, WorkspaceFileV2 } from '../../shared/v2/types';
 import { importAnyArtifact } from '../../shared/v2/vault';
 import { HelpTooltip } from './HelpTooltip';
@@ -57,7 +58,7 @@ async function auditBytes(bytes: Uint8Array): Promise<AuditReport> {
       riskReasons: compiled.validation.risk.reasons,
       summary: compiled.pack ? summarizePackBehavior(compiled.pack) : 'This workspace has validation errors and cannot be installed yet.',
       title: artifact.workspace.metadata.name,
-      trigger: artifact.workspace.trigger.type,
+      trigger: formatRunType(artifact.workspace.trigger.type),
       valid: compiled.validation.valid,
       warnings: compiled.validation.warnings,
     };
@@ -72,7 +73,7 @@ async function auditBytes(bytes: Uint8Array): Promise<AuditReport> {
       riskReasons: artifact.pack.risk.reasons,
       summary: summarizePackBehavior(artifact.pack),
       title: artifact.pack.manifest.name,
-      trigger: artifact.pack.triggerPlan.type,
+      trigger: formatRunType(artifact.pack.triggerPlan.type),
       valid: true,
       warnings: [],
     };
@@ -86,7 +87,7 @@ async function auditBytes(bytes: Uint8Array): Promise<AuditReport> {
     riskReasons: [],
     summary: 'Legacy URL packs must be converted before this audit view can explain them.',
     title: artifact.pack.name,
-    trigger: artifact.pack.trigger.type,
+    trigger: formatRunType(artifact.pack.trigger.type),
     valid: false,
     warnings: [],
   };
@@ -318,7 +319,7 @@ export function SecurityPanel({
             <div className={`rounded-[1.25rem] border px-5 py-4 ${auditReport.valid ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-800'}`}>
               <p className="font-semibold">{auditReport.kind}: {auditReport.title}</p>
               <p className="mt-1 text-sm">{auditReport.summary}</p>
-              <p className="mt-1 text-sm">Trigger: {auditReport.trigger} · {auditReport.instructions.length} instructions</p>
+              <p className="mt-1 text-sm">Run: {auditReport.trigger} · {auditReport.instructions.length} instructions</p>
               <p className="mt-1 text-sm">Permissions: {auditReport.permissions.length > 0 ? auditReport.permissions.join(', ') : 'none'}</p>
             </div>
             {auditReport.errors.length > 0 ? (
