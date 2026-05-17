@@ -1569,8 +1569,43 @@ describe('v2 workspace compiler and VM', () => {
 
     expect(session.has('break-reminder:last-run')).toBe(true);
     expect(session.has('playback-resume:last-video')).toBe(true);
+    expect(session.has('variable-use:run-count')).toBe(true);
     expect(destinationWrites).toContain('pageText');
     expect(destinationWrites).toContain('clipboard');
+  });
+
+  it('only reads connected source handles from bundled source blocks', async () => {
+    const cleanWords = createBundledExampleActionPacks().find((pack) => pack.manifest.name === 'Clean Words');
+    expect(cleanWords).toBeTruthy();
+
+    const sourceInstructions = cleanWords!.vm.instructions.filter((instruction) => instruction.op === 'SOURCE');
+    expect(sourceInstructions.map((instruction) => instruction.source)).toContain('pageText');
+    expect(sourceInstructions.map((instruction) => instruction.source)).not.toContain('clipboard');
+
+    const readSources: string[] = [];
+    const result = await executeCompiledActionPackV2(
+      'https://example.com/page',
+      cleanWords!,
+      {
+        ...runtime,
+        readSource: async (source) => {
+          readSources.push(source);
+          if (source === 'clipboard') {
+            throw new Error('clipboard should not be read for Clean Words');
+          }
+          if (source === 'pageText') {
+            return { type: 'string', value: 'This damn page has a crap word.' };
+          }
+          return undefined;
+        },
+        displayOverlay: async () => ({ type: 'dict', value: { ok: { type: 'bool', value: 1 } } }),
+        mutatePageText: async () => undefined,
+      },
+      DEFAULT_SETTINGS,
+    );
+
+    expect(result.issues).toEqual([]);
+    expect(readSources).toEqual(['url', 'pageText']);
   });
 
   it('keeps the Snake example built from generic block and VM operation names', () => {
@@ -1737,7 +1772,8 @@ describe('v2 workspace compiler and VM', () => {
   it('executes bundled examples that use selected text, clipboard input, storage, and clipboard output', async () => {
     const packs = new Map(createBundledExampleActionPacks().map((pack) => [pack.manifest.name, pack]));
     const written: Record<string, string> = {};
-    const saved: Record<string, unknown> = {};
+    const saved: Record<string, GraphValue> = {};
+    const shownMessages: string[] = [];
     const contextRuntime: GraphRuntime = {
       ...runtime,
       readSource: async (source) => {
@@ -1755,11 +1791,19 @@ describe('v2 workspace compiler and VM', () => {
 
         return undefined;
       },
+      loadSessionValue: async (key) => saved[key],
       saveSessionValue: async (key, value) => {
-        saved[key] = value.value;
+        saved[key] = value;
       },
       writeDestination: async (destination, value) => {
         written[destination] = String(value.value);
+      },
+      displayOverlay: async (request) => {
+        shownMessages.push(request.message);
+        return { type: 'dict', value: { ok: { type: 'bool', value: 1 } } };
+      },
+      writeLog: async (entry) => {
+        shownMessages.push(entry.message);
       },
     };
 
@@ -1780,8 +1824,17 @@ describe('v2 workspace compiler and VM', () => {
     expect(clipboardResult.finalUrl).toBe('https://www.google.com/search?q=clipboard+token');
 
     await executeCompiledActionPackV2('https://example.com/page', packs.get('Remember Current Page')!, contextRuntime, DEFAULT_SETTINGS);
-    expect(saved['last-url']).toBe('https://example.com/page');
-    expect(written.clipboard).toContain('currentUrl');
+    expect(saved['last-url']?.value).toBe('https://example.com/page');
+    expect(shownMessages.some((message) => message.includes('currentUrl'))).toBe(true);
+
+    await executeCompiledActionPackV2('https://example.com/page', packs.get('Variable Use Across Runs')!, contextRuntime, DEFAULT_SETTINGS);
+    expect(saved['variable-use:run-count']?.value).toBe(2);
+    expect(shownMessages.some((message) => message.includes('Current run: 1'))).toBe(true);
+    expect(shownMessages.some((message) => message.includes('Next run will start from 2'))).toBe(true);
+    await executeCompiledActionPackV2('https://example.com/page', packs.get('Variable Use Across Runs')!, contextRuntime, DEFAULT_SETTINGS);
+    expect(saved['variable-use:run-count']?.value).toBe(3);
+    expect(shownMessages.some((message) => message.includes('Current run: 2'))).toBe(true);
+    expect(shownMessages.some((message) => message.includes('The $counter variable supplied the first-run value'))).toBe(true);
 
     await executeCompiledActionPackV2('https://example.com/page', packs.get('Copy Page Title')!, contextRuntime, DEFAULT_SETTINGS);
     expect(written.clipboard).toBe('Example Title');

@@ -1,7 +1,11 @@
 import { useMemo, useState } from 'react';
 
 import { formatTimestamp, packUsesClipboard } from '../../shared/helpers';
-import { formatActionPackLogText } from '../../shared/logs';
+import {
+  ACTION_PACK_LOG_MAX_BYTES_PER_PACK,
+  ACTION_PACK_LOG_MAX_ENTRIES_PER_PACK,
+  formatActionPackLogText,
+} from '../../shared/logs';
 import type { ActionPack, StoredActionPackLogEntry } from '../../shared/types';
 import { compileWorkspace } from '../../shared/v2/compiler';
 import { formatRunType } from '../../shared/v2/labels';
@@ -12,6 +16,7 @@ interface ManageResourcesPanelProps {
   actionPackLogs: StoredActionPackLogEntry[];
   legacyPacks: ActionPack[];
   workspaces: WorkspaceFileV2[];
+  onClearActionPackLog: (pack: CompiledActionPackV2) => void;
   onCompileExportWorkspace: (workspace: WorkspaceFileV2) => void;
   onDeleteActionPack: (packId: string) => void;
   onDeleteLegacyPack: (packId: string) => void;
@@ -154,6 +159,7 @@ function ActionPackCard({
   onDeleteActionPack,
   onDisableTrace,
   onEnableTrace,
+  onClearActionPackLog,
   onExportActionPack,
   onExportActionPackLog,
   onExportActionPackVersionFile,
@@ -164,6 +170,7 @@ function ActionPackCard({
   | 'onDeleteActionPack'
   | 'onDisableTrace'
   | 'onEnableTrace'
+  | 'onClearActionPackLog'
   | 'onExportActionPack'
   | 'onExportActionPackLog'
   | 'onExportActionPackVersionFile'
@@ -219,6 +226,9 @@ function ActionPackCard({
         </button>
         <button className="ghost-button" type="button" onClick={() => onExportActionPackLog(pack)}>
           Export Log
+        </button>
+        <button className="ghost-button" disabled={logCount === 0} type="button" onClick={() => onClearActionPackLog(pack)}>
+          Clear Log
         </button>
         <button className="ghost-button" type="button" onClick={() => onExportActionPackVersionFile(pack)}>
           Export Version File
@@ -301,6 +311,7 @@ export function ManageResourcesPanel(props: ManageResourcesPanelProps) {
                       onDeleteActionPack={props.onDeleteActionPack}
                       onDisableTrace={props.onDisableTrace}
                       onEnableTrace={props.onEnableTrace}
+                      onClearActionPackLog={props.onClearActionPackLog}
                       onExportActionPack={props.onExportActionPack}
                       onExportActionPackLog={props.onExportActionPackLog}
                       onExportActionPackVersionFile={props.onExportActionPackVersionFile}
@@ -330,6 +341,7 @@ export function ManageResourcesPanel(props: ManageResourcesPanelProps) {
                   onDeleteActionPack={props.onDeleteActionPack}
                   onDisableTrace={props.onDisableTrace}
                   onEnableTrace={props.onEnableTrace}
+                  onClearActionPackLog={props.onClearActionPackLog}
                   onExportActionPack={props.onExportActionPack}
                   onExportActionPackLog={props.onExportActionPackLog}
                   onExportActionPackVersionFile={props.onExportActionPackVersionFile}
@@ -377,11 +389,18 @@ export function ManageResourcesPanel(props: ManageResourcesPanelProps) {
               <div>
                 <p className="eyebrow">Action Pack Log</p>
                 <h3 className="mt-2 text-2xl font-semibold text-slate-900">{logPack.manifest.name}</h3>
-                <p className="mt-1 text-sm text-slate-600">{logEntries.length} stored entries in local extension storage.</p>
+                <p className="mt-1 text-sm text-slate-600">
+                  {logEntries.length} stored entries in local extension storage. URL Alchemist keeps the newest{' '}
+                  {ACTION_PACK_LOG_MAX_ENTRIES_PER_PACK} entries or about {Math.round(ACTION_PACK_LOG_MAX_BYTES_PER_PACK / 1024)} KB per Action Pack,
+                  whichever comes first.
+                </p>
               </div>
               <div className="flex flex-wrap gap-2">
                 <button className="ghost-button" type="button" onClick={() => props.onExportActionPackLog(logPack)}>
                   Export Log
+                </button>
+                <button className="ghost-button" disabled={logEntries.length === 0} type="button" onClick={() => props.onClearActionPackLog(logPack)}>
+                  Clear Log
                 </button>
                 <button className="ghost-button" type="button" onClick={() => setLogPackId(null)}>
                   Close

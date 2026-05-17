@@ -8,6 +8,7 @@ import type { EngineRuntime } from '../shared/engine/runtime';
 import { formatActionPackLogText } from '../shared/logs';
 import { effectiveRegexTimeoutMs, normalizeUiScale } from '../shared/hardening';
 import {
+  clearActionPackLog,
   clearOpenWorkspaceDraft,
   deleteActionPackV2,
   deletePack,
@@ -565,6 +566,19 @@ function App() {
     );
   }
 
+  async function clearInstalledActionPackLog(pack: CompiledActionPackV2): Promise<void> {
+    const entries = state.actionPackLogs.filter((entry) => entry.packId === pack.manifest.id);
+    if (entries.length === 0) {
+      return;
+    }
+
+    if (!window.confirm(`Clear ${entries.length} stored log entries for "${pack.manifest.name}"?`)) {
+      return;
+    }
+
+    await applyState(clearActionPackLog(pack.manifest.id));
+  }
+
   async function exportBuilderUuid(): Promise<void> {
     await downloadText(
       `URL_ALCHEMIST_BUILDER_UUID=${state.settings.builderUuid}\n`,
@@ -951,6 +965,7 @@ function App() {
           actionPackLogs={state.actionPackLogs}
           legacyPacks={state.packs}
           workspaces={state.workspacesV2}
+          onClearActionPackLog={(pack) => void clearInstalledActionPackLog(pack)}
           onCompileExportWorkspace={(targetWorkspace) => void exportActionPackFromWorkspace(targetWorkspace)}
           onDeleteActionPack={(packId) => void deleteV2Pack(packId)}
           onDeleteLegacyPack={(packId) => void deleteLegacyPack(packId)}

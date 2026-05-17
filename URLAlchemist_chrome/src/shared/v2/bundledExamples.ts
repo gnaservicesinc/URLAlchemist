@@ -90,13 +90,25 @@ export const BUNDLED_ACTION_PACK_EXAMPLES: BundledActionPackExample[] = [
     id: '0f6b6d50-9d44-4a86-9d0f-80a9e8200006',
     name: 'Remember Current Page',
     slug: 'remember-current-page',
-    description: 'Copies a small previous/current page note to the clipboard and updates the remembered URL for the next run.',
+    description: 'Shows a previous/current page note and updates the remembered URL for the next run.',
     category: 'Storage',
     trigger: 'CONTEXT_MENU',
-    risk: 'high',
-    features: ['Session SaveLoad', 'Previous page recall', 'Clipboard output'],
+    risk: 'extended',
+    features: ['Session SaveLoad', 'Previous page recall', 'Overlay preview'],
     workspacePath: 'bundled-actionpacks/workspaces/remember-current-page.workspace',
     actionPackPath: 'bundled-actionpacks/action-packs/remember-current-page.actionpack',
+  },
+  {
+    id: '514631bb-d33c-46e2-b416-70720c6e02f9',
+    name: 'Variable Use Across Runs',
+    slug: 'variable-use-across-runs',
+    description: 'Declares $counter once, uses it as the missing saved-value fallback and increment amount, then saves the next count for later runs.',
+    category: 'Storage',
+    trigger: 'HOTKEY',
+    risk: 'extended',
+    features: ['$counter declaration', 'Variable fallback', 'Cross-run save', 'Overlay and log'],
+    workspacePath: 'bundled-actionpacks/workspaces/variable-use-across-runs.workspace',
+    actionPackPath: 'bundled-actionpacks/action-packs/variable-use-across-runs.actionpack',
   },
   {
     id: '0f6b6d50-9d44-4a86-9d0f-80a9e8200016',
@@ -581,17 +593,24 @@ function rememberCurrentPage(): WorkspaceFileV2 {
     label: 'Dict to JSON text',
     convertMode: 'DICT_TO_JSON',
   });
-  const extendedOutput = node(slug, 'extended-output', 'ExtendedDataOut', { x: 1800, y: 40 });
+  const message = node(slug, 'message', 'ShowMessage', { x: 1800, y: 20 }, {
+    label: 'Show remembered page',
+    promptTitle: 'Remember Current Page',
+    promptMessage: 'Previous/current page note',
+    displayMode: 'OVERLAY',
+    displayTimeoutMs: 7000,
+  });
   const saveCurrent = node(slug, 'save-current', 'SaveLoad', { x: 600, y: 260 }, {
     label: 'Remember current URL',
     saveLoadMode: 'SAVE',
     literalValue: 'last-url',
     alwaysProcess: true,
   });
+  const output = node(slug, 'output', 'DataFlowOut', { x: 1800, y: 260 }, { locked: true });
 
   return baseWorkspace(
     getExample(slug),
-    [input, loadPrevious, notePrevious, noteCurrent, noteTitle, convert, extendedOutput, saveCurrent],
+    [input, loadPrevious, notePrevious, noteCurrent, noteTitle, convert, message, saveCurrent, output],
     [
       edge(loadPrevious, 'result', notePrevious, 'value'),
       edge(notePrevious, 'result', noteCurrent, 'dict'),
@@ -599,13 +618,94 @@ function rememberCurrentPage(): WorkspaceFileV2 {
       edge(noteCurrent, 'result', noteTitle, 'dict'),
       edge(input, 'pageTitle', noteTitle, 'value'),
       edge(noteTitle, 'result', convert, 'input'),
-      edge(convert, 'result', extendedOutput, 'clipboard'),
+      edge(convert, 'result', message, 'message'),
       edge(input, 'url', saveCurrent, 'value'),
+      edge(input, 'url', output, 'url'),
     ],
     {
       type: 'CONTEXT_MENU',
       hotkey: 'Ctrl+Shift+U',
       inputSources: ['url', 'pageTitle'],
+      sourceFilters: [{ source: 'url', pattern: '^https?://' }],
+    },
+  );
+}
+
+function variableUseAcrossRuns(): WorkspaceFileV2 {
+  const slug = 'variable-use-across-runs';
+  const input = node(slug, 'input', 'DataFlowIn', { x: 0, y: 180 }, { locked: true });
+  const counter = node(slug, 'counter', 'Declarations', { x: 280, y: 20 }, {
+    label: 'Declare $counter',
+    variableName: 'counter',
+    literalValue: '1',
+    literalDataType: 'number',
+    processBeforeRun: true,
+    alwaysProcess: true,
+  });
+  const loadPrevious = node(slug, 'load-previous', 'SharedState', { x: 560, y: 120 }, {
+    label: 'Load saved count or $counter',
+    sharedStateMode: 'GET',
+    literalValue: 'variable-use:run-count',
+    selectFalseValue: '$counter',
+    literalDataType: 'number',
+  });
+  const increment = node(slug, 'increment', 'Math', { x: 840, y: 120 }, {
+    label: 'Add $counter',
+    mathOperation: 'ADD',
+    compareValue: '$counter',
+  });
+  const save = node(slug, 'save', 'SaveLoad', { x: 1120, y: 120 }, {
+    label: 'Save next count',
+    saveLoadMode: 'SAVE',
+    literalValue: 'variable-use:run-count',
+  });
+  const now = node(slug, 'now', 'SystemData', { x: 840, y: -80 }, {
+    label: 'Current local time',
+    systemDataMode: 'LOCALE_TIME',
+  });
+  const format = node(slug, 'format', 'Substitution', { x: 1400, y: 120 }, {
+    label: 'Explain variable use',
+    substitutionTemplate: 'Current run: $1. The $$counter variable supplied the first-run value and the increment. Next run will start from $2. Time: $3.',
+    substitutionInputCount: 3,
+  });
+  const title = node(slug, 'title', 'Substitution', { x: 1400, y: -80 }, {
+    label: 'Build overlay title',
+    substitutionTemplate: 'Variable Use Across Runs - run $1',
+    substitutionInputCount: 1,
+  });
+  const message = node(slug, 'message', 'ShowMessage', { x: 1700, y: 40 }, {
+    label: 'Show variable result',
+    promptTitle: 'Variable Use Across Runs',
+    promptMessage: 'Counter updated.',
+    displayMode: 'OVERLAY',
+    displayTimeoutMs: 6500,
+  });
+  const writeLog = node(slug, 'write-log', 'SaveStringToLog', { x: 1700, y: 260 }, {
+    label: 'Log variable result',
+    literalValue: 'Variable counter updated.',
+    logSeverity: 'info',
+  });
+  const output = node(slug, 'output', 'DataFlowOut', { x: 1700, y: -160 }, { locked: true });
+
+  return baseWorkspace(
+    getExample(slug),
+    [input, counter, loadPrevious, increment, save, now, format, title, message, writeLog, output],
+    [
+      edge(loadPrevious, 'result', increment, 'left'),
+      edge(increment, 'result', save, 'value'),
+      edge(loadPrevious, 'result', format, 'value1'),
+      edge(increment, 'result', format, 'value2'),
+      edge(now, 'result', format, 'value3'),
+      edge(loadPrevious, 'result', title, 'value1'),
+      edge(format, 'result', writeLog, 'message'),
+      edge(title, 'result', message, 'title'),
+      edge(format, 'result', message, 'message'),
+      edge(input, 'url', output, 'url'),
+    ],
+    {
+      type: 'HOTKEY',
+      hotkey: 'Ctrl+Shift+C',
+      inputSources: ['url'],
       sourceFilters: [{ source: 'url', pattern: '^https?://' }],
     },
   );
@@ -1456,6 +1556,7 @@ export function createBundledExampleWorkspaces(): WorkspaceFileV2[] {
     searchSelectedText(),
     clipboardSearchLauncher(),
     rememberCurrentPage(),
+    variableUseAcrossRuns(),
     copyPageTitle(),
     debugPageLogger(),
     researchNoteSnapshot(),

@@ -163,6 +163,21 @@ function connectedInput(edgesByTarget: Map<string, WorkspaceEdgeV2>, nodeId: str
   return edge ? symbol(edge.source, edge.sourceHandle) : undefined;
 }
 
+function connectedOutputHandles(
+  workspace: WorkspaceFileV2,
+  nodeId: string,
+  includedNodeIds: Set<string>,
+): Set<string> {
+  const handles = new Set<string>();
+  workspace.edges.forEach((edge) => {
+    if (edge.source === nodeId && includedNodeIds.has(edge.target)) {
+      handles.add(edge.sourceHandle);
+    }
+  });
+
+  return handles;
+}
+
 function assetKindForNode(type: BlockKind): AssetFetchKind {
   if (type === 'GetVideo') {
     return 'video';
@@ -724,6 +739,7 @@ function instructionForNode(
   node: WorkspaceNodeV2,
   workspace: WorkspaceFileV2,
   edgesByTarget: Map<string, WorkspaceEdgeV2>,
+  includedNodeIds: Set<string>,
 ): GraphVmInstruction[] {
   const instructions: GraphVmInstruction[] = [];
 
@@ -735,7 +751,12 @@ function instructionForNode(
     case 'MouseIn':
     case 'OverlayTickIn': {
       const definition = getBlockDefinition(node.type);
+      const usedHandles = connectedOutputHandles(workspace, node.id, includedNodeIds);
       definition.outputs.forEach((output) => {
+        if (!usedHandles.has(output.id)) {
+          return;
+        }
+
         instructions.push({
           op: 'SOURCE',
           nodeId: node.id,
@@ -920,6 +941,7 @@ function instructionForNode(
         mode: node.settings.sharedStateMode ?? 'GET',
         fallbackKey: node.settings.literalValue ?? '',
         fallbackValue: literalGraphValue(node.settings.selectFalseValue ?? node.settings.literalValue, node.settings.literalDataType ?? 'Any'),
+        fallbackRaw: node.settings.selectFalseValue,
       });
       break;
     case 'DictGet':
@@ -1369,7 +1391,7 @@ export function compileWorkspace(workspace: WorkspaceFileV2, options: CompileOpt
   const eventHandlers = Object.fromEntries(
     EVENT_HANDLERS.map((handler) => [
       handler,
-      sortedByHandler.get(handler)?.flatMap((node) => instructionForNode(node, workspace, edgesByTarget)) ?? [],
+      sortedByHandler.get(handler)?.flatMap((node) => instructionForNode(node, workspace, edgesByTarget, reachableByHandler[handler])) ?? [],
     ]),
   ) as Record<GraphEventHandler, GraphVmInstruction[]>;
   const instructions = uniqueInstructions(EVENT_HANDLERS.flatMap((handler) => eventHandlers[handler]));

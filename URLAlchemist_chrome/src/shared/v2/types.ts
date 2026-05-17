@@ -614,6 +614,7 @@ export type GraphVmInstruction =
 	      mode: SharedStateMode;
 	      fallbackKey: string;
 	      fallbackValue: GraphValue;
+	      fallbackRaw?: string;
 	    }
 	  | {
 	      op: 'DICT_GET';

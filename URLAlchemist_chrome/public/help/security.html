@@ -19,6 +19,7 @@
 <p>Tracing records local execution steps and issues for selected installed Action Packs. The Security tab explains audited files in plain language so you can see what a pack reads, writes, changes, or sends before enabling it.</p>
 <h2>Action Pack Logs</h2>
 <p>Per-pack logs are local records of runs and explicit <strong>Save string to log</strong> entries. They can include URLs or strings chosen by a workflow, so export or share them with the same care as trace files.</p>
+<p>Use <strong>Clear Log</strong> in Manage Resources when a pack log no longer needs to be retained. Older entries are also pruned automatically after the newest 300 entries or about 256 KB per Action Pack.</p>
 <h2>Hardening</h2>
 <p>Hardening settings can reduce VM instruction count, redirect recursion, and regex timeout limits. They cannot loosen the built-in default safety budgets.</p>
 <p>Remote data and asset blocks require HTTPS, reject credentials, and block private, local, and reserved network hosts. Local <code>file://</code> navigation is disabled by default and controlled from Settings.</p>

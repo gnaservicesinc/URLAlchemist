@@ -986,7 +986,7 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'SHARED_STATE': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'mode', 'fallbackKey', 'fallbackValue'], ['key', 'value', 'enabled', 'output'])) {
+      if (!hasExactKeys(instruction, ['op', 'nodeId', 'mode', 'fallbackKey', 'fallbackValue'], ['key', 'value', 'enabled', 'output', 'fallbackRaw'])) {
         addError(errors, prefix, 'SHARED_STATE instruction has invalid keys');
         return null;
       }
@@ -1002,6 +1002,9 @@ function validateInstruction(
 
       if (!isString(instruction.fallbackKey) || instruction.fallbackKey.length > 256) {
         addError(errors, prefix, 'fallbackKey must be a string of 256 characters or less');
+      }
+      if (instruction.fallbackRaw !== undefined && (!isString(instruction.fallbackRaw) || instruction.fallbackRaw.length > 2000)) {
+        addError(errors, prefix, 'fallbackRaw must be a string of 2000 characters or less');
       }
 
       validateGraphValue(instruction.fallbackValue, `${prefix}.fallbackValue`, errors);

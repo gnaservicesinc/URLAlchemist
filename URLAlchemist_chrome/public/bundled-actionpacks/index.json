@@ -87,17 +87,34 @@
       "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200006",
       "name": "Remember Current Page",
       "slug": "remember-current-page",
-      "description": "Copies a small previous/current page note to the clipboard and updates the remembered URL for the next run.",
+      "description": "Shows a previous/current page note and updates the remembered URL for the next run.",
       "category": "Storage",
       "trigger": "CONTEXT_MENU",
-      "risk": "high",
+      "risk": "extended",
       "features": [
         "Session SaveLoad",
         "Previous page recall",
-        "Clipboard output"
+        "Overlay preview"
       ],
       "workspacePath": "bundled-actionpacks/workspaces/remember-current-page.workspace",
       "actionPackPath": "bundled-actionpacks/action-packs/remember-current-page.actionpack"
+    },
+    {
+      "id": "514631bb-d33c-46e2-b416-70720c6e02f9",
+      "name": "Variable Use Across Runs",
+      "slug": "variable-use-across-runs",
+      "description": "Declares $counter once, uses it as the missing saved-value fallback and increment amount, then saves the next count for later runs.",
+      "category": "Storage",
+      "trigger": "HOTKEY",
+      "risk": "extended",
+      "features": [
+        "$counter declaration",
+        "Variable fallback",
+        "Cross-run save",
+        "Overlay and log"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/variable-use-across-runs.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/variable-use-across-runs.actionpack"
     },
     {
       "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200016",

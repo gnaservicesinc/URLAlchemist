@@ -1,6 +1,8 @@
 import type { ActionPackLogSeverity, StoredActionPackLogEntry } from './types';
 
 export const ACTION_PACK_LOG_SEVERITIES: ActionPackLogSeverity[] = ['debug', 'info', 'warn', 'error'];
+export const ACTION_PACK_LOG_MAX_ENTRIES_PER_PACK = 300;
+export const ACTION_PACK_LOG_MAX_BYTES_PER_PACK = 256 * 1024;
 
 export function normalizeLogSeverity(value: unknown): ActionPackLogSeverity {
   return ACTION_PACK_LOG_SEVERITIES.includes(value as ActionPackLogSeverity)
@@ -11,6 +13,27 @@ export function normalizeLogSeverity(value: unknown): ActionPackLogSeverity {
 export function capLogMessage(value: string): string {
   const normalized = value.replace(/\r\n?/g, '\n');
   return normalized.length > 4_000 ? `${normalized.slice(0, 3_997)}...` : normalized;
+}
+
+export function estimateActionPackLogBytes(entries: StoredActionPackLogEntry[]): number {
+  return new TextEncoder().encode(JSON.stringify(entries)).byteLength;
+}
+
+export function rotateActionPackLogEntries(
+  entries: StoredActionPackLogEntry[],
+  packId: string,
+  options: { maxEntries?: number; maxBytes?: number } = {},
+): StoredActionPackLogEntry[] {
+  const maxEntries = options.maxEntries ?? ACTION_PACK_LOG_MAX_ENTRIES_PER_PACK;
+  const maxBytes = options.maxBytes ?? ACTION_PACK_LOG_MAX_BYTES_PER_PACK;
+  const packEntries = entries.filter((entry) => entry.packId === packId).slice(0, maxEntries);
+
+  while (packEntries.length > 1 && estimateActionPackLogBytes(packEntries) > maxBytes) {
+    packEntries.pop();
+  }
+
+  const keptPackEntries = new Set(packEntries);
+  return entries.filter((entry) => entry.packId !== packId || keptPackEntries.has(entry));
 }
 
 export function formatActionPackLogText(packName: string, entries: StoredActionPackLogEntry[]): string {

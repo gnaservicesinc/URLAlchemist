@@ -23,6 +23,33 @@ function fallbackWriteText(text: string): void {
   }
 }
 
+function fallbackReadText(): string {
+  const textarea = document.createElement('textarea');
+  textarea.setAttribute('aria-hidden', 'true');
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-9999px';
+  textarea.style.top = '0';
+  document.body.append(textarea);
+  textarea.focus();
+  textarea.select();
+  const pasted = document.execCommand('paste');
+  const text = textarea.value;
+  textarea.remove();
+  if (!pasted) {
+    throw new Error('Clipboard read fallback failed');
+  }
+
+  return text;
+}
+
+async function readTextFromClipboard(): Promise<string> {
+  try {
+    return await navigator.clipboard.readText();
+  } catch {
+    return fallbackReadText();
+  }
+}
+
 async function writeTextToClipboard(text: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(text);
@@ -64,7 +91,7 @@ chrome.runtime.onMessage.addListener((message: OffscreenMessage, _sender, sendRe
   if (message.type === OFFSCREEN_CLIPBOARD_MESSAGE) {
     void (async () => {
       try {
-        const text = await navigator.clipboard.readText();
+        const text = await readTextFromClipboard();
         if (new TextEncoder().encode(text).byteLength > CLIPBOARD_MAX_TEXT_BYTES) {
           sendResponse({
             ok: false,

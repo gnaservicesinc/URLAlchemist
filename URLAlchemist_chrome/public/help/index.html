@@ -81,7 +81,8 @@
 <p>Imported Action Packs open in the staging gate instead of saving immediately. Review the manifest, risk badges, plain-language steps, and sandbox result before confirming import.</p>
 <p class="warning">Treat clipboard, raw page, remote request, page mutation, and overlay input behavior as sensitive. URL Alchemist surfaces these risks so you can decide before the pack is installed.</p>
 <h2>Debugging</h2>
-<p>Manage Resources includes <strong>View Log</strong> and <strong>Export Log</strong> actions for each installed Action Pack. Logs record run timestamps, exit codes, issues, and entries written by <strong>Save string to log</strong>.</p>
+<p>Manage Resources includes <strong>View Log</strong>, <strong>Export Log</strong>, and <strong>Clear Log</strong> actions for each installed Action Pack. Logs record run timestamps, exit codes, issues, and entries written by <strong>Save string to log</strong>.</p>
+<p>Per-pack logs rotate automatically after the newest 300 entries or about 256 KB, whichever limit is reached first.</p>
 <p>Use <strong>Abort</strong> when a workflow needs to stop mid-run after a boolean guard becomes true. Abort returns exit code <code>130</code> and stops later instructions in that run.</p>
 
 </body>

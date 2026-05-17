@@ -540,6 +540,15 @@ function parseVariableOrLiteral(state: VmState, raw: string): GraphValue {
   return initialized;
 }
 
+function resolveFallbackValue(state: VmState, fallbackValue: GraphValue, fallbackRaw?: string): GraphValue {
+  const trimmed = fallbackRaw?.trim();
+  if (trimmed?.startsWith('$') || trimmed?.startsWith('_')) {
+    return parseVariableOrLiteral(state, trimmed);
+  }
+
+  return fallbackValue;
+}
+
 function lookupVariable(state: VmState, token: string): GraphValue | undefined {
   if (token.startsWith('_')) {
     return state.locals.get(token);
@@ -1041,17 +1050,18 @@ async function executeInstruction(
         state.issues.push(issue('Shared State skipped because key is empty', instruction.nodeId));
         break;
       }
+      const fallbackValue = resolveFallbackValue(state, instruction.fallbackValue, instruction.fallbackRaw);
 
       if (!enabledValue(state, instruction.enabled)) {
         if (instruction.output) {
-          setValue(state, instruction.output, instruction.mode === 'EXISTS' ? { type: 'bool', value: 0 } : instruction.fallbackValue, pack.vm.valueByteLimit);
+          setValue(state, instruction.output, instruction.mode === 'EXISTS' ? { type: 'bool', value: 0 } : fallbackValue, pack.vm.valueByteLimit);
         }
         trace(state, instruction, `Shared State ${instruction.mode.toLowerCase()} skipped`);
         break;
       }
 
       if (instruction.mode === 'SET') {
-        const value = getValue(state, instruction.value) ?? instruction.fallbackValue;
+        const value = getValue(state, instruction.value) ?? fallbackValue;
         await runtime.saveSessionValue?.(key, value);
         if (instruction.output) {
           setValue(state, instruction.output, value, pack.vm.valueByteLimit);
@@ -1075,7 +1085,7 @@ async function executeInstruction(
       const loaded = await runtime.loadSessionValue?.(key);
       const value = instruction.mode === 'EXISTS'
         ? { type: 'bool', value: loaded ? 1 : 0 } as GraphValue
-        : loaded ?? instruction.fallbackValue;
+        : loaded ?? fallbackValue;
       if (instruction.output) {
         setValue(state, instruction.output, value, pack.vm.valueByteLimit);
       }

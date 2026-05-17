@@ -1,5 +1,5 @@
 import { DEFAULT_SETTINGS, STORAGE_KEY } from './constants';
-import { capLogMessage } from './logs';
+import { capLogMessage, rotateActionPackLogEntries } from './logs';
 import type { ActionPack, GlobalSettings, StoredActionPackLogEntry, StoredState, StoredTraceEntry } from './types';
 import { normalizeStoredState } from './validation';
 import { validateWorkspaceFile } from './v2/workspace';
@@ -353,7 +353,6 @@ export async function appendTraceEntry(entry: StoredTraceEntry): Promise<StoredS
   return nextState;
 }
 
-const MAX_ACTION_PACK_LOG_ENTRIES_PER_PACK = 300;
 const MAX_ACTION_PACK_LOG_ENTRIES_TOTAL = 1_500;
 const MAX_LOG_URL_LENGTH = 2048;
 
@@ -375,17 +374,7 @@ function capActionPackLogEntry(entry: StoredActionPackLogEntry): StoredActionPac
 }
 
 function capActionPackLogs(entries: StoredActionPackLogEntry[], packId: string): StoredActionPackLogEntry[] {
-  let packCount = 0;
-  const perPackCapped = entries.filter((entry) => {
-    if (entry.packId !== packId) {
-      return true;
-    }
-
-    packCount += 1;
-    return packCount <= MAX_ACTION_PACK_LOG_ENTRIES_PER_PACK;
-  });
-
-  return perPackCapped.slice(0, MAX_ACTION_PACK_LOG_ENTRIES_TOTAL);
+  return rotateActionPackLogEntries(entries, packId).slice(0, MAX_ACTION_PACK_LOG_ENTRIES_TOTAL);
 }
 
 export async function appendActionPackLogEntry(entry: StoredActionPackLogEntry): Promise<StoredState> {
@@ -394,6 +383,17 @@ export async function appendActionPackLogEntry(entry: StoredActionPackLogEntry):
   const nextState = {
     ...state,
     actionPackLogs: nextLogs,
+  };
+
+  await saveStoredState(nextState);
+  return nextState;
+}
+
+export async function clearActionPackLog(packId: string): Promise<StoredState> {
+  const state = await loadStoredState();
+  const nextState = {
+    ...state,
+    actionPackLogs: state.actionPackLogs.filter((entry) => entry.packId !== packId),
   };
 
   await saveStoredState(nextState);
