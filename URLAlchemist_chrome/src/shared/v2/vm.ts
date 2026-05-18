@@ -5,6 +5,7 @@ import type { ActionPackLogSeverity, EngineIssue, GlobalSettings } from '../type
 import type { EngineRuntime } from '../engine/runtime';
 import { validateRemoteUrl } from './remoteUrl';
 import { readLimitedResponseBytes } from './remoteBytes';
+import { extractVariableReferences, resolveVariableText } from './variables';
 import type { AssetRef, CompiledActionPackV2, GraphEventHandler, GraphValue, GraphVmInstruction, OverlayRuntimeEvent } from './types';
 
 export interface RemoteRequest {
@@ -541,8 +542,17 @@ function parseVariableOrLiteral(state: VmState, raw: string): GraphValue {
 }
 
 function resolveFallbackValue(state: VmState, fallbackValue: GraphValue, fallbackRaw?: string): GraphValue {
+  const singleVariable = fallbackHasSingleVariableReference(fallbackRaw);
+  if (singleVariable) {
+    return lookupVariable(state, singleVariable) ?? fallbackValue;
+  }
+
+  if (fallbackValue.type === 'string' && fallbackRaw !== undefined) {
+    return { type: 'string', value: resolveFallbackText(state, fallbackRaw) };
+  }
+
   const trimmed = fallbackRaw?.trim();
-  if (trimmed?.startsWith('$') || trimmed?.startsWith('_')) {
+  if (trimmed?.startsWith('_')) {
     return parseVariableOrLiteral(state, trimmed);
   }
 
@@ -557,18 +567,31 @@ function lookupVariable(state: VmState, token: string): GraphValue | undefined {
   return state.globals.get(token) ?? (!token.startsWith('$') ? state.globals.get(`$${token}`) : undefined);
 }
 
-function applySubstitutionTemplate(template: string, inputs: Array<GraphValue | undefined>, state: VmState): string {
-  return template
-    .replace(/\$\$/g, '\u0000')
-    .replace(/\$([A-Za-z_][A-Za-z0-9_]*|\d+)/g, (_match, token: string) => {
-      const numericIndex = Number.parseInt(token, 10);
-      if (Number.isFinite(numericIndex) && String(numericIndex) === token) {
-        return asString(inputs[numericIndex - 1]);
-      }
+function resolveNamedVariableText(state: VmState, text: string, resolveNumeric?: (index: number, token: string) => string | undefined): string {
+  return resolveVariableText(text, {
+    resolveNamed: (token) => asString(lookupVariable(state, token) ?? lookupVariable(state, token.slice(1))),
+    resolveNumeric,
+  });
+}
 
-      return asString(lookupVariable(state, `$${token}`) ?? lookupVariable(state, token));
-    })
-    .replace(/\u0000/g, '$');
+function resolveFallbackText(state: VmState, text: string): string {
+  return resolveNamedVariableText(state, text);
+}
+
+function fallbackHasSingleVariableReference(raw: string | undefined): string | null {
+  const trimmed = raw?.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const references = extractVariableReferences(trimmed);
+  return references.length === 1 && references[0].kind === 'named' && references[0].token === trimmed
+    ? references[0].token
+    : null;
+}
+
+function applySubstitutionTemplate(template: string, inputs: Array<GraphValue | undefined>, state: VmState): string {
+  return resolveNamedVariableText(state, template, (index) => asString(inputs[index - 1]));
 }
 
 function eventDict(event: OverlayRuntimeEvent | undefined, inputUrl: string): GraphValue {
@@ -764,7 +787,9 @@ async function executeInstruction(
     case 'REGEX_TRANSFORM': {
       const source = getValue(state, instruction.input);
       const input = asString(source);
-      const rawPayload = instruction.payloadInput ? asString(getValue(state, instruction.payloadInput)) : instruction.payload;
+      const rawPayload = instruction.payloadInput
+        ? asString(getValue(state, instruction.payloadInput))
+        : resolveNamedVariableText(state, instruction.payload, (_index, token) => token);
       let payload = instruction.payloadVars
         ? rawPayload.replaceAll('{date}', new Date().toISOString())
         : rawPayload.replace(/\$/g, '$$$$');
@@ -820,7 +845,9 @@ async function executeInstruction(
       break;
     }
     case 'USER_INTERACTION': {
-      const message = instruction.messageInput ? asString(getValue(state, instruction.messageInput)) : instruction.message || 'URL Alchemist needs input';
+      const message = instruction.messageInput
+        ? asString(getValue(state, instruction.messageInput))
+        : resolveFallbackText(state, instruction.message || 'URL Alchemist needs input');
       const value = await (runtime.requestUserInteraction ?? defaultUserInteraction)({
         kind: instruction.interaction,
         message,
@@ -851,8 +878,8 @@ async function executeInstruction(
       break;
     }
     case 'DISPLAY': {
-      const title = instruction.titleInput ? asString(getValue(state, instruction.titleInput)) : instruction.title;
-      const message = instruction.input ? asString(getValue(state, instruction.input)) : instruction.message;
+      const title = instruction.titleInput ? asString(getValue(state, instruction.titleInput)) : instruction.title ? resolveFallbackText(state, instruction.title) : undefined;
+      const message = instruction.input ? asString(getValue(state, instruction.input)) : resolveFallbackText(state, instruction.message);
       const assetValue = instruction.asset ? getValue(state, instruction.asset) : undefined;
       const value = await (runtime.displayOverlay ?? defaultDisplay)({
         type: instruction.displayType,
@@ -1159,7 +1186,7 @@ async function executeInstruction(
       break;
     }
     case 'LOG': {
-      const message = capLogMessage(instruction.message ? asString(getValue(state, instruction.message)) : instruction.fallbackMessage);
+      const message = capLogMessage(instruction.message ? asString(getValue(state, instruction.message)) : resolveFallbackText(state, instruction.fallbackMessage));
       await runtime.writeLog?.({
         severity: instruction.severity,
         message,
@@ -1183,7 +1210,7 @@ async function executeInstruction(
 
       state.aborted = true;
       state.exitCode = 130;
-      trace(state, instruction, instruction.message || 'Action Pack aborted');
+      trace(state, instruction, resolveFallbackText(state, instruction.message || 'Action Pack aborted'));
       break;
     }
     case 'OVERLAY_CONTROL': {
@@ -1195,7 +1222,7 @@ async function executeInstruction(
         break;
       }
 
-      const message = instruction.messageInput ? asString(getValue(state, instruction.messageInput)) : instruction.message;
+      const message = instruction.messageInput ? asString(getValue(state, instruction.messageInput)) : resolveFallbackText(state, instruction.message);
       const value = await (runtime.overlayControl ?? defaultOverlayControl)({
         action: instruction.action,
         message,

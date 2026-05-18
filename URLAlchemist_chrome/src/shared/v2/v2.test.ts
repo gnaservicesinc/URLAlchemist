@@ -18,8 +18,10 @@ import { compileWorkspace } from './compiler';
 import { explainRiskReason } from './explain';
 import { createSandboxGraphRuntime } from './sandboxRuntime';
 import { ACTION_PACK_SCHEMA_VERSION, LEGACY_ACTION_PACK_SCHEMA_VERSION, type CompiledActionPackV2, type GraphValue } from './types';
+import { extractVariableReferences, resolveVariableText } from './variables';
 import { executeCompiledActionPackV2, type GraphRuntime } from './vm';
 import { createEdge, createDefaultWorkspace, createWorkspaceNode, workspaceFromLegacyPack } from './workspace';
+import { createWorkspaceBlockClipboard, pasteWorkspaceBlockClipboard } from './workspaceClipboard';
 import {
   exportCompiledActionPackV2Binary,
   exportWorkspaceBinary,
@@ -315,6 +317,127 @@ describe('v2 workspace compiler and VM', () => {
     }, DEFAULT_SETTINGS);
 
     expect(written).toBe('Hello World from Alice');
+  });
+
+  it('scans active variables and ignores escaped dollar tokens', () => {
+    expect(extractVariableReferences('$name \\$literal \\\\$stillLiteral $1').map((reference) => reference.token)).toEqual(['$name', '$1']);
+    expect(resolveVariableText('\\$name \\\\$name $name', {
+      resolveNamed: () => 'Alice',
+    })).toBe('$name \\$name Alice');
+  });
+
+  it('copies and pastes selected workspace blocks with internal links', () => {
+    const workspace = createDefaultWorkspace();
+    const constant = createWorkspaceNode('Constant', { x: 100, y: 100 }, {
+      literalValue: 'Hello',
+      literalDataType: 'string',
+    });
+    const log = createWorkspaceNode('SaveStringToLog', { x: 360, y: 100 });
+    const workspaceWithBlocks = {
+      ...workspace,
+      nodes: [...workspace.nodes.filter((node) => node.type !== 'DataFlowOut'), constant, log],
+      edges: [createEdge(constant.id, 'value', log.id, 'message')],
+    };
+
+    const clipboard = createWorkspaceBlockClipboard(workspaceWithBlocks, new Set([constant.id, log.id]));
+    const pasted = pasteWorkspaceBlockClipboard(workspaceWithBlocks, clipboard, { x: 32, y: 40 });
+
+    expect(pasted.pastedNodeIds).toHaveLength(2);
+    expect(new Set(pasted.pastedNodeIds).has(constant.id)).toBe(false);
+    expect(pasted.workspace.nodes).toHaveLength(workspaceWithBlocks.nodes.length + 2);
+    expect(pasted.workspace.edges).toHaveLength(2);
+    expect(pasted.workspace.edges.some((edge) => pasted.pastedNodeIds.includes(edge.source) && pasted.pastedNodeIds.includes(edge.target))).toBe(true);
+    expect(pasted.workspace.nodes.find((node) => node.id === pasted.pastedNodeIds[0])?.position).toEqual({ x: 132, y: 140 });
+  });
+
+  it('writes log messages from declared string variables', async () => {
+    const workspace = createDefaultWorkspace();
+    const declaration = createWorkspaceNode('Declarations', { x: 120, y: 80 }, {
+      variableName: 'string_1',
+      literalValue: 'This is the first string.',
+      literalDataType: 'string',
+    });
+    const log = createWorkspaceNode('SaveStringToLog', { x: 420, y: 80 }, {
+      literalValue: '$string_1',
+      logSeverity: 'warn',
+    });
+    const entries: Array<{ severity: string; message: string; nodeId: string }> = [];
+    const compiled = compileWorkspace({
+      ...workspace,
+      nodes: [...workspace.nodes.filter((node) => node.type !== 'DataFlowOut'), declaration, log],
+      edges: [],
+    });
+
+    expect(compiled.ok, compiled.validation.errors.join('; ')).toBe(true);
+    await executeCompiledActionPackV2('https://example.com/', compiled.pack!, {
+      ...runtime,
+      writeLog: async (entry) => {
+        entries.push(entry);
+      },
+    }, DEFAULT_SETTINGS);
+
+    expect(entries).toEqual([expect.objectContaining({ severity: 'warn', message: 'This is the first string.', nodeId: log.id })]);
+  });
+
+  it('writes escaped variable-looking log text literally', async () => {
+    const workspace = createDefaultWorkspace();
+    const declaration = createWorkspaceNode('Declarations', { x: 120, y: 80 }, {
+      variableName: 'string_1',
+      literalValue: 'This should not be used.',
+      literalDataType: 'string',
+    });
+    const oneSlashLog = createWorkspaceNode('SaveStringToLog', { x: 420, y: 80 }, {
+      literalValue: '\\$string_1',
+      logSeverity: 'info',
+    });
+    const twoSlashLog = createWorkspaceNode('SaveStringToLog', { x: 420, y: 220 }, {
+      literalValue: '\\\\$string_1',
+      logSeverity: 'info',
+    });
+    const entries: Array<{ message: string }> = [];
+    const compiled = compileWorkspace({
+      ...workspace,
+      nodes: [...workspace.nodes.filter((node) => node.type !== 'DataFlowOut'), declaration, oneSlashLog, twoSlashLog],
+      edges: [],
+    });
+
+    expect(compiled.ok, compiled.validation.errors.join('; ')).toBe(true);
+    await executeCompiledActionPackV2('https://example.com/', compiled.pack!, {
+      ...runtime,
+      writeLog: async (entry) => {
+        entries.push(entry);
+      },
+    }, DEFAULT_SETTINGS);
+
+    expect(entries.map((entry) => entry.message)).toEqual(['$string_1', '\\$string_1']);
+  });
+
+  it('blocks missing and type-mismatched log variables', () => {
+    const workspace = createDefaultWorkspace();
+    const numberDeclaration = createWorkspaceNode('Declarations', { x: 120, y: 80 }, {
+      variableName: 'count',
+      literalValue: '2',
+      literalDataType: 'number',
+    });
+    const missingLog = createWorkspaceNode('SaveStringToLog', { x: 420, y: 80 }, {
+      literalValue: '$missing',
+    });
+    const wrongTypeLog = createWorkspaceNode('SaveStringToLog', { x: 420, y: 220 }, {
+      literalValue: '$count',
+    });
+    const numberedLog = createWorkspaceNode('SaveStringToLog', { x: 420, y: 360 }, {
+      literalValue: '$1',
+    });
+    const compiled = compileWorkspace({
+      ...workspace,
+      nodes: [...workspace.nodes.filter((node) => node.type !== 'DataFlowOut'), numberDeclaration, missingLog, wrongTypeLog, numberedLog],
+      edges: [],
+    });
+
+    expect(compiled.ok).toBe(false);
+    expect(compiled.validation.errors.join(' ')).toContain('$missing is not declared');
+    expect(compiled.validation.errors.join(' ')).toContain('$count is number, but Message expects string');
+    expect(compiled.validation.errors.join(' ')).toContain('$1 is reserved for substitution connector inputs');
   });
 
   it('reserves numbered dollar names for substitution inputs', () => {

@@ -262,6 +262,7 @@ function App() {
   const [workspaceLoaded, setWorkspaceLoaded] = useState(false);
   const [workspaceDirty, setWorkspaceDirty] = useState(false);
   const [workspaceMessage, setWorkspaceMessage] = useState<string | null>(null);
+  const [workspaceToast, setWorkspaceToast] = useState<string | null>(null);
   const [exampleMessage, setExampleMessage] = useState<string | null>(null);
   const [stagedPack, setStagedPack] = useState<CompiledActionPackV2 | null>(null);
   const [stagedChecksum, setStagedChecksum] = useState<string | undefined>(undefined);
@@ -283,6 +284,15 @@ function App() {
     [workspace, state.settings.builderUuid],
   );
   const stagedValidationErrors = getPackImportValidationErrors(stagedPack, state.actionPacksV2);
+
+  useEffect(() => {
+    if (!workspaceToast) {
+      return undefined;
+    }
+
+    const timeout = window.setTimeout(() => setWorkspaceToast(null), 3000);
+    return () => window.clearTimeout(timeout);
+  }, [workspaceToast]);
   const installedExamplePackIds = useMemo(() => new Set(state.actionPacksV2.map((pack) => pack.manifest.id)), [state.actionPacksV2]);
   const savedExampleWorkspaceIds = useMemo(() => new Set(state.workspacesV2.map((savedWorkspace) => savedWorkspace.metadata.id)), [state.workspacesV2]);
 
@@ -508,6 +518,7 @@ function App() {
     setWorkspaceDirty(false);
     await clearOpenWorkspaceDraft();
     setWorkspaceMessage(`Built and installed "${result.pack.manifest.name}".`);
+    setWorkspaceToast(`Built and installed "${result.pack.manifest.name}".`);
   }
 
   async function exportWorkspaceFile(targetWorkspace = workspace): Promise<void> {
@@ -905,6 +916,11 @@ function App() {
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-[1500px] flex-col gap-5 px-4 py-5 sm:px-6 lg:px-8 lg:py-8" style={scaleStyle}>
+      {workspaceToast ? (
+        <div className="fixed right-5 top-5 z-50 max-w-sm rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800 shadow-[0_18px_42px_rgba(15,118,110,0.18)]">
+          {workspaceToast}
+        </div>
+      ) : null}
       <header className="reveal-panel overflow-hidden rounded-xl border border-slate-200 bg-white px-4 py-5 shadow-[0_18px_46px_rgba(31,41,55,0.08)] sm:px-6 lg:px-7">
         <div className="flex flex-wrap items-start justify-between gap-5">
           <div className="flex min-w-0 max-w-3xl gap-4">

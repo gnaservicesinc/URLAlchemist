@@ -665,7 +665,7 @@ function variableUseAcrossRuns(): WorkspaceFileV2 {
   });
   const format = node(slug, 'format', 'Substitution', { x: 1400, y: 120 }, {
     label: 'Explain variable use',
-    substitutionTemplate: 'Current run: $1. The $$counter variable supplied the first-run value and the increment. Next run will start from $2. Time: $3.',
+    substitutionTemplate: 'Current run: $1. The \\$counter variable supplied the first-run value and the increment. Next run will start from $2. Time: $3.',
     substitutionInputCount: 3,
   });
   const title = node(slug, 'title', 'Substitution', { x: 1400, y: -80 }, {

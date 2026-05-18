@@ -3,6 +3,15 @@ import { getHotkeyValidationError } from '../hotkeys';
 import { assertSafeRegexPattern } from '../regex/executeRegexJob';
 import { validateRemoteUrl } from './remoteUrl';
 import {
+  BUILT_IN_VARIABLE_TYPES,
+  extractVariableReferences,
+  getVariableFieldSpecs,
+  normalizeVariableName,
+  validateVariableName,
+  variableDrivenInputHandles,
+  variableTypeMatches,
+} from './variables';
+import {
   combineRisk,
   getEffectivePortDefinition,
   getEffectivePortDefinitions,
@@ -265,31 +274,73 @@ function hasRunnableTerminalNode(workspace: WorkspaceFileV2, edgesByTarget: Map<
   });
 }
 
-function normalizedVariableName(name: string): string {
-  const trimmed = name.trim();
-  if (!trimmed || trimmed.startsWith('$') || trimmed.startsWith('_')) {
-    return trimmed;
-  }
-
-  return `$${trimmed}`;
+function settingString(settings: WorkspaceNodeV2['settings'], setting: keyof WorkspaceNodeV2['settings']): string {
+  const value = settings[setting];
+  return typeof value === 'string' ? value : '';
 }
 
-function variableNameError(name: string): string | null {
-  const trimmed = name.trim();
-  const normalized = normalizedVariableName(trimmed);
-  if (!normalized) {
-    return 'variable name is required.';
-  }
+function collectDeclaredVariableTypes(
+  workspace: WorkspaceFileV2,
+  edgesByTarget: Map<string, WorkspaceEdgeV2>,
+): Map<string, GraphDataType> {
+  const declared = new Map<string, GraphDataType>(Object.entries(BUILT_IN_VARIABLE_TYPES));
+  workspace.nodes.forEach((node) => {
+    if (node.type !== 'Declarations' || !node.settings.variableName?.trim() || validateVariableName(node.settings.variableName)) {
+      return;
+    }
 
-  if (/^\$?\d+$/.test(trimmed) || /^\$\d+/.test(normalized)) {
-    return 'variable names like $1 are reserved for substitution connector inputs.';
-  }
+    const valueEdge = edgesByTarget.get(`${node.id}:value`);
+    declared.set(
+      normalizeVariableName(node.settings.variableName),
+      valueEdge ? sourceType(workspace, valueEdge) ?? 'Any' : node.settings.literalDataType ?? 'string',
+    );
+  });
+  return declared;
+}
 
-  if (!/^(_[A-Za-z][A-Za-z0-9_]*|\$[A-Za-z_][A-Za-z0-9_]*|[A-Za-z][A-Za-z0-9_]*)$/.test(trimmed)) {
-    return 'variable names can use letters, numbers, and underscores, and may start with $ or _.';
-  }
+function validateVariableFieldReferences(
+  workspace: WorkspaceFileV2,
+  node: WorkspaceNodeV2,
+  edgesByTarget: Map<string, WorkspaceEdgeV2>,
+  declaredVariableTypes: Map<string, GraphDataType>,
+  errors: string[],
+  invalidEdgeIds: string[],
+): void {
+  const definition = getBlockDefinition(node.type);
+  getVariableFieldSpecs(node).forEach((field) => {
+    const value = settingString(node.settings, field.setting);
+    const references = extractVariableReferences(value);
+    if (references.length === 0) {
+      return;
+    }
 
-  return null;
+    if (field.inputHandle) {
+      const blockedEdge = edgesByTarget.get(`${node.id}:${field.inputHandle}`);
+      if (blockedEdge) {
+        invalidEdgeIds.push(blockedEdge.id);
+        errors.push(`${node.settings.label || definition.label}: ${field.label} uses a variable, so the ${field.inputHandle} input cannot be connected.`);
+      }
+    }
+
+    references.forEach((reference) => {
+      if (reference.kind === 'numeric') {
+        if (field.numericMode === 'forbidden') {
+          errors.push(`${node.settings.label || definition.label}: ${reference.token} is reserved for substitution connector inputs.`);
+        }
+        return;
+      }
+
+      const actualType = declaredVariableTypes.get(reference.token);
+      if (!actualType) {
+        errors.push(`${node.settings.label || definition.label}: ${reference.token} is not declared.`);
+        return;
+      }
+
+      if (!variableTypeMatches(actualType, field.expectedType)) {
+        errors.push(`${node.settings.label || definition.label}: ${reference.token} is ${actualType}, but ${field.label} expects ${field.expectedType}.`);
+      }
+    });
+  });
 }
 
 function collectHandlerReachability(workspace: WorkspaceFileV2): Record<GraphEventHandler, Set<string>> {
@@ -501,6 +552,12 @@ function validateWorkspace(workspace: WorkspaceFileV2): WorkspaceValidationState
 
     targetConnectionKeys.add(edgeKey(edge));
 
+    if (targetNode && variableDrivenInputHandles(targetNode).has(edge.targetHandle)) {
+      invalidEdgeIds.push(edge.id);
+      errors.push(`${targetNode.settings.label || targetNode.type}.${targetPort.label} is disabled because its literal field uses a variable.`);
+      return;
+    }
+
     if (!isTypeCompatible(sourcePort.dataType, targetPort.dataType)) {
       invalidEdgeIds.push(edge.id);
       errors.push(`${sourcePort.label} (${sourcePort.dataType}) cannot connect to ${targetPort.label} (${targetPort.dataType}).`);
@@ -516,6 +573,7 @@ function validateWorkspace(workspace: WorkspaceFileV2): WorkspaceValidationState
   });
 
   const edgesByTarget = new Map(workspace.edges.map((edge) => [`${edge.target}:${edge.targetHandle}`, edge]));
+  const declaredVariableTypes = collectDeclaredVariableTypes(workspace, edgesByTarget);
   if (!hasRunnableTerminalNode(workspace, edgesByTarget)) {
     errors.push('Add a URL output, data output, storage write, overlay action, or other terminal side-effect before building an Action Pack.');
   }
@@ -527,6 +585,7 @@ function validateWorkspace(workspace: WorkspaceFileV2): WorkspaceValidationState
         errors.push(`${node.settings.label || definition.label} requires ${input.label}.`);
       }
     });
+    validateVariableFieldReferences(workspace, node, edgesByTarget, declaredVariableTypes, errors, invalidEdgeIds);
 
     if (node.type === 'RegExpression') {
       const pattern = node.settings.pattern ?? '';
@@ -623,7 +682,7 @@ function validateWorkspace(workspace: WorkspaceFileV2): WorkspaceValidationState
       if (!node.settings.variableName?.trim()) {
         warnings.push(`${node.settings.label || definition.label} has no variable name and will be ignored.`);
       } else {
-        const error = variableNameError(node.settings.variableName);
+        const error = validateVariableName(node.settings.variableName);
         if (error) {
           errors.push(`${node.settings.label || definition.label}: ${error}`);
         }
@@ -1090,7 +1149,7 @@ function instructionForNode(
         instructions.push({
           op: 'DECLARE',
           nodeId: node.id,
-          name: normalizedVariableName(node.settings.variableName),
+          name: normalizeVariableName(node.settings.variableName),
           value: connectedInput(edgesByTarget, node.id, 'value'),
           fallbackValue: literalGraphValue(node.settings.literalValue, node.settings.literalDataType ?? 'string'),
         });

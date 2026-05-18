@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
@@ -41,8 +42,10 @@ import { BLOCK_DEFINITIONS, getBlockDefinition, getEffectivePortDefinitions } fr
 import { compileWorkspace, getConnectionValidationError } from '../../shared/v2/compiler';
 import { formatEventHandler, formatRunType } from '../../shared/v2/labels';
 import { createSandboxGraphRuntime } from '../../shared/v2/sandboxRuntime';
+import { createWorkspaceBlockClipboard, pasteWorkspaceBlockClipboard, type WorkspaceBlockClipboard } from '../../shared/v2/workspaceClipboard';
 import { createEdge, createWorkspaceNode } from '../../shared/v2/workspace';
 import type { BlockDefinition, BlockKind, GraphEventHandler, GraphPortDefinition, GraphValue, WorkspaceBlockSettings, WorkspaceFileV2, WorkspaceNodeV2 } from '../../shared/v2/types';
+import { extractVariableReferences, normalizeVariableName, validateVariableName, variableDrivenInputHandles } from '../../shared/v2/variables';
 import { executeCompiledActionPackV2 } from '../../shared/v2/vm';
 import { toActivityDraft, updateActivityDraft, type ActivityDraft } from '../drafts';
 import { createPageRegexExecutor } from '../../shared/regex/pageRunner';
@@ -72,6 +75,7 @@ interface WorkspaceEditorProps {
 
 interface WorkspaceBlockData {
   [key: string]: unknown;
+  blockedInputs: string[];
   definition: BlockDefinition;
   connectedInputs: string[];
   inputs: GraphPortDefinition[];
@@ -154,17 +158,11 @@ function settingText(value: unknown): string {
 }
 
 function variableToken(rawName: string): string {
-  const trimmed = rawName.trim();
-  if (!trimmed || trimmed.startsWith('$') || trimmed.startsWith('_')) {
-    return trimmed;
-  }
-
-  return `$${trimmed}`;
+  return normalizeVariableName(rawName);
 }
 
 function isReservedVariableName(rawName: string): boolean {
-  const trimmed = rawName.trim();
-  return /^\$?\d+$/.test(trimmed) || /^\$\d+/.test(variableToken(trimmed));
+  return validateVariableName(rawName)?.includes('reserved for substitution') ?? false;
 }
 
 function collectDeclaredVariables(workspace: WorkspaceFileV2): DeclaredVariable[] {
@@ -178,23 +176,19 @@ function collectDeclaredVariables(workspace: WorkspaceFileV2): DeclaredVariable[
     }));
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 function fieldUsesVariable(value: unknown, variables: DeclaredVariable[]): boolean {
   const text = settingText(value);
   if (!text) {
     return false;
   }
 
+  const tokens = new Set(
+    extractVariableReferences(text)
+      .filter((reference) => reference.kind === 'named')
+      .map((reference) => reference.token),
+  );
   return variables.some((variable) => {
-    const token = variable.token;
-    if (!token) {
-      return false;
-    }
-    const pattern = new RegExp(`${escapeRegExp(token)}(?![A-Za-z0-9_])`);
-    return pattern.test(text);
+    return variable.token ? tokens.has(variable.token) : false;
   });
 }
 
@@ -226,6 +220,20 @@ function handleStyle(color: string): CSSProperties {
   return {
     '--handle-color': color,
   } as CSSProperties;
+}
+
+function sameStringSet(left: Set<string>, right: Set<string>): boolean {
+  if (left.size !== right.size) {
+    return false;
+  }
+
+  for (const value of left) {
+    if (!right.has(value)) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 const blockInputClass = 'nodrag rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-800 outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-100';
@@ -296,12 +304,13 @@ function updateNodeSettings(workspace: WorkspaceFileV2, nodeId: string, settings
 function renderBlockSettings(
   node: WorkspaceNodeV2,
   connectedInputs: Set<string>,
+  blockedInputs: Set<string>,
   variables: DeclaredVariable[],
   onSettingsChange: (settings: Partial<WorkspaceBlockSettings>) => void,
   onOpenRegexBuilder: (() => void) | undefined,
 ) {
   const inputClass = blockInputClass;
-  const isConnected = (portId: string): boolean => connectedInputs.has(portId);
+  const isConnected = (portId: string): boolean => connectedInputs.has(portId) && !blockedInputs.has(portId);
   const connectedNote = (label: string) => (
     <p className="mt-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-500">
       {label} is provided by a connected input.
@@ -939,7 +948,7 @@ function renderBlockSettings(
 }
 
 const WorkspaceBlockNode = memo(function WorkspaceBlockNode({ data, selected }: NodeProps<WorkspaceFlowNode>) {
-  const { connectedInputs, definition, inputs, invalidInputs, node, outputs, variables, onCollapseToggle, onDeleteNode, onLockToggle, onOpenRegexBuilder, onSettingsChange } = data;
+  const { blockedInputs, connectedInputs, definition, inputs, invalidInputs, node, outputs, variables, onCollapseToggle, onDeleteNode, onLockToggle, onOpenRegexBuilder, onSettingsChange } = data;
   const locked = Boolean(node.settings.locked);
   const collapsed = Boolean(node.settings.collapsed);
   const title = blockTitle(node, definition);
@@ -954,8 +963,9 @@ const WorkspaceBlockNode = memo(function WorkspaceBlockNode({ data, selected }: 
         <div key={port.id} className={`relative flex min-h-6 items-center rounded-md bg-slate-50 px-2 py-1 text-[10px] text-slate-600 ${direction === 'input' ? 'pl-3' : 'pr-3'}`}>
           {direction === 'input' ? (
             <Handle
-              className="workspace-port-handle workspace-port-handle-target workspace-port-handle-compact"
+              className={`workspace-port-handle workspace-port-handle-target workspace-port-handle-compact ${blockedInputs.includes(port.id) ? 'opacity-35' : ''}`}
               id={port.id}
+              isConnectable={!blockedInputs.includes(port.id)}
               position={Position.Left}
               style={handleStyle(invalidInputs.includes(port.id) ? '#dc2626' : DATA_TYPE_COLORS[port.dataType])}
               type="target"
@@ -1054,6 +1064,7 @@ const WorkspaceBlockNode = memo(function WorkspaceBlockNode({ data, selected }: 
         {renderBlockSettings(
           node,
           new Set(connectedInputs),
+          new Set(blockedInputs),
           data.variables,
           (settings) => onSettingsChange(node.id, settings),
           node.type === 'RegExpression' ? () => onOpenRegexBuilder(node.id) : undefined,
@@ -1063,8 +1074,9 @@ const WorkspaceBlockNode = memo(function WorkspaceBlockNode({ data, selected }: 
           {inputs.map((input) => (
             <div key={input.id} className="relative flex min-h-7 items-center rounded-lg bg-slate-50 px-2 py-1 text-xs text-slate-600">
               <Handle
-                className="workspace-port-handle workspace-port-handle-target"
+                className={`workspace-port-handle workspace-port-handle-target ${blockedInputs.includes(input.id) ? 'opacity-35' : ''}`}
                 id={input.id}
+                isConnectable={!blockedInputs.includes(input.id)}
                 position={Position.Left}
                 style={handleStyle(invalidInputs.includes(input.id) ? '#dc2626' : DATA_TYPE_COLORS[input.dataType])}
                 type="target"
@@ -1278,11 +1290,19 @@ interface WorkspaceFlowProps {
 }
 
 function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, invalidEdgeIds, heightClassName = 'h-[720px]' }: WorkspaceFlowProps) {
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const pendingSelectionRef = useRef<Set<string> | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; flowX: number; flowY: number } | null>(null);
   const [flowInstance, setFlowInstance] = useState<ReactFlowInstance | null>(null);
   const [regexBuilderNodeId, setRegexBuilderNodeId] = useState<string | null>(null);
+  const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
+  const [copiedBlocks, setCopiedBlocks] = useState<WorkspaceBlockClipboard | null>(null);
   const declaredVariables = useMemo(() => collectDeclaredVariables(workspace), [workspace]);
   const usedVariables = useMemo(() => usedVariableTokens(workspace, declaredVariables), [workspace, declaredVariables]);
+
+  const updateSelectedNodeIds = useCallback((nodeIds: Set<string>): void => {
+    setSelectedNodeIds((current) => sameStringSet(current, nodeIds) ? current : new Set(nodeIds));
+  }, []);
 
   const handleSettingsChange = useCallback(
     (nodeId: string, settings: Partial<WorkspaceBlockSettings>): void => {
@@ -1351,6 +1371,7 @@ function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, inva
         const invalidInputs = workspace.edges
           .filter((edge) => edge.target === node.id && invalidEdgeIds.has(edge.id))
           .map((edge) => edge.targetHandle);
+        const blockedInputs = Array.from(variableDrivenInputHandles(node));
         const connectedInputs = workspace.edges
           .filter((edge) => edge.target === node.id)
           .map((edge) => edge.targetHandle);
@@ -1360,10 +1381,11 @@ function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, inva
           type: 'workspaceBlock',
           position: node.position,
           data: {
+            blockedInputs,
             connectedInputs,
             definition,
             inputs,
-            invalidInputs,
+            invalidInputs: Array.from(new Set([...invalidInputs, ...blockedInputs])),
             node,
             outputs,
             variables: declaredVariables,
@@ -1403,12 +1425,102 @@ function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, inva
   const [flowEdges, setFlowEdges] = useState<Edge[]>(workspaceEdges);
 
   useEffect(() => {
-    setFlowNodes(workspaceNodes);
+    const pendingSelection = pendingSelectionRef.current;
+    pendingSelectionRef.current = null;
+    setFlowNodes(
+      pendingSelection
+        ? workspaceNodes.map((node) => ({ ...node, selected: pendingSelection.has(node.id) }))
+        : workspaceNodes,
+    );
   }, [workspaceNodes]);
 
   useEffect(() => {
     setFlowEdges(workspaceEdges);
   }, [workspaceEdges]);
+
+  useEffect(() => {
+    const currentIds = new Set(workspace.nodes.map((node) => node.id));
+    setSelectedNodeIds((current) => {
+      const next = new Set(Array.from(current).filter((nodeId) => currentIds.has(nodeId)));
+      return sameStringSet(current, next) ? current : next;
+    });
+  }, [workspace.nodes]);
+
+  function copySelectedBlocks(): void {
+    if (selectedNodeIds.size === 0) {
+      return;
+    }
+
+    const clipboard = createWorkspaceBlockClipboard(workspace, selectedNodeIds);
+    if (clipboard.nodes.length > 0) {
+      setCopiedBlocks(clipboard);
+    }
+  }
+
+  function pasteCopiedBlocks(): void {
+    if (!copiedBlocks || copiedBlocks.nodes.length === 0) {
+      return;
+    }
+
+    const result = pasteWorkspaceBlockClipboard(workspace, copiedBlocks);
+    if (result.pastedNodeIds.length === 0) {
+      return;
+    }
+
+    pendingSelectionRef.current = new Set(result.pastedNodeIds);
+    updateSelectedNodeIds(new Set(result.pastedNodeIds));
+    onWorkspaceChange(result.workspace);
+  }
+
+  function deleteSelectedBlocks(): void {
+    if (selectedNodeIds.size === 0) {
+      return;
+    }
+
+    handleDeleteNodes(Array.from(selectedNodeIds));
+    updateSelectedNodeIds(new Set());
+  }
+
+  function isTypingShortcutTarget(target: EventTarget | null): boolean {
+    if (!(target instanceof HTMLElement)) {
+      return false;
+    }
+
+    return Boolean(target.closest('input, textarea, select, [contenteditable="true"]'));
+  }
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (isTypingShortcutTarget(event.target)) {
+        return;
+      }
+
+      const command = event.metaKey || event.ctrlKey;
+      if (!command) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      if (key === 'c') {
+        if (selectedNodeIds.size === 0) {
+          return;
+        }
+        event.preventDefault();
+        copySelectedBlocks();
+      }
+
+      if (key === 'v') {
+        if (!copiedBlocks || copiedBlocks.nodes.length === 0) {
+          return;
+        }
+        event.preventDefault();
+        pasteCopiedBlocks();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [copiedBlocks, selectedNodeIds, workspace]);
 
   const handleNodeChanges = useCallback((changes: NodeChange[]): void => {
     const allowedChanges = changes.filter((change) => {
@@ -1484,6 +1596,11 @@ function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, inva
       return false;
     }
 
+    const targetNode = workspace.nodes.find((node) => node.id === connection.target);
+    if (targetNode && variableDrivenInputHandles(targetNode).has(connection.targetHandle)) {
+      return false;
+    }
+
     return (
       getConnectionValidationError(
         workspace,
@@ -1497,11 +1614,15 @@ function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, inva
       return;
     }
 
+    const targetNode = workspace.nodes.find((node) => node.id === connection.target);
+    if (targetNode && variableDrivenInputHandles(targetNode).has(connection.targetHandle)) {
+      return;
+    }
+
     const nextEdge = createEdge(connection.source, connection.sourceHandle, connection.target, connection.targetHandle);
     const nextEdges = workspace.edges.filter(
       (edge) => !(edge.target === nextEdge.target && edge.targetHandle === nextEdge.targetHandle),
     );
-    const targetNode = workspace.nodes.find((node) => node.id === nextEdge.target);
     const substitutionMatch = /^value(\d+)$/.exec(nextEdge.targetHandle);
     const nodes = targetNode?.type === 'Substitution' && substitutionMatch
       ? workspace.nodes.map((node) => {
@@ -1584,7 +1705,7 @@ function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, inva
   }
 
   return (
-    <div className={`relative overflow-hidden rounded-lg border border-slate-200 bg-white ${heightClassName}`}>
+    <div ref={wrapperRef} className={`relative overflow-hidden rounded-lg border border-slate-200 bg-white ${heightClassName}`}>
       <ReactFlow
         key={workspace.metadata.id}
         colorMode="light"
@@ -1616,6 +1737,7 @@ function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, inva
           const flowPosition = flowInstance?.screenToFlowPosition({ x: event.clientX, y: event.clientY }) ?? { x: 360, y: 220 };
           setContextMenu({ x: event.clientX, y: event.clientY, flowX: flowPosition.x, flowY: flowPosition.y });
         }}
+        onSelectionChange={({ nodes }) => updateSelectedNodeIds(new Set(nodes.map((node) => node.id)))}
         selectionKeyCode="Shift"
         selectionOnDrag
         selectNodesOnDrag={false}
@@ -1640,6 +1762,20 @@ function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, inva
             {collapsedCount > 0 ? (
               <span className="rounded-full bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-700">{collapsedCount} compact</span>
             ) : null}
+            {selectedNodeIds.size > 0 ? (
+              <>
+                <span className="rounded-full bg-teal-50 px-2.5 py-1 font-semibold text-teal-700">{selectedNodeIds.size} selected</span>
+                <button className="rounded-md border border-slate-200 px-2.5 py-1 font-semibold text-slate-700 hover:border-teal-300 hover:bg-teal-50" type="button" onClick={copySelectedBlocks}>
+                  Copy selected
+                </button>
+                <button className="rounded-md border border-slate-200 px-2.5 py-1 font-semibold text-rose-700 hover:border-rose-300 hover:bg-rose-50" type="button" onClick={deleteSelectedBlocks}>
+                  Delete selected
+                </button>
+              </>
+            ) : null}
+            <button className="rounded-md border border-slate-200 px-2.5 py-1 font-semibold text-slate-700 hover:border-teal-300 hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-45" disabled={!copiedBlocks || copiedBlocks.nodes.length === 0} type="button" onClick={pasteCopiedBlocks}>
+              Paste
+            </button>
           </div>
         </Panel>
         <Panel className="nodrag nowheel" position="top-right">
