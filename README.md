@@ -1,36 +1,29 @@
-# URLAlchemist
-A web browser extension that acts as a middleware layer for URL navigation. It intercepts, transforms, and redirects URLs based on user-defined actions.
+URL Alchemist for Chrome 2.0
 
-Firefox Add-on link:
-https://addons.mozilla.org/en-US/firefox/addon/url-alchemist/
+URL Alchemist 2.0 is a Chrome extension for building browser workflows from visual blocks. Create editable workspaces, compile them into portable binary Action Packs, and run those packs from page input data, hotkeys, context menus, intervals, or visible overlay events.
 
-Chrome Add-on link:
-https://chromewebstore.google.com/detail/url-alchemist/ijonigkmhlokmdhcjcjinhpionfnjdeo
+What it can do
+Clean tracking links, rewrite URLs, search selected text, launch from clipboard text, capture page title or metadata, fetch HTTPS remote data, show messages and media in page overlays, copy structured output, and keep local per-pack logs.
 
+Workspaces and Action Packs
+Workspaces are the editable source files. They store the full block graph, trigger settings, metadata, and saved editor viewport. Action Packs are the optimized binary runtime files that Chrome executes. You can export either format: share a workspace when someone should edit the source, or share an Action Pack when they only need the reviewed runtime package.
 
-A middleware layer for URL navigation powered by binary action packs.
-Take total control of your browser's navigation.
+Safer imports
+Imported Action Packs are staged before install. URL Alchemist validates their schema, recomputes permissions and risk metadata, explains the compiled steps in plain language, and keeps the Confirm Import button locked until the pack is tested in the sandbox or explicitly reviewed. Action Packs cannot run imported JavaScript, eval, or downloaded code.
 
-URL Alchemist is a privacy-focused tool that acts as a smart filter between your clicks and the web. It allows you to create "Action Packs"—custom rule sets that automatically intercept, modify, or redirect URLs before they load.
+Current Chrome 2.0 highlights
+- Visual workspace editor with drag-and-drop blocks, saved pan and zoom, recovery drafts, and pop-out editing.
+- Run on input data from URL, selected text, link URL, page title, clipboard, page text, page links, page metadata, and related sources.
+- Per-pack hotkeys recorded in the editor and matched by the content-script key listener.
+- Remote data and asset blocks with HTTPS-only validation, byte limits, timeouts, and private-network blocking.
+- Overlay-first interaction blocks for prompts, messages, image/video/audio display, input capture, keyboard events, mouse events, tick handlers, shared state, and grid drawing.
+- Debugging tools including trace, per-pack logs, Save string to log, Abort, and uninstalled-file audit.
+- Local-first backup and restore for settings, workspaces, Action Packs, metadata, and checksums.
 
-Core Features:
+Built-in examples
+The Examples tab includes practical packs and workspaces such as Clean Campaign Links, Keep Stable Query, GitHub PR Files Shortcut, Search Selected Text, Clipboard Search Launcher, Remember Current Page, Copy Page Title, Debug Page Logger, Research Note Snapshot, Remote Text Fetch Preview, Remote POST Snapshot, Clean Words, Break Reminder, Playback Resume, Overlay Input Capture, and Snake Overlay Arcade. Examples are never installed automatically; you choose whether to install the compiled pack or open the workspace source.
 
-Automated Redirects: Seamlessly switch between domains (e.g., redirect production.com to localhost).
+Privacy and control
+URL Alchemist stores data locally by default. Google Sync is optional and best-effort for small items. Clipboard access is optional. Local file navigation is disabled by default. Clipboard, raw page, remote request, page mutation, and overlay input behavior is surfaced as risk information before install.
 
-Tracking Protection: Automatically strip unwanted query parameters (like utm_source, fbclid, or affiliate tags) from every link you visit.
-
-Clipboard Injection: Create powerful workflows that insert your clipboard content directly into specific URL patterns.
-
-Visual Logic Builder: Design complex IF/THEN navigation rules using a transparent, drag-and-drop interface. No coding required.
-
-Security & Privacy First:
-
-100% Local Processing: All URL transformation logic runs directly on your device. Your browsing history never leaves your browser.
-
-Transparent Logic: Imported Action Packs are fully decompiled visually, so you can see exactly what a rule does before you enable it.
-
-Sandboxed Testing: Safely test your rules in a simulated environment to ensure they work exactly as expected.
-
-Whether you are a developer debugging local environments, a privacy advocate removing trackers, or a power user speeding up workflows, URL Alchemist gives you the power to rewrite the web as you navigate it.
-
-URL Alchemist is Open Source and its source code may be downloaded from
+Build the browser workflows you actually need, inspect what they do, and keep control over how your tabs, URLs, page data, and overlays behave.
