@@ -46,7 +46,7 @@ export function explainRiskReason(reason: string): string {
   if (lower.includes('overlay') || lower.includes('display')) {
     return 'Can show an overlay on top of the current page.';
   }
-  return reason.replace(/\.$/, '.');
+  return reason;
 }
 
 export function explainInstruction(instruction: GraphVmInstruction): string {

@@ -15,6 +15,7 @@ import { normalizeStoredState } from '../validation';
 import { validateCompiledActionPackV2 } from './actionPackValidator';
 import { BUNDLED_ACTION_PACK_EXAMPLES, createBundledExampleActionPacks, createBundledExampleWorkspaces } from './bundledExamples';
 import { compileWorkspace } from './compiler';
+import { explainRiskReason } from './explain';
 import { createSandboxGraphRuntime } from './sandboxRuntime';
 import { ACTION_PACK_SCHEMA_VERSION, LEGACY_ACTION_PACK_SCHEMA_VERSION, type CompiledActionPackV2, type GraphValue } from './types';
 import { executeCompiledActionPackV2, type GraphRuntime } from './vm';
@@ -132,6 +133,11 @@ function omitUndefinedFields(value: unknown): unknown {
 }
 
 describe('v2 workspace compiler and VM', () => {
+  it('preserves unknown risk reasons without identity normalization', () => {
+    expect(explainRiskReason('Custom scanner reason.')).toBe('Custom scanner reason.');
+    expect(explainRiskReason('Custom scanner reason')).toBe('Custom scanner reason');
+  });
+
   it('blocks build until a terminal effect exists', () => {
     const workspace = createDefaultWorkspace();
     const result = compileWorkspace(workspace);
