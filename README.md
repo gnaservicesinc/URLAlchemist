@@ -1,5 +1,14 @@
 URL Alchemist
 
+Links:
+Google Chrome:
+https://chromewebstore.google.com/detail/url-alchemist/ijonigkmhlokmdhcjcjinhpionfnjdeo
+
+Firefox:
+https://addons.mozilla.org/en-US/firefox/addon/url-alchemist/
+
+Note. Firefox version 2.0.4 is the SAME as Chrome version 2.0.3.  The next version for Firefox and Chrome will be 2.0.5 to bring them back in sync.
+
 URL Alchemist builds browser workflows from visual blocks. Create editable workspaces, compile them into portable binary Action Packs, and run those packs from page input data, hotkeys, context menus, intervals, or visible overlay events.
 
 What it can do
