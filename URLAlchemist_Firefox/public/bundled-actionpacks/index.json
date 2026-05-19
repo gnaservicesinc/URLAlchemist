@@ -1,0 +1,300 @@
+{
+  "kind": "url-alchemist.bundled-actionpacks.v1",
+  "generatedAtUtc": 1778755200,
+  "builderUuid": "11111111-1111-4111-8111-111111111111",
+  "examples": [
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200001",
+      "name": "Clean Campaign Links",
+      "slug": "clean-campaign-links",
+      "description": "Removes common campaign tracking parameters and tidies query separators.",
+      "category": "URL cleanup",
+      "trigger": "INPUT_DATA",
+      "risk": "safe",
+      "features": [
+        "Run on input data",
+        "Regex cleanup",
+        "Safe URL output"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/clean-campaign-links.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/clean-campaign-links.actionpack"
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200002",
+      "name": "Keep Stable Query",
+      "slug": "keep-stable-query",
+      "description": "Keeps a stable id query value and removes noisy parameters after it.",
+      "category": "URL cleanup",
+      "trigger": "CONTEXT_MENU",
+      "risk": "safe",
+      "features": [
+        "After-pattern trimming",
+        "Context menu run",
+        "Stable share URLs"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/keep-stable-query.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/keep-stable-query.actionpack"
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200003",
+      "name": "GitHub PR Files Shortcut",
+      "slug": "github-pr-files-shortcut",
+      "description": "Turns a GitHub pull request URL into the files view.",
+      "category": "URL cleanup",
+      "trigger": "CONTEXT_MENU",
+      "risk": "safe",
+      "features": [
+        "Before-pattern append",
+        "GitHub scope",
+        "Link URL friendly"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/github-pr-files-shortcut.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/github-pr-files-shortcut.actionpack"
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200004",
+      "name": "Search Selected Text",
+      "slug": "search-selected-text",
+      "description": "Opens a search URL for the current selection with a hotkey.",
+      "category": "Search",
+      "trigger": "HOTKEY",
+      "risk": "safe",
+      "features": [
+        "Selected text input",
+        "Hotkey trigger",
+        "String to URL conversion"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/search-selected-text.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/search-selected-text.actionpack"
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200005",
+      "name": "Clipboard Search Launcher",
+      "slug": "clipboard-search-launcher",
+      "description": "Opens a search URL for the current clipboard contents.",
+      "category": "Search",
+      "trigger": "HOTKEY",
+      "risk": "high",
+      "features": [
+        "Clipboard input",
+        "High-risk staging warning",
+        "String to URL conversion"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/clipboard-search-launcher.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/clipboard-search-launcher.actionpack"
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200006",
+      "name": "Remember Current Page",
+      "slug": "remember-current-page",
+      "description": "Shows a previous/current page note and updates the remembered URL for the next run.",
+      "category": "Storage",
+      "trigger": "CONTEXT_MENU",
+      "risk": "extended",
+      "features": [
+        "Session SaveLoad",
+        "Previous page recall",
+        "Overlay preview"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/remember-current-page.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/remember-current-page.actionpack"
+    },
+    {
+      "id": "514631bb-d33c-46e2-b416-70720c6e02f9",
+      "name": "Variable Use Across Runs",
+      "slug": "variable-use-across-runs",
+      "description": "Declares $counter once, uses it as the missing saved-value fallback and increment amount, then saves the next count for later runs.",
+      "category": "Storage",
+      "trigger": "HOTKEY",
+      "risk": "extended",
+      "features": [
+        "$counter declaration",
+        "Variable fallback",
+        "Cross-run save",
+        "Overlay and log"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/variable-use-across-runs.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/variable-use-across-runs.actionpack"
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200016",
+      "name": "Copy Page Title",
+      "slug": "copy-page-title",
+      "description": "Copies the current tab title to the clipboard from the context menu without changing the URL.",
+      "category": "Page tools",
+      "trigger": "CONTEXT_MENU",
+      "risk": "high",
+      "features": [
+        "Page title input",
+        "Clipboard output",
+        "No redirect"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/copy-page-title.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/copy-page-title.actionpack"
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200017",
+      "name": "Debug Page Logger",
+      "slug": "debug-page-logger",
+      "description": "Formats page title and URL with the Substitution block, writes the message to the Action Pack log, and aborts cleanly when the title is empty.",
+      "category": "Page tools",
+      "trigger": "CONTEXT_MENU",
+      "risk": "extended",
+      "features": [
+        "Substitution block",
+        "Action Pack log",
+        "Abort guard"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/debug-page-logger.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/debug-page-logger.actionpack"
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200007",
+      "name": "Research Note Snapshot",
+      "slug": "research-note-snapshot",
+      "description": "Copies a small JSON note containing the current URL and page title.",
+      "category": "Page tools",
+      "trigger": "CONTEXT_MENU",
+      "risk": "high",
+      "features": [
+        "Dictionary building",
+        "JSON conversion",
+        "Clipboard output"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/research-note-snapshot.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/research-note-snapshot.actionpack"
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200008",
+      "name": "Uppercase Selection Clipboard",
+      "slug": "uppercase-selection-clipboard",
+      "description": "Copies a simple uppercase ASCII transform of the selected text.",
+      "category": "Page tools",
+      "trigger": "CONTEXT_MENU",
+      "risk": "high",
+      "features": [
+        "Declarations",
+        "Logic and loop blocks",
+        "Math conversion to clipboard"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/uppercase-selection-clipboard.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/uppercase-selection-clipboard.actionpack"
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200009",
+      "name": "Remote Text Fetch Preview",
+      "slug": "remote-text-fetch-preview",
+      "description": "Fetches the stable Example Domain page and previews the returned text on the current page while leaving navigation unchanged.",
+      "category": "Remote data",
+      "trigger": "CONTEXT_MENU",
+      "risk": "high",
+      "features": [
+        "Remote GET warning",
+        "Real HTTPS endpoint",
+        "No redirect"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/remote-text-fetch-preview.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/remote-text-fetch-preview.actionpack"
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200010",
+      "name": "Remote POST Snapshot",
+      "slug": "remote-post-snapshot",
+      "description": "Builds a small page dictionary, sends it to a public echo endpoint, and previews the echoed response.",
+      "category": "Remote data",
+      "trigger": "CONTEXT_MENU",
+      "risk": "high",
+      "features": [
+        "Remote POST warning",
+        "Dictionary body",
+        "Echo response"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/remote-post-snapshot.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/remote-post-snapshot.actionpack"
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200011",
+      "name": "Clean Words",
+      "slug": "clean-words",
+      "description": "Masks a small built-in word list in page text and shows a review message before leaving navigation unchanged.",
+      "category": "Page tools",
+      "trigger": "CONTEXT_MENU",
+      "risk": "high",
+      "features": [
+        "Built-in word list",
+        "Page text mutation",
+        "Overlay message"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/clean-words.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/clean-words.actionpack"
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200012",
+      "name": "Break Reminder",
+      "slug": "break-reminder",
+      "description": "Opens a manual break reminder from a hotkey, shows bundled media, plays a short local tone, and records the run time.",
+      "category": "Media",
+      "trigger": "HOTKEY",
+      "risk": "high",
+      "features": [
+        "Embedded media",
+        "Hotkey trigger",
+        "SaveLoad timestamp"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/break-reminder.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/break-reminder.actionpack"
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200013",
+      "name": "Playback Resume",
+      "slug": "playback-resume",
+      "description": "Plays a tiny bundled video sample and stores playback result details for later runs.",
+      "category": "Media",
+      "trigger": "HOTKEY",
+      "risk": "high",
+      "features": [
+        "Embedded video",
+        "Playback result dictionary",
+        "SaveLoad"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/playback-resume.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/playback-resume.actionpack"
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200014",
+      "name": "Overlay Input Capture",
+      "slug": "overlay-input-capture",
+      "description": "Opens an overlay from a hotkey, captures keyboard and mouse events while it is open, and stores the bounded event summary.",
+      "category": "Page tools",
+      "trigger": "HOTKEY",
+      "risk": "extended",
+      "features": [
+        "Hotkey launch",
+        "Overlay input",
+        "Keyboard capture",
+        "Mouse capture"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/overlay-input-capture.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/overlay-input-capture.actionpack"
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200015",
+      "name": "Snake Overlay Arcade",
+      "slug": "snake-overlay-arcade",
+      "description": "Runs a playable Snake-style overlay game from generic event, state, list, random, and draw blocks.",
+      "category": "Interactive",
+      "trigger": "HOTKEY",
+      "risk": "extended",
+      "features": [
+        "Overlay session",
+        "Keyboard events",
+        "Mouse events",
+        "Tick loop",
+        "Shared state",
+        "Grid drawing"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/snake-overlay-arcade.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/snake-overlay-arcade.actionpack"
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Interactive Overlays</title>
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; line-height: 1.7; max-width: 760px; margin: 0 auto; padding: 40px 24px; color: #1e293b; background: #fff; }
+  h1 { color: #0f172a; margin-top: 0; }
+  h2 { color: #334155; margin-top: 2rem; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; }
+  code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; }
+  .warning { background: #fee2e2; border-left: 4px solid #ef4444; padding: 12px 16px; border-radius: 6px; }
+  .note { background: #fef9c3; border-left: 4px solid #eab308; padding: 12px 16px; border-radius: 6px; }
+</style>
+</head>
+<body>
+<h1>Interactive Overlays</h1>
+<p>Interactive overlay workspaces use event source blocks instead of a single blocking prompt. <strong>On Trigger Event</strong> handles the normal workspace Run event. <strong>Keyboard In</strong>, <strong>Mouse In</strong>, and <strong>Overlay Tick In</strong> run only while a URL Alchemist-owned overlay session is active.</p>
+<h2>Overlay Session</h2>
+<p><strong>Overlay Control</strong> starts, stops, toggles, or checks the visible full-page overlay. The overlay has a white page-covering background and a Close button so control capture is obvious and recoverable.</p>
+<p><strong>Overlay Draw</strong> redraws a simple grid scene from reusable cell dictionaries such as <code>{"x":8,"y":8,"color":"#16a34a"}</code>. Text input can update the overlay header.</p>
+<h2>State And Events</h2>
+<p><strong>Shared State</strong> stores values for the active session so Run, keyboard, mouse, and tick handlers can cooperate. <strong>Dict Get</strong>, <strong>List Operation</strong>, <strong>Condition Select</strong>, <strong>Random Number</strong>, <strong>Constant</strong>, and <strong>Sleep</strong> provide general application logic without a game-specific opcode.</p>
+<p class="note">Mouse events also populate <code>$mouse_x</code> and <code>$mouse_y</code>. The values are overlay-local while the pointer is inside the overlay and <code>-1</code> after pointer leave.</p>
+<h2>Run Flow</h2>
+<p>A typical overlay workflow starts from a hotkey, uses <strong>Overlay Control</strong> to start the visible session, initializes shared state, and then lets keyboard, mouse, or tick handlers update that state and draw the next frame.</p>
+<p class="warning">Do not use overlay handlers for hidden key logging. Events are routed only through the visible URL Alchemist overlay, and closing that overlay stops routing.</p>
+<h2>Example</h2>
+<p>The bundled <strong>Snake Overlay Arcade</strong> workspace is built from these generic blocks. Its hotkey opens or closes the overlay, keyboard events change direction or exit, mouse clicks toggle pause, and tick events move the snake, update shared state, spawn food, and redraw the grid.</p>
+<p class="warning">Keyboard and mouse events are routed only from the active URL Alchemist overlay session. They do not re-fire the workspace hotkey Run.</p>
+</body>
+</html>

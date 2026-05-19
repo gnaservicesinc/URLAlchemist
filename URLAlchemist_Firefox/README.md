@@ -11,6 +11,7 @@ This add-on uses build tooling that requires a source code submission to AMO:
 - Rollup (through Vite) to bundle multiple source files into the final extension files
 - `@vitejs/plugin-react` to transform React TSX/JSX
 - `@tailwindcss/vite` to process the options page CSS
+- `@xyflow/react` for the visual workspace editor
 - Vite production minification for generated files in `dist/`
 
 This add-on does not use:
@@ -27,6 +28,7 @@ Include these files and folders in the AMO source submission package:
 
 - `src/`
 - `public/`
+- `scripts/`
 - `options.html`
 - `package.json`
 - `package-lock.json`
@@ -74,6 +76,7 @@ The script performs these steps:
 
 ```bash
 npm ci
+npm run generate:bundled
 npm run build
 ```
 
@@ -85,6 +88,8 @@ The generated extension files are written to `dist/`, including:
 - `dist/background.js`
 - `dist/content.js`
 - `dist/options.html`
+- `dist/help/*`
+- `dist/bundled-actionpacks/*`
 - `dist/assets/*`
 
 ## Optional verification
@@ -93,6 +98,7 @@ These commands are not required to create the extension package, but they are us
 
 ```bash
 npm test
+npm run generate:bundled
 npx web-ext lint -s dist
 ```
 
@@ -100,4 +106,5 @@ npx web-ext lint -s dist
 
 - `package-lock.json` is included so dependency resolution is pinned.
 - The authoritative project source is in `src/`, `public/`, and the top-level config files listed above.
+- Firefox uses an MV3 background script/page for regex, clipboard, interval, and overlay runtime services; it does not use Chrome offscreen documents.
 - `dist/` is generated output and should be recreated from source.

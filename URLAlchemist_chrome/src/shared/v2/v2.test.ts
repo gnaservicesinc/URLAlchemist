@@ -1824,7 +1824,8 @@ describe('v2 workspace compiler and VM', () => {
       const pack = await importCompiledActionPackV2Binary(actionPackBytes);
 
       expect(workspace.workspace.metadata.id).toBe(example.id);
-      expect(workspace.workspace.metadata.compatibility?.firefox?.status).toBe('pending-v2-runtime');
+      expect(workspace.workspace.metadata.compatibility?.firefox?.status).toBe('supported');
+      expect(workspace.workspace.metadata.compatibility?.firefoxAndroid?.status).toBe('source-only');
       expect(pack.pack.manifest.id).toBe(example.id);
     }
   });

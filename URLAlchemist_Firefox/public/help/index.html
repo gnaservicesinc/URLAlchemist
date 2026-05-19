@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>URL Alchemist Help</title>
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; line-height: 1.7; max-width: 720px; margin: 0 auto; padding: 40px 24px; color: #1e293b; background: #fff; }
+  h1 { font-size: 2rem; color: #0f172a; margin-top: 0; }
+  h2 { font-size: 1.4rem; color: #334155; margin-top: 2rem; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; }
+  h3 { font-size: 1.15rem; color: #475569; margin-top: 1.5rem; }
+  p { margin: 0.75rem 0; }
+  code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+  pre { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; overflow-x: auto; }
+  ul, ol { padding-left: 24px; }
+  li { margin: 4px 0; }
+  strong { color: #0f172a; }
+  .note { background: #fef9c3; border-left: 4px solid #eab308; padding: 12px 16px; border-radius: 6px; margin: 16px 0; }
+  .warning { background: #fee2e2; border-left: 4px solid #ef4444; padding: 12px 16px; border-radius: 6px; margin: 16px 0; }
+</style>
+</head>
+<body>
+
+<h1>URL Alchemist &mdash; Overview</h1>
+
+<p>URL Alchemist is a Firefox extension for building small browser workflows from visual blocks. It can clean URLs, route selected text or clipboard text, show page overlays, fetch remote data, play media, log runs, and redirect tabs when a compiled <strong>Action Pack</strong> produces a new URL.</p>
+
+<p>The extension is local-first. Workspaces, Action Packs, logs, and settings live in extension storage unless you export a file, restore a backup, or opt into browser sync for small items.</p>
+<p>Firefox desktop is the primary runtime target for this build. Firefox for Android compatibility is tracked separately in bundled workspace metadata and should be smoke tested on-device before a pack is labeled Android-ready.</p>
+
+<h2>Key Concepts</h2>
+
+<h3>Workspaces</h3>
+<p>A <strong>workspace</strong> (file extension <code>.workspace</code>) is the editable source document where you design behavior with blocks and connections. Workspaces store metadata, trigger settings, the saved canvas viewport, and the full source graph.</p>
+
+<h3>Action Packs</h3>
+<p>An <strong>Action Pack</strong> (file extension <code>.actionpack</code>) is the compiled binary runtime form of a workspace. Action Packs are compact, validated, and include risk metadata so they can be reviewed before installation.</p>
+
+<h3>The Engine</h3>
+<p>The background engine listens for navigation, hotkey, context-menu, interval, and overlay events. When a matching Action Pack is installed and enabled, the engine runs the compiled instruction set with strict instruction, redirect, remote request, and regex budgets.</p>
+<p>The editor calls the top-level schedule <strong>Run</strong>. <strong>Run on input data</strong> means the pack runs from configured input sources such as URL, selected text, link URL, page title, clipboard, page text, or page metadata. Keyboard, mouse, and tick events are separate event-handler blocks inside the workspace.</p>
+
+<h2>Quick Start</h2>
+
+<ol>
+  <li>Open the <strong>Examples</strong> tab and search by task, such as cleanup, search, media, remote data, or overlays.</li>
+  <li>Click <strong>Install Action Pack</strong> to try a compiled example, or <strong>Open Workspace</strong> to inspect and modify the source first.</li>
+  <li>Use the <strong>Workspace Editor</strong> to build your own transformations from scratch.</li>
+  <li>When your workspace is valid, click <strong>Build &amp; Install</strong> to compile it into an Action Pack and activate it.</li>
+  <li>Use <strong>Manage Resources</strong> to view logs, export files, update metadata, or delete installed resources.</li>
+  <li>Use <strong>Settings</strong> to export a backup before reinstalling Firefox or the extension.</li>
+</ol>
+
+<h2>Built-In Examples To Try</h2>
+<ul>
+  <li><strong>Clean Campaign Links</strong> removes common tracking query parameters as input URLs arrive.</li>
+  <li><strong>Search Selected Text</strong> turns selected page text into a search URL from a hotkey.</li>
+  <li><strong>Remote Text Fetch Preview</strong> demonstrates remote HTTPS fetch review without changing navigation.</li>
+  <li><strong>Clean Words</strong> shows how page text mutation and overlay review work together.</li>
+  <li><strong>Playback Resume</strong> plays bundled video and stores structured playback details.</li>
+  <li><strong>Snake Overlay Arcade</strong> demonstrates a real-time overlay built from generic event and draw blocks.</li>
+</ul>
+
+<h2>Tab Reference</h2>
+
+<ul>
+  <li><strong>Examples</strong> &mdash; Browse and install bundled example Action Packs and workspaces.</li>
+  <li><strong>Manage Resources</strong> &mdash; View, manage, export, and delete installed workspaces and Action Packs.</li>
+  <li><strong>Import</strong> &mdash; Import workspace or Action Pack files via drag-and-drop or file picker.</li>
+  <li><strong>Workspace Editor</strong> &mdash; The visual node editor where you build URL transformation logic.</li>
+  <li><strong>Security</strong> &mdash; Enable tracing, audit files, configure hardening limits, and monitor alerts.</li>
+  <li><strong>Settings</strong> &mdash; Global toggles, UI scaling, clipboard permissions, and backup/restore.</li>
+  <li><strong>Help</strong> &mdash; This documentation.</li>
+  <li><strong>About</strong> &mdash; Version info, license, repository links, and reset options.</li>
+</ul>
+
+<h2>Overlay Workflows</h2>
+<p><strong>Overlay Input</strong> opens a temporary overlay and returns a bounded summary of keyboard and mouse events captured while that overlay is open.</p>
+<p>For real-time applications, use the event-handler blocks: <strong>On Trigger Event</strong>, <strong>Keyboard In</strong>, <strong>Mouse In</strong>, and <strong>Overlay Tick In</strong>. Pair them with <strong>Overlay Control</strong>, <strong>Overlay Draw</strong>, and shared state blocks to build interactive overlay workflows without custom JavaScript.</p>
+<p>The bundled <strong>Snake Overlay Arcade</strong> example demonstrates a classic arcade game built from those generic workspace blocks.</p>
+<h2>Import Safety</h2>
+<p>Imported Action Packs open in the staging gate instead of saving immediately. Review the manifest, risk badges, plain-language steps, and sandbox result before confirming import.</p>
+<p class="warning">Treat clipboard, raw page, remote request, page mutation, and overlay input behavior as sensitive. URL Alchemist surfaces these risks so you can decide before the pack is installed.</p>
+<h2>Debugging</h2>
+<p>Manage Resources includes <strong>View Log</strong>, <strong>Export Log</strong>, and <strong>Clear Log</strong> actions for each installed Action Pack. Logs record run timestamps, exit codes, issues, and entries written by <strong>Save string to log</strong>.</p>
+<p>Per-pack logs rotate automatically after the newest 300 entries or about 256 KB, whichever limit is reached first.</p>
+<p>Use <strong>Abort</strong> when a workflow needs to stop mid-run after a boolean guard becomes true. Abort returns exit code <code>130</code> and stops later instructions in that run.</p>
+
+</body>
+</html>

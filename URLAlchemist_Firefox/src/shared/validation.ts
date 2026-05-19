@@ -5,8 +5,18 @@ import {
   MATCH_MODES,
   TRIGGER_TYPES,
 } from './types';
-import type { ActionPack, Activity, ActivityCondition, StoredState } from './types';
+import type { ActionPack, ActionPackLogSeverity, Activity, ActivityCondition, StoredState } from './types';
 import { DEFAULT_SETTINGS } from './constants';
+import {
+  normalizeHardeningMaxInstructions,
+  normalizeHardeningMaxRecursion,
+  normalizeHardeningRegexTimeoutMs,
+  normalizeUiScale,
+} from './hardening';
+import { SUPPORTED_ACTION_PACK_SCHEMA_VERSIONS } from './v2/types';
+import type { CompiledActionPackV2 } from './v2/types';
+import { validateCompiledActionPackV2 } from './v2/actionPackValidator';
+import { validateWorkspaceFile } from './v2/workspace';
 
 interface ValidationSuccess<T> {
   ok: true;
@@ -35,8 +45,20 @@ const PACK_KEYS = ['id', 'name', 'version', 'enabled', 'metadata', 'trigger', 'a
 const METADATA_KEYS = ['author', 'description', 'created_at'];
 const TRIGGER_KEYS = ['type', 'hotkey', 'scope_regex'];
 const CONDITION_KEYS = ['type', 'value', 'target'];
-const STORED_STATE_KEYS = ['settings', 'packs'];
-const SETTINGS_KEYS = ['globalEnabled', 'allowLocalFiles', 'advancedModeEnabled'];
+const STORED_STATE_KEYS = ['settings', 'packs', 'actionPacksV2', 'workspacesV2', 'traceEntries', 'actionPackLogs'];
+const ACTION_PACK_LOG_KINDS = ['run', 'message'] as const;
+const ACTION_PACK_LOG_SEVERITIES = ['debug', 'info', 'warn', 'error'] as const;
+const SETTINGS_KEYS = [
+  'globalEnabled',
+  'allowLocalFiles',
+  'advancedModeEnabled',
+  'syncEnabled',
+  'uiScale',
+  'hardeningMaxInstructions',
+  'hardeningMaxRecursion',
+  'hardeningRegexTimeoutMs',
+  'builderUuid',
+];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -81,6 +103,14 @@ function isPositiveInteger(value: unknown): value is number {
 
 function isNonNegativeInteger(value: unknown): value is number {
   return Number.isInteger(value) && (value as number) >= 0;
+}
+
+function isLogKind(value: unknown): value is StoredState['actionPackLogs'][number]['kind'] {
+  return typeof value === 'string' && (ACTION_PACK_LOG_KINDS as readonly string[]).includes(value);
+}
+
+function isLogSeverity(value: unknown): value is ActionPackLogSeverity {
+  return typeof value === 'string' && (ACTION_PACK_LOG_SEVERITIES as readonly string[]).includes(value);
 }
 
 function validateCondition(candidate: unknown, prefix: string): ValidationResult<ActivityCondition> {
@@ -260,65 +290,192 @@ export function validateActionPack(candidate: unknown): ValidationResult<ActionP
   };
 }
 
-export function validateStoredState(candidate: unknown): ValidationResult<StoredState> {
-  if (!isRecord(candidate) || !hasExactKeys(candidate, STORED_STATE_KEYS)) {
-    return { ok: false, errors: ['Stored state must be exact'] };
+export interface ValidatedStoredState {
+  state: StoredState;
+  warnings: string[];
+}
+
+export function validateStoredState(candidate: unknown): ValidationResult<ValidatedStoredState> {
+  if (!isRecord(candidate)) {
+    return { ok: false, errors: ['Stored state must be an object'] };
   }
 
-  if (!isRecord(candidate.settings) || !hasExactKeys(candidate.settings, SETTINGS_KEYS)) {
+  if (!isRecord(candidate.settings) || !Object.keys(candidate.settings).every((key) => SETTINGS_KEYS.includes(key))) {
     return { ok: false, errors: ['Stored settings must be exact'] };
   }
 
   if (
     typeof candidate.settings.globalEnabled !== 'boolean' ||
     typeof candidate.settings.allowLocalFiles !== 'boolean' ||
-    typeof candidate.settings.advancedModeEnabled !== 'boolean'
+    typeof candidate.settings.advancedModeEnabled !== 'boolean' ||
+    (candidate.settings.syncEnabled !== undefined && typeof candidate.settings.syncEnabled !== 'boolean')
   ) {
     return { ok: false, errors: ['Stored settings values must be booleans'] };
   }
 
-  if (!Array.isArray(candidate.packs)) {
+  if (candidate.settings.builderUuid !== undefined && typeof candidate.settings.builderUuid !== 'string') {
+    return { ok: false, errors: ['Stored builder UUID must be a string'] };
+  }
+
+  if (
+    (candidate.settings.uiScale !== undefined && !isFiniteNumber(candidate.settings.uiScale)) ||
+    (candidate.settings.hardeningMaxInstructions !== undefined && !isFiniteNumber(candidate.settings.hardeningMaxInstructions)) ||
+    (candidate.settings.hardeningMaxRecursion !== undefined && !isFiniteNumber(candidate.settings.hardeningMaxRecursion)) ||
+    (candidate.settings.hardeningRegexTimeoutMs !== undefined && !isFiniteNumber(candidate.settings.hardeningRegexTimeoutMs))
+  ) {
+    return { ok: false, errors: ['Stored numeric settings must be finite numbers'] };
+  }
+
+  if (candidate.packs !== undefined && !Array.isArray(candidate.packs)) {
     return { ok: false, errors: ['Stored packs must be an array'] };
   }
 
   const packs: ActionPack[] = [];
-  const errors: string[] = [];
+  const actionPacksV2: CompiledActionPackV2[] = [];
+  const workspacesV2: StoredState['workspacesV2'] = [];
+  const traceEntries: StoredState['traceEntries'] = [];
+  const actionPackLogs: StoredState['actionPackLogs'] = [];
+  const warnings: string[] = [];
+  let droppedLegacyPacks = 0;
 
-  candidate.packs.forEach((pack) => {
+  const candidatePacks = Array.isArray(candidate.packs) ? candidate.packs : [];
+  candidatePacks.forEach((pack: unknown, index: number) => {
     const packResult = validateActionPack(pack);
     if (packResult.ok) {
       packs.push(packResult.value);
       return;
     }
 
-    errors.push(...packResult.errors);
+    droppedLegacyPacks += 1;
+    warnings.push(`Dropped legacy pack at index ${index}: ${packResult.errors.join('; ')}`);
   });
 
-  if (errors.length > 0) {
-    return { ok: false, errors };
+  if (droppedLegacyPacks > 0) {
+    warnings.push(`Recovered ${packs.length} of ${candidatePacks.length} legacy packs (${droppedLegacyPacks} dropped).`);
   }
+
+  if (candidate.actionPacksV2 !== undefined && !Array.isArray(candidate.actionPacksV2)) {
+    warnings.push('Stored Action Packs were not an array; resetting to empty.');
+  }
+
+  const candidateActionPacksV2 = Array.isArray(candidate.actionPacksV2) ? candidate.actionPacksV2 : [];
+  candidateActionPacksV2.forEach((pack: unknown, index: number) => {
+    if (
+      isRecord(pack) &&
+      pack.kind === 'action-pack.v2' &&
+      (SUPPORTED_ACTION_PACK_SCHEMA_VERSIONS as readonly number[]).includes(pack.schemaVersion as number) &&
+      isRecord(pack.manifest) &&
+      isRecord(pack.vm) &&
+      Array.isArray(pack.vm.instructions)
+    ) {
+      const validation = validateCompiledActionPackV2(pack);
+      if (validation.ok) {
+        actionPacksV2.push(validation.pack);
+      } else {
+        warnings.push(`Dropped Action Pack at index ${index}: ${validation.errors.join('; ')}`);
+      }
+    } else {
+      warnings.push(`Dropped Action Pack at index ${index}: missing required fields or wrong kind/schemaVersion.`);
+    }
+  });
+
+  if (candidate.workspacesV2 !== undefined && !Array.isArray(candidate.workspacesV2)) {
+    warnings.push('Stored workspaces were not an array; resetting to empty.');
+  }
+
+  const candidateWorkspacesV2 = Array.isArray(candidate.workspacesV2) ? candidate.workspacesV2 : [];
+  candidateWorkspacesV2.forEach((workspace: unknown, index: number) => {
+    const validation = validateWorkspaceFile(workspace);
+    if (validation.ok) {
+      workspacesV2.push(validation.value);
+    } else {
+      warnings.push(`Dropped workspace at index ${index}: ${validation.errors.join('; ')}`);
+    }
+  });
+
+  const candidateTraceEntries = Array.isArray(candidate.traceEntries) ? candidate.traceEntries : [];
+  if (candidateTraceEntries.length > 0) {
+    candidateTraceEntries.forEach((entry) => {
+      if (isRecord(entry) && typeof entry.id === 'string' && typeof entry.packId === 'string') {
+        traceEntries.push(entry as unknown as StoredState['traceEntries'][number]);
+      }
+    });
+  }
+
+  const candidateActionPackLogs = Array.isArray(candidate.actionPackLogs) ? candidate.actionPackLogs : [];
+  if (candidateActionPackLogs.length > 0) {
+    candidateActionPackLogs.forEach((entry) => {
+      if (
+        isRecord(entry) &&
+        typeof entry.id === 'string' &&
+        typeof entry.packId === 'string' &&
+        typeof entry.packName === 'string' &&
+        isNonNegativeInteger(entry.timestamp) &&
+        isLogKind(entry.kind) &&
+        isLogSeverity(entry.severity) &&
+        typeof entry.message === 'string'
+      ) {
+        actionPackLogs.push({
+          id: entry.id,
+          packId: entry.packId,
+          packName: entry.packName,
+          timestamp: entry.timestamp,
+          kind: entry.kind,
+          severity: entry.severity,
+          message: entry.message,
+          nodeId: typeof entry.nodeId === 'string' ? entry.nodeId : undefined,
+          handler: typeof entry.handler === 'string' ? entry.handler : undefined,
+          inputUrl: typeof entry.inputUrl === 'string' ? entry.inputUrl : undefined,
+          outputUrl: typeof entry.outputUrl === 'string' ? entry.outputUrl : undefined,
+          changed: typeof entry.changed === 'boolean' ? entry.changed : undefined,
+          exitCode: isNonNegativeInteger(entry.exitCode) ? entry.exitCode : undefined,
+          issueCount: isNonNegativeInteger(entry.issueCount) ? entry.issueCount : undefined,
+        });
+      }
+    });
+  }
+
+  const state: StoredState = {
+    settings: {
+      globalEnabled: candidate.settings.globalEnabled,
+      allowLocalFiles: candidate.settings.allowLocalFiles,
+      advancedModeEnabled: candidate.settings.advancedModeEnabled,
+      syncEnabled: candidate.settings.syncEnabled ?? DEFAULT_SETTINGS.syncEnabled,
+      uiScale: normalizeUiScale(candidate.settings.uiScale),
+      hardeningMaxInstructions: normalizeHardeningMaxInstructions(candidate.settings.hardeningMaxInstructions),
+      hardeningMaxRecursion: normalizeHardeningMaxRecursion(candidate.settings.hardeningMaxRecursion),
+      hardeningRegexTimeoutMs: normalizeHardeningRegexTimeoutMs(candidate.settings.hardeningRegexTimeoutMs),
+      builderUuid: candidate.settings.builderUuid || crypto.randomUUID(),
+    },
+    packs,
+    actionPacksV2,
+    workspacesV2,
+    traceEntries,
+    actionPackLogs,
+  };
 
   return {
     ok: true,
-    value: {
-      settings: {
-        globalEnabled: candidate.settings.globalEnabled,
-        allowLocalFiles: candidate.settings.allowLocalFiles,
-        advancedModeEnabled: candidate.settings.advancedModeEnabled,
-      },
-      packs,
-    },
+    value: { state, warnings },
   };
 }
 
 export function normalizeStoredState(candidate: unknown): StoredState {
   const parsed = validateStoredState(candidate);
   if (parsed.ok) {
-    return parsed.value;
+    if (parsed.value.warnings.length > 0) {
+      console.warn('[URL Alchemist] State normalization warnings:', parsed.value.warnings);
+    }
+    return parsed.value.state;
   }
 
+  console.warn('[URL Alchemist] Stored state was corrupted and reset to defaults:', parsed.errors);
   return {
     settings: DEFAULT_SETTINGS,
     packs: [],
+    actionPacksV2: [],
+    workspacesV2: [],
+    traceEntries: [],
+    actionPackLogs: [],
   };
 }

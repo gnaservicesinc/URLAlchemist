@@ -27,6 +27,8 @@ Direct runtime dependencies used by the shipped Firefox extension:
   - Source: https://github.com/facebook/react/tree/main/packages/react-dom
 - `@msgpack/msgpack` 3.1.3
   - Source: https://github.com/msgpack/msgpack-javascript
+- `@xyflow/react` 12.10.2
+  - Source: https://github.com/xyflow/xyflow
 - `safe-regex` 2.1.1
   - Source: https://github.com/davisjam/safe-regex
 
@@ -39,3 +41,7 @@ Transitive open-source dependencies are resolved by npm from `package-lock.json`
 - These warnings are in generated `dist/assets/options-*.js` output.
 - The project source under `src/` and `public/` does not use `innerHTML` or `dangerouslySetInnerHTML`.
 - The warnings come from bundled third-party framework code in the production artifact, not from custom extension source.
+
+## Firefox runtime note
+
+This Firefox MV3 build uses a background script/page rather than a Chrome service worker plus offscreen document. Regex worker jobs, clipboard reads/writes, alarms, content-script hotkeys, and page-overlay messages are handled directly from the Firefox background/content runtime.

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "URL Alchemist for Firefox",
-  "version": "1.0.0",
+  "version": "2.0.2",
   "description": "A middleware layer for URL navigation powered by binary action packs.",
   "icons": {
     "16": "icons/icon-16.png",
@@ -14,9 +14,10 @@
     "tabs",
     "webNavigation",
     "contextMenus",
-    "downloads"
+    "downloads",
+    "alarms"
   ],
-  "optional_permissions": ["clipboardRead"],
+  "optional_permissions": ["clipboardRead", "clipboardWrite"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "scripts": ["background.js"],

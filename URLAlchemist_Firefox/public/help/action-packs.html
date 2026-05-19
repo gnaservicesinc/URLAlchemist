@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Action Packs</title>
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; line-height: 1.7; max-width: 760px; margin: 0 auto; padding: 40px 24px; color: #1e293b; background: #fff; }
+  h1 { color: #0f172a; margin-top: 0; }
+  h2 { color: #334155; margin-top: 2rem; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; }
+  code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<h1>Action Packs</h1>
+<p>An Action Pack is the compiled binary runtime form of a workspace. The extension executes Action Packs, not workspace source files.</p>
+<h2>Compilation</h2>
+<p>Compilation validates required connections, block compatibility, regex safety, risk metadata, permissions, schema version, and Run details. A valid workspace can be compiled and exported from the editor or Manage Resources.</p>
+<p>Action Pack schema 5 supports input-data triggers, hotkey-specific packs, remote data blocks, media/display blocks, logging, aborts, and event-driven overlay handlers.</p>
+<h2>Import Review</h2>
+<p>Imported Action Packs open in the staging gate. The gate shows metadata, risk warnings, plain-language behavior steps, and an interactive sandbox before the Confirm Import button unlocks.</p>
+<p>Action Packs cannot run imported JavaScript. They execute only the compiled instruction types that URL Alchemist knows how to validate, explain, and run.</p>
+<p>If a legacy <code>.urlpack</code> is imported, URL Alchemist converts it into an editable workspace instead of forcing you to recreate it manually.</p>
+<h2>Logs</h2>
+<p>Each installed Action Pack has a local log in Manage Resources. Every run records a timestamp, exit code, handler, issue count, and URL summary.</p>
+<p>The <strong>Save string to log</strong> block writes a formatted entry with a severity level. You can view, export, or clear a pack log from Manage Resources.</p>
+<p>Logs stay local and rotate automatically: URL Alchemist keeps the newest 300 entries or about 256 KB per Action Pack, whichever comes first.</p>
+<h2>Pairing</h2>
+<p>Manage Resources draws a connection between an installed workspace and any installed Action Pack compiled from it. You may delete either resource independently.</p>
+<h2>Overlay Interaction</h2>
+<p>Overlay examples compile to the same Action Pack format. A pack can request input capture only through known overlay instructions, and event-driven keyboard, mouse, and tick handlers run only while a URL Alchemist-owned overlay session is active.</p>
+<p>The staging review shows these overlay and event instructions as normal compiled behavior. They are generic primitives, not hidden game-specific runtime code.</p>
+<h2>Sharing</h2>
+<p>Share a <code>.workspace</code> when you want someone to edit or inspect the source graph. Share a <code>.actionpack</code> when you want a compact runtime package that still goes through staging before install.</p>
+<p>Chrome and Firefox use the same binary artifact formats. If an imported Action Pack uses a browser capability that Firefox does not support or has not verified on Android, the staging gate shows that compatibility note before install.</p>
+</body>
+</html>

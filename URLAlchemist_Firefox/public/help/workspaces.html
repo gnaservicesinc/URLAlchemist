@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Workspaces</title>
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; line-height: 1.7; max-width: 760px; margin: 0 auto; padding: 40px 24px; color: #1e293b; background: #fff; }
+  h1 { color: #0f172a; margin-top: 0; }
+  h2 { color: #334155; margin-top: 2rem; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; }
+  code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; }
+  .note { background: #fef9c3; border-left: 4px solid #eab308; padding: 12px 16px; border-radius: 6px; }
+</style>
+</head>
+<body>
+<h1>Workspaces</h1>
+<p>A workspace is the editable source document for URL Alchemist. It stores blocks, connections, metadata, Run settings, and the saved canvas viewport.</p>
+<h2>Editing</h2>
+<p>Use the Workspace Editor to add blocks, select and move one or more blocks, connect compatible ports, and configure metadata. Start from a bundled example when you want a practical pattern, then save a copy and adjust the blocks. Workspaces can be saved while incomplete, but compiling requires a valid graph and at least one output path.</p>
+<h2>Run Settings</h2>
+<p><strong>Run on input data</strong> starts a pack when configured inputs arrive, such as URL, selected text, link URL, page title, clipboard, page text, or page metadata. Hotkey, context-menu, interval, conditional, keyboard, mouse, and tick events are separate triggers or event handlers.</p>
+<h2>Saving and Recovery</h2>
+<p>The Save Workspace command writes the current source document into installed workspaces. While editing, URL Alchemist also writes a temporary recovery draft so browser crashes or tab closes do not discard hours of work.</p>
+<p class="note">Viewport changes are saved with the workspace so the editor reopens at the same pan and zoom.</p>
+<h2>Installed Workspaces</h2>
+<p>The Manage Resources tab lists installed workspaces. You can open, edit metadata, export, compile, or delete a workspace without deleting any compiled Action Pack that came from it.</p>
+<p>When a workspace and Action Pack share the same source ID, Manage Resources shows the pairing so you can understand what source produced the runtime pack.</p>
+<h2>Variables And Substitution</h2>
+<p>Declared variables appear in the editor side panel. Fields that reference a declared variable change color so usage is visible while you build. Use unescaped names such as <code>$pageTitle</code> to insert a variable. Use <code>\$pageTitle</code> when you want literal text instead of a variable.</p>
+<p><strong>Substitution</strong> formats strings without writing a regex. Connect values to <code>$1</code>, <code>$2</code>, and later inputs, then type those tokens into the pattern field. A dollar sign followed by a number is reserved for these connector variables.</p>
+<p>When a literal field uses a declared variable, the matching input connector is disabled for that field. Use either a connected input or a variable reference, not both.</p>
+<p>Select multiple blocks with Shift-click or Shift-drag. Use the canvas toolbar or <code>Ctrl+C</code>/<code>Ctrl+V</code> on Windows and <code>Cmd+C</code>/<code>Cmd+V</code> on macOS to copy and paste selected blocks.</p>
+<h2>Debug Blocks</h2>
+<p><strong>Save string to log</strong> writes a timestamped entry to the current Action Pack log with a severity level. <strong>Abort</strong> stops the current run when its boolean input is true and returns exit code <code>130</code>.</p>
+<h2>Interactive Blocks</h2>
+<p>Interaction blocks can ask for input, show overlays, play media, capture a bounded input summary, or run event handlers from a URL Alchemist-owned overlay. Keyboard, mouse, and tick event chains share session state with the normal Run chain so a workspace can behave like one small application.</p>
+<p><strong>Get Image</strong>, <strong>Get Video</strong>, and <strong>Get Audio</strong> use an asset byte budget for remote or bundled media. The default is 10 MB and the editor allows up to 50 MB with normal timeout handling.</p>
+<p>Use <strong>Overlay Control</strong> to create the visible overlay session before keyboard, mouse, or tick events can run. <strong>Overlay Draw</strong> renders reusable grid cells and text into that session. Closing the overlay stops event routing.</p>
+<h2>Backups</h2>
+<p>Export a local backup from Settings before uninstalling the extension, changing browsers, or doing release testing. Firefox removes extension local storage when an extension is removed.</p>
+</body>
+</html>

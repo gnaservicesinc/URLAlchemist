@@ -2,6 +2,31 @@ import safeRegex from 'safe-regex';
 
 import type { ActionType, MatchMode, RegexJobRequest, RegexJobResponse } from '../types';
 
+/**
+ * Defense-in-depth for ReDoS:
+ * 1. Pattern length cap (500 chars) limits attack surface.
+ * 2. safe-regex rejects known exponential patterns, but it has known false
+ *    negatives. The dedicated Web Worker in pageRunner.ts enforces a hard
+ *    50ms execution timeout as the final safety net.
+ * 3. A heuristic nesting-depth check rejects deeply nested quantifiers that
+ *    safe-regex may miss.
+ */
+function assertPatternDepth(source: string, maxDepth = 8): void {
+  let depth = 0;
+  let max = 0;
+  for (const char of source) {
+    if (char === '(') {
+      depth += 1;
+      max = Math.max(max, depth);
+    } else if (char === ')') {
+      depth -= 1;
+    }
+  }
+  if (max > maxDepth) {
+    throw new Error('Regex nesting depth exceeds the safety limit');
+  }
+}
+
 function parsePattern(pattern: string, forceGlobal: boolean): RegExp {
   let source = pattern;
   let flags = '';
@@ -15,6 +40,8 @@ function parsePattern(pattern: string, forceGlobal: boolean): RegExp {
   if (source.length > 500) {
     throw new Error('Regex patterns longer than 500 characters are rejected');
   }
+
+  assertPatternDepth(source);
 
   if (!safeRegex(source)) {
     throw new Error('Unsafe regular expression rejected');

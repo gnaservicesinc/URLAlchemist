@@ -1,7 +1,7 @@
 import type { RegexTransformRequest } from '../types';
 
 export interface RegexExecutor {
-  test(input: string, pattern: string): Promise<boolean>;
+  test(input: string, pattern: string, timeoutMs?: number): Promise<boolean>;
   transform(request: Omit<RegexTransformRequest, 'kind'>): Promise<{
     matched: boolean;
     result: string;
