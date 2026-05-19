@@ -1,6 +1,5 @@
 URL Alchemist
 
-Links:
 Google Chrome:
 https://chromewebstore.google.com/detail/url-alchemist/ijonigkmhlokmdhcjcjinhpionfnjdeo
 
