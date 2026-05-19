@@ -33,6 +33,7 @@ import { createSandboxGraphRuntime } from '../shared/v2/sandboxRuntime';
 import { getFirefoxActionPackCompatibility } from '../shared/v2/browserCompatibility';
 import type { CompiledActionPackV2, WorkspaceFileV2, WorkspaceMetadata } from '../shared/v2/types';
 import { createDefaultWorkspace, workspaceFromLegacyPack } from '../shared/v2/workspace';
+import { URL_ALCHEMIST_VERSION } from '../shared/v2/buildInfo';
 import {
   importCompiledActionPackV2Binary,
   exportCompiledActionPackV2Binary,
@@ -932,6 +933,7 @@ function App() {
   const scaleStyle = {
     zoom: `${normalizeUiScale(state.settings.uiScale)}%`,
   } as CSSProperties;
+  const appIconUrl = getChromeApi().runtime?.getURL?.('icons/icon-48.png') ?? '/icons/icon-48.png';
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-[1500px] flex-col gap-5 px-4 py-5 sm:px-6 lg:px-8 lg:py-8" style={scaleStyle}>
@@ -943,11 +945,13 @@ function App() {
       <header className="reveal-panel overflow-hidden rounded-xl border border-slate-200 bg-white px-4 py-5 shadow-[0_18px_46px_rgba(31,41,55,0.08)] sm:px-6 lg:px-7">
         <div className="flex flex-wrap items-start justify-between gap-5">
           <div className="flex min-w-0 max-w-3xl gap-4">
-            <div className="mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-teal-700 text-sm font-black tracking-tight text-white shadow-[0_12px_24px_rgba(15,118,110,0.22)]">
-              UA
-            </div>
+            <img
+              alt="URL Alchemist"
+              className="mt-1 h-11 w-11 shrink-0 rounded-lg shadow-[0_12px_24px_rgba(15,118,110,0.22)]"
+              src={appIconUrl}
+            />
             <div className="min-w-0">
-              <p className="eyebrow">URL Alchemist Firefox 2.0</p>
+              <p className="eyebrow">URL Alchemist Firefox {URL_ALCHEMIST_VERSION}</p>
               <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">Action Pack Workbench</h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600 sm:text-base">
                 Build workspace source files, compile optimized Action Packs, and stage binary imports through a sandboxed review flow with {REGEX_TIMEOUT_MS}ms regex budgets.
