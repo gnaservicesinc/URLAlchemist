@@ -8,10 +8,24 @@ import { defineConfig } from 'vite';
 
 const packageJson = JSON.parse(readFileSync(fileURLToPath(new URL('./package.json', import.meta.url)), 'utf8')) as { version: string };
 
+function resolveBuildTime(): string {
+  const explicitBuildTime = process.env.URL_ALCHEMIST_BUILD_TIME?.trim();
+  if (explicitBuildTime) {
+    return explicitBuildTime;
+  }
+
+  const sourceDateEpoch = process.env.SOURCE_DATE_EPOCH?.trim();
+  if (sourceDateEpoch && /^\d+$/.test(sourceDateEpoch)) {
+    return new Date(Number(sourceDateEpoch) * 1000).toISOString();
+  }
+
+  return new Date().toISOString();
+}
+
 export default defineConfig({
   define: {
     __URL_ALCHEMIST_VERSION__: JSON.stringify(packageJson.version),
-    __URL_ALCHEMIST_BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+    __URL_ALCHEMIST_BUILD_TIME__: JSON.stringify(resolveBuildTime()),
   },
   plugins: [react(), tailwindcss()],
   build: {

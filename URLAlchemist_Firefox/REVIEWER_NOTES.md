@@ -12,8 +12,40 @@ This runs:
 
 ```bash
 npm ci
+npm run generate:bundled
 npm run build
 ```
+
+`reviewer-build.sh` sets `URL_ALCHEMIST_BUILD_TIME=2026-05-19T00:00:00.000Z` unless the environment already provides a value. This keeps the generated bundle reproducible for source review comparison.
+
+## Source upload package
+
+From the `URLAlchemist_Firefox` directory:
+
+```bash
+bash ./reviewer-source-package.sh
+```
+
+The script creates `../URLAlchemist_Firefox_artifacts/URLAlchemist_Firefox_source.zip`. The archive includes readable source, `package-lock.json`, these reviewer notes, and the build scripts. It excludes `dist/`, `node_modules/`, build caches, macOS metadata, and generated bundled-example binaries under `public/bundled-actionpacks/`.
+
+The source-package script uses `rsync` and `zip`. On Ubuntu, install them with `sudo apt-get install zip rsync`. The helper was verified locally with Info-ZIP 3.0 and openrsync protocol 29 / rsync 2.6.9-compatible behavior; these tools only create the AMO source archive and are not part of the extension build output.
+
+After extracting the source package, run:
+
+```bash
+cd URLAlchemist_Firefox
+bash ./reviewer-build.sh
+```
+
+The generated extension output is written to `dist/`.
+
+## Build environment
+
+Verified locally with:
+
+- macOS 26.4 on ARM64
+- Node.js v25.6.1
+- npm 11.10.0
 
 ## Third-party libraries bundled into the extension
 

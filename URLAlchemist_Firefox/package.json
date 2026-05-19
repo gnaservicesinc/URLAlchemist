@@ -1,13 +1,14 @@
 {
   "name": "url-alchemist-firefox",
   "private": true,
-  "version": "2.0.3",
+  "version": "2.0.4",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "build:reviewer": "bash ./reviewer-build.sh",
     "generate:bundled": "node scripts/generate-bundled-actionpacks.mjs",
+    "package:source": "bash ./reviewer-source-package.sh",
     "test": "vitest run"
   },
   "dependencies": {
