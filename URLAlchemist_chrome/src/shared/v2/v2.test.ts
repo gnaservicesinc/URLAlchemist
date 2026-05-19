@@ -10,6 +10,7 @@ import { exportBackupState, importBackupState } from '../backup';
 import { effectiveRedirectDepthLimit, effectiveRegexTimeoutMs, normalizeUiScale } from '../hardening';
 import { executeRegexJobRequest } from '../regex/executeRegexJob';
 import type { ActionPack, RegexTransformRequest } from '../types';
+import { HOTKEY_TRIGGER_MESSAGE, isHotkeyTriggerMessage, isOverlayAppEventMessage, OVERLAY_APP_EVENT_MESSAGE } from '../messages';
 import { getDefaultState } from '../storage';
 import { normalizeStoredState } from '../validation';
 import { validateCompiledActionPackV2 } from './actionPackValidator';
@@ -20,7 +21,7 @@ import { createSandboxGraphRuntime } from './sandboxRuntime';
 import { ACTION_PACK_SCHEMA_VERSION, LEGACY_ACTION_PACK_SCHEMA_VERSION, type CompiledActionPackV2, type GraphValue } from './types';
 import { extractVariableReferences, resolveVariableText } from './variables';
 import { executeCompiledActionPackV2, type GraphRuntime } from './vm';
-import { createEdge, createDefaultWorkspace, createWorkspaceNode, workspaceFromLegacyPack } from './workspace';
+import { createEdge, createDefaultWorkspace, createWorkspaceNode, validateWorkspaceFile, workspaceFromLegacyPack } from './workspace';
 import { createWorkspaceBlockClipboard, pasteWorkspaceBlockClipboard } from './workspaceClipboard';
 import {
   exportCompiledActionPackV2Binary,
@@ -138,6 +139,120 @@ describe('v2 workspace compiler and VM', () => {
   it('preserves unknown risk reasons without identity normalization', () => {
     expect(explainRiskReason('Custom scanner reason.')).toBe('Custom scanner reason.');
     expect(explainRiskReason('Custom scanner reason')).toBe('Custom scanner reason');
+  });
+
+  it('rejects dangerous imported workspace source shapes before migration', () => {
+    const workspace = createDefaultWorkspace();
+    const imported = {
+      ...workspace,
+      nodes: [
+        {
+          ...workspace.nodes[0],
+          settings: Object.fromEntries([['__proto__', { polluted: true }]]),
+        },
+        ...workspace.nodes.slice(1),
+      ],
+    };
+
+    const result = validateWorkspaceFile(imported);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error('Dangerous workspace source was accepted');
+    }
+    expect(result.errors.join(' ')).toContain('Workspace node 1 is invalid');
+  });
+
+  it('rejects unsafe trigger source filters in imported workspaces', () => {
+    const workspace = createDefaultWorkspace();
+    const result = validateWorkspaceFile({
+      ...workspace,
+      trigger: {
+        ...workspace.trigger,
+        sourceFilters: [{ source: 'url', pattern: '(a+)+$' }],
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error('Unsafe workspace source filter was accepted');
+    }
+    expect(result.errors.join(' ')).toContain('unsafe regex pattern');
+  });
+
+  it('strips unknown workspace source fields during import migration', () => {
+    const workspace = createDefaultWorkspace();
+    const result = validateWorkspaceFile({
+      ...workspace,
+      unexpectedRoot: { nested: true },
+      metadata: {
+        ...workspace.metadata,
+        unexpectedMetadata: 'remove me',
+      },
+      trigger: {
+        ...workspace.trigger,
+        unexpectedTrigger: 'remove me',
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error(result.errors.join('; '));
+    }
+    expect((result.value as unknown as Record<string, unknown>).unexpectedRoot).toBeUndefined();
+    expect((result.value.metadata as unknown as Record<string, unknown>).unexpectedMetadata).toBeUndefined();
+    expect((result.value.trigger as unknown as Record<string, unknown>).unexpectedTrigger).toBeUndefined();
+  });
+
+  it('validates runtime overlay and hotkey messages strictly', () => {
+    expect(isOverlayAppEventMessage({
+      type: OVERLAY_APP_EVENT_MESSAGE,
+      packId: 'pack-1',
+      url: 'https://example.com/',
+      event: {
+        kind: 'mouse',
+        eventType: 'pointerdown',
+        button: 0,
+        buttons: 1,
+        x: 12,
+        y: 20,
+      },
+    })).toBe(true);
+
+    expect(isOverlayAppEventMessage({
+      type: OVERLAY_APP_EVENT_MESSAGE,
+      packId: 'pack-1',
+      url: 'https://example.com/',
+      event: {
+        kind: 'mouse',
+        eventType: 'pointerdown',
+        button: 0,
+        buttons: 1,
+        x: Number.NaN,
+        y: 20,
+      },
+    })).toBe(false);
+
+    expect(isOverlayAppEventMessage({
+      type: OVERLAY_APP_EVENT_MESSAGE,
+      packId: 'pack-1',
+      url: 'https://example.com/',
+      event: {
+        kind: 'keyboard',
+        eventType: 'keydown',
+        key: 'a',
+        code: 'KeyA',
+        keyCode: 65,
+        injected: true,
+      },
+    })).toBe(false);
+
+    expect(isHotkeyTriggerMessage({
+      type: HOTKEY_TRIGGER_MESSAGE,
+      hotkey: 'Ctrl+Shift+U',
+      url: 'https://example.com/',
+      selectedText: 'x'.repeat(65537),
+    })).toBe(false);
   });
 
   it('blocks build until a terminal effect exists', () => {

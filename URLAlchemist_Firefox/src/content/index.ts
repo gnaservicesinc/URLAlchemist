@@ -17,6 +17,37 @@ const CONTENT_RUNTIME_MESSAGE_TYPES = new Set<string>([
   CONTENT_MUTATE_TEXT_MESSAGE,
   CONTENT_READ_SOURCE_MESSAGE,
 ]);
+const MAX_PAGE_SOURCE_TEXT_BYTES = 256 * 1024;
+const MAX_PAGE_LINKS = 1000;
+const MAX_PAGE_LINK_HREF_BYTES = 8192;
+const MAX_PAGE_LINK_TEXT_BYTES = 2048;
+const textEncoder = new TextEncoder();
+
+function utf8ByteLength(value: string): number {
+  return textEncoder.encode(value).byteLength;
+}
+
+function truncateUtf8Text(value: string, maxBytes: number): string {
+  if (utf8ByteLength(value) <= maxBytes) {
+    return value;
+  }
+
+  let low = 0;
+  let high = Math.min(value.length, maxBytes);
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (utf8ByteLength(value.slice(0, mid)) <= maxBytes) {
+      low = mid;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return value.slice(0, low);
+}
+
+function limitedStringValue(value: string): GraphValue {
+  return { type: 'string', value: truncateUtf8Text(value, MAX_PAGE_SOURCE_TEXT_BYTES) };
+}
 
 function isContextValid(): boolean {
   return !!(typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id);
@@ -442,7 +473,7 @@ function startOverlayApp(message: Extract<ContentRuntimeMessage, { type: typeof 
     });
   };
   const emitPointer = (event: PointerEvent) => {
-    if (activeOverlayApp !== state) {
+    if (!event.isTrusted || activeOverlayApp !== state) {
       return;
     }
     event.preventDefault();
@@ -762,7 +793,7 @@ function runOverlayInputCapture(request: Extract<ContentRuntimeMessage, { type: 
     };
 
     const keyDown = (event: KeyboardEvent) => {
-      if (!request.captureKeyboard || settled) {
+      if (!event.isTrusted || !request.captureKeyboard || settled) {
         return;
       }
       event.preventDefault();
@@ -776,7 +807,7 @@ function runOverlayInputCapture(request: Extract<ContentRuntimeMessage, { type: 
     };
 
     const keyUp = (event: KeyboardEvent) => {
-      if (!request.captureKeyboard || settled) {
+      if (!event.isTrusted || !request.captureKeyboard || settled) {
         return;
       }
       event.preventDefault();
@@ -786,7 +817,7 @@ function runOverlayInputCapture(request: Extract<ContentRuntimeMessage, { type: 
     };
 
     const pointerMove = (event: PointerEvent) => {
-      if (!request.captureMouse || settled) {
+      if (!event.isTrusted || !request.captureMouse || settled) {
         return;
       }
       const rect = target.getBoundingClientRect();
@@ -799,7 +830,7 @@ function runOverlayInputCapture(request: Extract<ContentRuntimeMessage, { type: 
     };
 
     const pointerDown = (event: PointerEvent) => {
-      if (!request.captureMouse || settled) {
+      if (!event.isTrusted || !request.captureMouse || settled) {
         return;
       }
       event.preventDefault();
@@ -813,7 +844,7 @@ function runOverlayInputCapture(request: Extract<ContentRuntimeMessage, { type: 
     };
 
     const pointerUp = (event: PointerEvent) => {
-      if (!request.captureMouse || settled) {
+      if (!event.isTrusted || !request.captureMouse || settled) {
         return;
       }
       event.preventDefault();
@@ -939,20 +970,20 @@ function mutateText(value: GraphValue): GraphValue {
 
 function readPageSource(source: string): GraphValue {
   if (source === 'pageText') {
-    return { type: 'string', value: document.body?.innerText ?? '' };
+    return limitedStringValue(document.body?.innerText ?? '');
   }
 
   if (source === 'rawHtml') {
-    return { type: 'string', value: document.documentElement.outerHTML };
+    return limitedStringValue(document.documentElement.outerHTML);
   }
 
   if (source === 'pageLinks') {
     return {
       type: 'data',
       value: Array.from(document.links, (link) => ({
-        href: link.href,
-        text: link.textContent?.trim() ?? '',
-      })).slice(0, 1000),
+        href: truncateUtf8Text(link.href, MAX_PAGE_LINK_HREF_BYTES),
+        text: truncateUtf8Text(link.textContent?.trim() ?? '', MAX_PAGE_LINK_TEXT_BYTES),
+      })).slice(0, MAX_PAGE_LINKS),
     };
   }
 

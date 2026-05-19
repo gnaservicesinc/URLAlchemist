@@ -956,8 +956,8 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (isOverlayAppEventMessage(message)) {
-    const tabId = sender.tab?.id ?? message.tabId;
-    const url = sender.tab?.url || message.url;
+    const tabId = sender.tab?.id;
+    const url = sender.tab?.url;
     if (tabId === undefined || !url) {
       sendResponse({ handled: false });
       return;
@@ -986,7 +986,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   const tabId = sender.tab?.id;
   const hotkey = normalizeHotkeyValue(message.hotkey);
-  const url = sender.tab?.url || message.url;
+  const url = sender.tab?.url;
 
   if (tabId === undefined || !hotkey || !url) {
     sendResponse({ handled: false });
