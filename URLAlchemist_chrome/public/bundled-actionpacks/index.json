@@ -36,6 +36,23 @@
       "actionPackPath": "bundled-actionpacks/action-packs/keep-stable-query.actionpack"
     },
     {
+      "id": "f5ef8a65-c730-4915-9b8d-6bdca5850250",
+      "name": "Query Param Manager",
+      "slug": "query-param-manager",
+      "description": "Keeps a short allowlist of useful query parameters, removes the rest, and sorts the result without regex-heavy URL cleanup.",
+      "category": "URL cleanup",
+      "trigger": "CONTEXT_MENU",
+      "risk": "safe",
+      "features": [
+        "URL Query block",
+        "Keep named params",
+        "Sort params",
+        "No regex"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/query-param-manager.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/query-param-manager.actionpack"
+    },
+    {
       "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200003",
       "name": "GitHub PR Files Shortcut",
       "slug": "github-pr-files-shortcut",
@@ -131,6 +148,23 @@
       ],
       "workspacePath": "bundled-actionpacks/workspaces/copy-page-title.workspace",
       "actionPackPath": "bundled-actionpacks/action-packs/copy-page-title.actionpack"
+    },
+    {
+      "id": "daf235dc-182c-4df0-b806-9d22f4a0c1c4",
+      "name": "Clipboard Cleanup",
+      "slug": "clipboard-cleanup",
+      "description": "Reads clipboard text from a hotkey, normalizes line endings and whitespace, strips unsafe control characters, and writes the cleaned text back.",
+      "category": "Page tools",
+      "trigger": "HOTKEY",
+      "risk": "high",
+      "features": [
+        "Clipboard read",
+        "Text Transform block",
+        "Clipboard write",
+        "High-risk warning"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/clipboard-cleanup.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/clipboard-cleanup.actionpack"
     },
     {
       "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200017",
@@ -243,6 +277,23 @@
       ],
       "workspacePath": "bundled-actionpacks/workspaces/break-reminder.workspace",
       "actionPackPath": "bundled-actionpacks/action-packs/break-reminder.actionpack"
+    },
+    {
+      "id": "58dc160e-3fc3-437c-9fe2-7dd02a36ab8c",
+      "name": "Daily Break Once",
+      "slug": "daily-break-once",
+      "description": "Uses Conditional Run to show a break reminder once per local day, then saves today as completed.",
+      "category": "Storage",
+      "trigger": "CONDITIONAL",
+      "risk": "extended",
+      "features": [
+        "Conditional Run",
+        "Condition Out",
+        "System time",
+        "SaveLoad state"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/daily-break-once.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/daily-break-once.actionpack"
     },
     {
       "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200013",

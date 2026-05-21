@@ -1,5 +1,5 @@
 import type { CSSProperties, ChangeEvent, DragEvent } from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { MAX_ACTION_PACK_BINARY_BYTES, REGEX_TIMEOUT_MS } from '../shared/constants';
 import { exportBackupState, importBackupState } from '../shared/backup';
@@ -281,10 +281,6 @@ function App() {
   const builderUuidFileInputRef = useRef<HTMLInputElement | null>(null);
   const backupFileInputRef = useRef<HTMLInputElement | null>(null);
   const runtimesRef = useRef(createOptionsRuntimes(state.settings));
-  const compiledWorkspace = useMemo(
-    () => compileWorkspace(workspace, { builderUuid: state.settings.builderUuid }),
-    [workspace, state.settings.builderUuid],
-  );
   const stagedCompatibility = useMemo(
     () => stagedPack ? getFirefoxActionPackCompatibility(stagedPack) : { blockers: [], warnings: [] },
     [stagedPack],
@@ -304,6 +300,23 @@ function App() {
   }, [workspaceToast]);
   const installedExamplePackIds = useMemo(() => new Set(state.actionPacksV2.map((pack) => pack.manifest.id)), [state.actionPacksV2]);
   const savedExampleWorkspaceIds = useMemo(() => new Set(state.workspacesV2.map((savedWorkspace) => savedWorkspace.metadata.id)), [state.workspacesV2]);
+  const conditionWorkspaces = useMemo(() => {
+    const byId = new Map(state.workspacesV2.map((savedWorkspace) => [savedWorkspace.metadata.id, savedWorkspace]));
+    byId.set(workspace.metadata.id, workspace);
+    return Array.from(byId.values());
+  }, [state.workspacesV2, workspace]);
+  const compileWithConditions = useCallback((targetWorkspace: WorkspaceFileV2) => {
+    const byId = new Map(conditionWorkspaces.map((candidate) => [candidate.metadata.id, candidate]));
+    byId.set(targetWorkspace.metadata.id, targetWorkspace);
+    return compileWorkspace(targetWorkspace, {
+      builderUuid: state.settings.builderUuid,
+      conditionWorkspaces: Array.from(byId.values()),
+    });
+  }, [conditionWorkspaces, state.settings.builderUuid]);
+  const compiledWorkspace = useMemo(
+    () => compileWithConditions(workspace),
+    [compileWithConditions, workspace],
+  );
 
   useEffect(() => {
     runtimesRef.current = createOptionsRuntimes(state.settings);
@@ -515,7 +528,7 @@ function App() {
   }
 
   async function buildActionPack(): Promise<void> {
-    const result = compileWorkspace(workspace, { builderUuid: state.settings.builderUuid });
+    const result = compileWithConditions(workspace);
     if (!result.ok || !result.pack) {
       setWorkspaceMessage('Fix workspace validation before building an Action Pack.');
       return;
@@ -537,7 +550,7 @@ function App() {
   }
 
   async function exportWorkspaceFile(targetWorkspace = workspace): Promise<void> {
-    const result = compileWorkspace(targetWorkspace, { builderUuid: state.settings.builderUuid });
+    const result = compileWithConditions(targetWorkspace);
     await downloadBytes(
       await exportWorkspaceBinary({ ...targetWorkspace, validationState: result.validation }),
       `workspaces/${slugify(targetWorkspace.metadata.name) || 'workspace'}.workspace`,
@@ -545,7 +558,7 @@ function App() {
   }
 
   async function exportActionPackFromWorkspace(targetWorkspace = workspace): Promise<void> {
-    const result = compileWorkspace(targetWorkspace, { builderUuid: state.settings.builderUuid });
+    const result = compileWithConditions(targetWorkspace);
     if (!result.ok || !result.pack) {
       setWorkspaceMessage('Fix workspace validation before exporting an Action Pack.');
       return;
@@ -558,7 +571,7 @@ function App() {
   }
 
   async function exportActionPackVersionFileFromWorkspace(): Promise<void> {
-    const result = compileWorkspace(workspace, { builderUuid: state.settings.builderUuid });
+    const result = compileWithConditions(workspace);
     if (!result.ok || !result.pack) {
       setWorkspaceMessage('Fix workspace validation before exporting a version file.');
       return;
@@ -734,7 +747,7 @@ function App() {
       }
 
       const convertedWorkspace = workspaceFromLegacyPack(artifact.pack);
-      const result = compileWorkspace(convertedWorkspace, { builderUuid: state.settings.builderUuid });
+      const result = compileWithConditions(convertedWorkspace);
       setWorkspace(result.workspace);
       setWorkspaceDirty(false);
       await applyState(upsertWorkspaceV2(result.workspace));
@@ -904,7 +917,7 @@ function App() {
 
   async function previewLegacyPack(pack: ActionPack): Promise<void> {
     const convertedWorkspace = workspaceFromLegacyPack(pack);
-    const result = compileWorkspace(convertedWorkspace, { builderUuid: state.settings.builderUuid });
+    const result = compileWithConditions(convertedWorkspace);
     setWorkspace(result.workspace);
     setWorkspaceDirty(true);
     setActiveTab('workspace-editor');
@@ -951,7 +964,7 @@ function App() {
               src={appIconUrl}
             />
             <div className="min-w-0">
-              <p className="eyebrow">URL Alchemist Firefox {URL_ALCHEMIST_VERSION}</p>
+              <p className="eyebrow">URL Alchemist Chrome {URL_ALCHEMIST_VERSION}</p>
               <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">Action Pack Workbench</h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600 sm:text-base">
                 Build workspace source files, compile optimized Action Packs, and stage binary imports through a sandboxed review flow with {REGEX_TIMEOUT_MS}ms regex budgets.

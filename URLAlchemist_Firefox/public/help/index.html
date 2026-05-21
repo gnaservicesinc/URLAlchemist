@@ -23,10 +23,9 @@
 
 <h1>URL Alchemist &mdash; Overview</h1>
 
-<p>URL Alchemist is a Firefox extension for building small browser workflows from visual blocks. It can clean URLs, route selected text or clipboard text, show page overlays, fetch remote data, play media, log runs, and redirect tabs when a compiled <strong>Action Pack</strong> produces a new URL.</p>
+<p>URL Alchemist is a Chrome extension for building small browser workflows from visual blocks. It can clean URLs, route selected text or clipboard text, show page overlays, fetch remote data, play media, log runs, and redirect tabs when a compiled <strong>Action Pack</strong> produces a new URL.</p>
 
-<p>The extension is local-first. Workspaces, Action Packs, logs, and settings live in extension storage unless you export a file, restore a backup, or opt into browser sync for small items.</p>
-<p>Firefox desktop is the primary runtime target for this build. Firefox for Android compatibility is tracked separately in bundled workspace metadata and should be smoke tested on-device before a pack is labeled Android-ready.</p>
+<p>The extension is local-first. Workspaces, Action Packs, logs, and settings live in extension storage unless you export a file, restore a backup, or opt into Google Sync for small items.</p>
 
 <h2>Key Concepts</h2>
 
@@ -37,18 +36,18 @@
 <p>An <strong>Action Pack</strong> (file extension <code>.actionpack</code>) is the compiled binary runtime form of a workspace. Action Packs are compact, validated, and include risk metadata so they can be reviewed before installation.</p>
 
 <h3>The Engine</h3>
-<p>The background engine listens for navigation, hotkey, context-menu, interval, and overlay events. When a matching Action Pack is installed and enabled, the engine runs the compiled instruction set with strict instruction, redirect, remote request, and regex budgets.</p>
-<p>The editor calls the top-level schedule <strong>Run</strong>. <strong>Run on input data</strong> means the pack runs from configured input sources such as URL, selected text, link URL, page title, clipboard, page text, or page metadata. Keyboard, mouse, and tick events are separate event-handler blocks inside the workspace.</p>
+<p>The background engine listens for navigation, hotkey, context-menu, interval, conditional, and overlay events. When a matching Action Pack is installed and enabled, the engine runs the compiled instruction set with strict instruction, redirect, remote request, and regex budgets.</p>
+<p>The editor calls the top-level schedule <strong>Run</strong>. <strong>Run on input data</strong> means the pack runs from configured input sources such as URL, selected text, link URL, page title, clipboard, page text, or page metadata. <strong>Conditional</strong> runs evaluate a background-safe condition workspace with a <strong>Condition Out</strong> block before running. Keyboard, mouse, and tick events are separate event-handler blocks inside the workspace.</p>
 
 <h2>Quick Start</h2>
 
 <ol>
-  <li>Open the <strong>Examples</strong> tab and search by task, such as cleanup, search, media, remote data, or overlays.</li>
+  <li>Open the <strong>Examples</strong> tab and search by task, such as cleanup, query params, clipboard, conditions, media, remote data, or overlays.</li>
   <li>Click <strong>Install Action Pack</strong> to try a compiled example, or <strong>Open Workspace</strong> to inspect and modify the source first.</li>
   <li>Use the <strong>Workspace Editor</strong> to build your own transformations from scratch.</li>
   <li>When your workspace is valid, click <strong>Build &amp; Install</strong> to compile it into an Action Pack and activate it.</li>
   <li>Use <strong>Manage Resources</strong> to view logs, export files, update metadata, or delete installed resources.</li>
-  <li>Use <strong>Settings</strong> to export a backup before reinstalling Firefox or the extension.</li>
+  <li>Use <strong>Settings</strong> to export a backup before reinstalling Chrome or the extension.</li>
 </ol>
 
 <h2>Built-In Examples To Try</h2>

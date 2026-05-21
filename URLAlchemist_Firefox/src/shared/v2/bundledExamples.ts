@@ -6,8 +6,8 @@ import type { BlockKind, CompiledActionPackV2, WorkspaceBlockSettings, Workspace
 export const BUNDLED_EXAMPLE_BUILD_TIME_UTC = 1_778_755_200;
 export const BUNDLED_EXAMPLE_BUILDER_UUID = '11111111-1111-4111-8111-111111111111';
 export const BUNDLED_EXAMPLE_CREATED_AT = BUNDLED_EXAMPLE_BUILD_TIME_UTC * 1000;
-export const BUNDLED_EXAMPLE_CHROME_VERSION = '2.0.5';
-export const BUNDLED_EXAMPLE_FIREFOX_VERSION = '2.0.5';
+export const BUNDLED_EXAMPLE_CHROME_VERSION = '2.1.0';
+export const BUNDLED_EXAMPLE_FIREFOX_VERSION = '2.1.0';
 export const BUNDLED_EXAMPLE_FIREFOX_ANDROID_VERSION = '142.0';
 const EMBEDDED_BREAK_IMAGE_BASE64 = 'PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxNjAgOTAiPjxyZWN0IHdpZHRoPSIxNjAiIGhlaWdodD0iOTAiIGZpbGw9IiNmZWYzYzciLz48Y2lyY2xlIGN4PSI4MCIgY3k9IjQ1IiByPSIzMCIgZmlsbD0iI2ZmZiIgc3Ryb2tlPSIjMGY3NjZlIiBzdHJva2Utd2lkdGg9IjYiLz48cGF0aCBkPSJNODAgMjV2MjJsMTYgMTAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2M3NmExYSIgc3Ryb2tlLXdpZHRoPSI2IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48dGV4dCB4PSI4MCIgeT0iODIiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxMCIgZmlsbD0iIzE3MjAzMyI+UXVpY2sgYnJlYWs8L3RleHQ+PC9zdmc+';
 const EMBEDDED_BREAK_TONE_BASE64 = 'UklGRgYEAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgATElTVBoAAABJTkZPSVNGVA4AAABMYXZmNjIuMTUuMTAwAGRhdGHAAwAAgomPjYV6cnB1fomPjoZ8c3B0fYiPjod9c3BzfYeOj4h+dHBzfIaOj4l+dXBye4WOj4qAdXBxeoSNj4qBdnBxeYOMj4uCd3BxeIKMj4yCeHFwd4KLj4yDeXFwdoGKj42EenFwdYCKj46Fe3JwdX6Jj46GfHNwdH2Ij46HfXNwc3yHjo+IfXRwc3yGjo+JfnVwcnuFjo+KgHVwcXqEjY+KgXZwcXmDjI+LgndwcXiCjJCMg3hxcHeCi4+Mg3lxcHaBio+NhHpxcHWAio+OhXtycHV+iY+OhnxzcHR9iI+Oh31zcHN9h46PiH10cHN8ho6PiX51cHJ7hY6PioB1cHF6hI2PioF2cHF5g4yPi4J3cHF4g4yPjIN4cXB3gouPjIN5cXB2gYqPjYR6cXB1f4qPjoV7cnB1fomPjoZ8c3B0fYiPjod9c3BzfYeOj4h9dHBzfIaOj4l/dXBye4WOj4qAdXBxeoSNj4qBdnBxeYOMj4uCd3BxeIKMj4yDeHFwd4KLj4yDeXFwdoGKj42EenFwdYCKj46Fe3JwdX6Jj46GfHNwdH2Ij46HfXNwc32Hjo+IfnRwc3yGjo+JfnVwcnuFjo+KgHVwcXqEjY+KgXZwcXmDjI+LgndwcXiCjI+MgnhxcHeCi4+Mg3lxcHaBio+NhHpxcHWAio+OhXtycHV+iY+OhnxzcHR9iI+Oh31zcHN8h46PiH10cHN8ho6PiX51cHJ7hY6PioB1cHF6hI2PioF2cHF5g4yPi4J3cHF4goyQjIN4cXB3gouPjIN5cXB2gYqPjYR6cXB1gIqPjoV7cnB1fomPjoZ8c3B0fYiPjod9c3BzfYeOj4h9dHBzfIaOj4l+dXBye4WOj4qAdXBxeoSNj4qBdnBxeYOMj4uCd3BxeIOMj4yDeHFwd4KLj4yDeXFwdoGKj42EenFwdX+Kj46Fe3JwdX6Jj46GfHNwdH2Ij46HfXNwc32Hjo+IfXRwc3yGjo+Jf3VwcnuFjo+KgHVwcXqEjY+KgXZwcXmDjI+LgndwcXiCjI+Mg3hxcHeCi4+Mg3lxcHaBio+NhHpxcHWAio+OhXtycHV+iY+OhnxzcHR9iI+Oh31zcHN9h46PiH50cHN8ho6PiX51cHJ7hY6PioB1cHF6hI2PioF2cHF5g4yPi4J3cHF4goyPjIJ4cXB3gouPjIN5cXB2gYqPjYR6cXB1gIqPjoV7cnB1fomPjoZ8c3B0fYiPjod9c3BzfIeOj4h9dHBzfIaOj4l+dXBye4WOj4qAdXBxeoSNj4uA';
@@ -50,6 +50,18 @@ export const BUNDLED_ACTION_PACK_EXAMPLES: BundledActionPackExample[] = [
     features: ['After-pattern trimming', 'Context menu run', 'Stable share URLs'],
     workspacePath: 'bundled-actionpacks/workspaces/keep-stable-query.workspace',
     actionPackPath: 'bundled-actionpacks/action-packs/keep-stable-query.actionpack',
+  },
+  {
+    id: 'f5ef8a65-c730-4915-9b8d-6bdca5850250',
+    name: 'Query Param Manager',
+    slug: 'query-param-manager',
+    description: 'Keeps a short allowlist of useful query parameters, removes the rest, and sorts the result without regex-heavy URL cleanup.',
+    category: 'URL cleanup',
+    trigger: 'CONTEXT_MENU',
+    risk: 'safe',
+    features: ['URL Query block', 'Keep named params', 'Sort params', 'No regex'],
+    workspacePath: 'bundled-actionpacks/workspaces/query-param-manager.workspace',
+    actionPackPath: 'bundled-actionpacks/action-packs/query-param-manager.actionpack',
   },
   {
     id: '0f6b6d50-9d44-4a86-9d0f-80a9e8200003',
@@ -122,6 +134,18 @@ export const BUNDLED_ACTION_PACK_EXAMPLES: BundledActionPackExample[] = [
     features: ['Page title input', 'Clipboard output', 'No redirect'],
     workspacePath: 'bundled-actionpacks/workspaces/copy-page-title.workspace',
     actionPackPath: 'bundled-actionpacks/action-packs/copy-page-title.actionpack',
+  },
+  {
+    id: 'daf235dc-182c-4df0-b806-9d22f4a0c1c4',
+    name: 'Clipboard Cleanup',
+    slug: 'clipboard-cleanup',
+    description: 'Reads clipboard text from a hotkey, normalizes line endings and whitespace, strips unsafe control characters, and writes the cleaned text back.',
+    category: 'Page tools',
+    trigger: 'HOTKEY',
+    risk: 'high',
+    features: ['Clipboard read', 'Text Transform block', 'Clipboard write', 'High-risk warning'],
+    workspacePath: 'bundled-actionpacks/workspaces/clipboard-cleanup.workspace',
+    actionPackPath: 'bundled-actionpacks/action-packs/clipboard-cleanup.actionpack',
   },
   {
     id: '0f6b6d50-9d44-4a86-9d0f-80a9e8200017',
@@ -206,6 +230,18 @@ export const BUNDLED_ACTION_PACK_EXAMPLES: BundledActionPackExample[] = [
     features: ['Embedded media', 'Hotkey trigger', 'SaveLoad timestamp'],
     workspacePath: 'bundled-actionpacks/workspaces/break-reminder.workspace',
     actionPackPath: 'bundled-actionpacks/action-packs/break-reminder.actionpack',
+  },
+  {
+    id: '58dc160e-3fc3-437c-9fe2-7dd02a36ab8c',
+    name: 'Daily Break Once',
+    slug: 'daily-break-once',
+    description: 'Uses Conditional Run to show a break reminder once per local day, then saves today as completed.',
+    category: 'Storage',
+    trigger: 'CONDITIONAL',
+    risk: 'extended',
+    features: ['Conditional Run', 'Condition Out', 'System time', 'SaveLoad state'],
+    workspacePath: 'bundled-actionpacks/workspaces/daily-break-once.workspace',
+    actionPackPath: 'bundled-actionpacks/action-packs/daily-break-once.actionpack',
   },
   {
     id: '0f6b6d50-9d44-4a86-9d0f-80a9e8200013',
@@ -393,6 +429,37 @@ function keepStableQuery(): WorkspaceFileV2 {
     {
       type: 'CONTEXT_MENU',
       hotkey: 'Ctrl+Shift+U',
+      inputSources: ['url'],
+      sourceFilters: [{ source: 'url', pattern: '^https?://' }],
+    },
+  );
+}
+
+function queryParamManager(): WorkspaceFileV2 {
+  const slug = 'query-param-manager';
+  const input = node(slug, 'input', 'DataFlowIn', { x: 0, y: 120 }, { locked: true });
+  const keepUseful = node(slug, 'keep-useful', 'UrlQuery', { x: 300, y: 80 }, {
+    label: 'Keep useful params',
+    urlQueryMode: 'KEEP_PARAMS',
+    urlQueryParams: 'id slug page q',
+  });
+  const sortParams = node(slug, 'sort-params', 'UrlQuery', { x: 600, y: 80 }, {
+    label: 'Sort params',
+    urlQueryMode: 'SORT_PARAMS',
+  });
+  const output = node(slug, 'output', 'DataFlowOut', { x: 900, y: 120 }, { locked: true });
+
+  return baseWorkspace(
+    getExample(slug),
+    [input, keepUseful, sortParams, output],
+    [
+      edge(input, 'url', keepUseful, 'input'),
+      edge(keepUseful, 'result', sortParams, 'input'),
+      edge(sortParams, 'result', output, 'url'),
+    ],
+    {
+      type: 'CONTEXT_MENU',
+      hotkey: 'Ctrl+Shift+Q',
       inputSources: ['url'],
       sourceFilters: [{ source: 'url', pattern: '^https?://' }],
     },
@@ -729,6 +796,49 @@ function copyPageTitle(): WorkspaceFileV2 {
       type: 'CONTEXT_MENU',
       hotkey: 'Ctrl+Shift+U',
       inputSources: ['pageTitle'],
+      sourceFilters: [{ source: 'url', pattern: '^https?://' }],
+    },
+  );
+}
+
+function clipboardCleanup(): WorkspaceFileV2 {
+  const slug = 'clipboard-cleanup';
+  const input = node(slug, 'input', 'DataFlowIn', { x: 0, y: 240 }, { locked: true });
+  const extendedInput = node(slug, 'extended-input', 'ExtendedDataIn', { x: 0, y: 40 });
+  const normalizeLines = node(slug, 'normalize-lines', 'TextTransform', { x: 300, y: 40 }, {
+    label: 'Normalize line endings',
+    textTransformMode: 'NORMALIZE_LINE_ENDINGS',
+  });
+  const stripControl = node(slug, 'strip-control', 'TextTransform', { x: 600, y: 40 }, {
+    label: 'Strip control characters',
+    textTransformMode: 'STRIP_CONTROL_CHARS',
+  });
+  const collapseWhitespace = node(slug, 'collapse-whitespace', 'TextTransform', { x: 900, y: 40 }, {
+    label: 'Collapse whitespace',
+    textTransformMode: 'COLLAPSE_WHITESPACE',
+  });
+  const trim = node(slug, 'trim', 'TextTransform', { x: 1200, y: 40 }, {
+    label: 'Trim cleaned text',
+    textTransformMode: 'TRIM',
+  });
+  const extendedOutput = node(slug, 'extended-output', 'ExtendedDataOut', { x: 1500, y: 40 });
+  const output = node(slug, 'output', 'DataFlowOut', { x: 1500, y: 240 }, { locked: true });
+
+  return baseWorkspace(
+    getExample(slug),
+    [input, extendedInput, normalizeLines, stripControl, collapseWhitespace, trim, extendedOutput, output],
+    [
+      edge(extendedInput, 'clipboard', normalizeLines, 'input'),
+      edge(normalizeLines, 'result', stripControl, 'input'),
+      edge(stripControl, 'result', collapseWhitespace, 'input'),
+      edge(collapseWhitespace, 'result', trim, 'input'),
+      edge(trim, 'result', extendedOutput, 'clipboard'),
+      edge(input, 'url', output, 'url'),
+    ],
+    {
+      type: 'HOTKEY',
+      hotkey: 'Ctrl+Shift+X',
+      inputSources: ['clipboard', 'url'],
       sourceFilters: [{ source: 'url', pattern: '^https?://' }],
     },
   );
@@ -1080,6 +1190,84 @@ function breakReminder(): WorkspaceFileV2 {
       type: 'HOTKEY',
       hotkey: 'Ctrl+Shift+B',
       inputSources: ['url'],
+      sourceFilters: [{ source: 'url', pattern: '^https?://' }],
+    },
+  );
+}
+
+function dailyBreakOnce(): WorkspaceFileV2 {
+  const slug = 'daily-break-once';
+  const input = node(slug, 'input', 'DataFlowIn', { x: 0, y: 360 }, { locked: true });
+  const today = node(slug, 'today', 'SystemData', { x: 0, y: 40 }, {
+    label: 'Current local date',
+    systemDataMode: 'LOCALE_DATE',
+  });
+  const declareToday = node(slug, 'declare-today', 'Declarations', { x: 300, y: 40 }, {
+    label: 'Declare $todayDate',
+    variableName: 'todayDate',
+    literalValue: '',
+    literalDataType: 'string',
+    processBeforeRun: true,
+    alwaysProcess: true,
+  });
+  const existsToday = node(slug, 'exists-today', 'SaveLoad', { x: 600, y: 220 }, {
+    label: 'Check today marker',
+    saveLoadMode: 'EXISTS',
+    literalValue: 'daily-break-once:$todayDate',
+  });
+  const notDoneToday = node(slug, 'not-done-today', 'Logical', { x: 1200, y: 220 }, {
+    label: 'Not done today',
+    operator: 'EQ',
+    compareValue: '0',
+    booleanOutput: true,
+  });
+  const conditionOut = node(slug, 'condition-out', 'ConditionOut', { x: 1500, y: 220 }, {
+    label: 'Run once today',
+  });
+  const title = node(slug, 'title', 'Constant', { x: 1200, y: 420 }, {
+    label: 'Reminder title',
+    literalDataType: 'string',
+    literalValue: 'Daily Break',
+  });
+  const messageText = node(slug, 'message-text', 'Substitution', { x: 1200, y: 540 }, {
+    label: 'Reminder message',
+    substitutionTemplate: 'Take a short reset. This reminder marks $1 as complete.',
+    substitutionInputCount: 1,
+  });
+  const message = node(slug, 'message', 'ShowMessage', { x: 1500, y: 460 }, {
+    label: 'Show daily break',
+    promptTitle: 'Daily Break',
+    promptMessage: 'Take a short reset.',
+    displayMode: 'OVERLAY',
+    displayTimeoutMs: 8000,
+  });
+  const saveToday = node(slug, 'save-today', 'SaveLoad', { x: 1500, y: 640 }, {
+    label: 'Mark today complete',
+    saveLoadMode: 'SAVE',
+    literalValue: 'daily-break-once:$todayDate',
+  });
+  const output = node(slug, 'output', 'DataFlowOut', { x: 1800, y: 360 }, { locked: true });
+
+  return baseWorkspace(
+    getExample(slug),
+    [input, today, declareToday, existsToday, notDoneToday, conditionOut, title, messageText, message, saveToday, output],
+    [
+      edge(today, 'result', declareToday, 'value'),
+      edge(existsToday, 'result', notDoneToday, 'input'),
+      edge(notDoneToday, 'result', conditionOut, 'condition'),
+      edge(today, 'result', messageText, 'value1'),
+      edge(title, 'value', message, 'title'),
+      edge(messageText, 'result', message, 'message'),
+      edge(today, 'result', saveToday, 'value'),
+      edge(input, 'url', output, 'url'),
+    ],
+    {
+      type: 'CONDITIONAL',
+      hotkey: 'Ctrl+Shift+D',
+      inputSources: ['url'],
+      intervalMs: 30_000,
+      conditionalMode: 'RISING_EDGE',
+      conditionWorkspaceId: getExample(slug).id,
       sourceFilters: [{ source: 'url', pattern: '^https?://' }],
     },
   );
@@ -1557,12 +1745,14 @@ export function createBundledExampleWorkspaces(): WorkspaceFileV2[] {
   return [
     cleanCampaignLinks(),
     keepStableQuery(),
+    queryParamManager(),
     githubPrFilesShortcut(),
     searchSelectedText(),
     clipboardSearchLauncher(),
     rememberCurrentPage(),
     variableUseAcrossRuns(),
     copyPageTitle(),
+    clipboardCleanup(),
     debugPageLogger(),
     researchNoteSnapshot(),
     uppercaseSelectionClipboard(),
@@ -1570,6 +1760,7 @@ export function createBundledExampleWorkspaces(): WorkspaceFileV2[] {
     remotePostSnapshot(),
     cleanWords(),
     breakReminder(),
+    dailyBreakOnce(),
     playbackResume(),
     overlayInputCapture(),
     snakeOverlayArcade(),
@@ -1577,10 +1768,12 @@ export function createBundledExampleWorkspaces(): WorkspaceFileV2[] {
 }
 
 export function createBundledExampleActionPacks(): CompiledActionPackV2[] {
-  return createBundledExampleWorkspaces().map((workspace) => {
+  const workspaces = createBundledExampleWorkspaces();
+  return workspaces.map((workspace) => {
     const compiled = compileWorkspace(workspace, {
       builderUuid: BUNDLED_EXAMPLE_BUILDER_UUID,
       buildTimeUtc: BUNDLED_EXAMPLE_BUILD_TIME_UTC,
+      conditionWorkspaces: workspaces,
     });
 
     if (!compiled.ok || !compiled.pack) {

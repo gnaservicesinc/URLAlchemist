@@ -18,7 +18,7 @@ export function getFirefoxActionPackCompatibility(pack: CompiledActionPackV2): B
   const warnings: string[] = [];
 
   if (writesDestination(pack, 'clipboardBinary')) {
-    blockers.push('Firefox binary clipboard output is not enabled yet. Edit the workspace to use text clipboard output, then rebuild this Action Pack.');
+    warnings.push('Firefox desktop can attempt binary clipboard writes only when navigator.clipboard.write and ClipboardItem are available in the current context. Firefox for Android binary clipboard behavior is source-only/unverified.');
   }
 
   if (hasInstruction(pack, ['DISPLAY', 'OVERLAY_CONTROL', 'OVERLAY_DRAW'])) {
@@ -35,6 +35,10 @@ export function getFirefoxActionPackCompatibility(pack: CompiledActionPackV2): B
 
   if (pack.triggerPlan.type === 'INTERVAL') {
     warnings.push('Interval runs use Firefox alarms. Mobile background throttling may delay runs on Firefox for Android.');
+  }
+
+  if (pack.triggerPlan.type === 'CONDITIONAL') {
+    warnings.push('Conditional runs use Firefox alarms and an embedded background-safe condition VM. Firefox for Android scheduling remains source-only/unverified.');
   }
 
   return {

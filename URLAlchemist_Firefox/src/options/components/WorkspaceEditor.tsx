@@ -38,13 +38,13 @@ import '@xyflow/react/dist/style.css';
 import { DEFAULT_SETTINGS } from '../../shared/constants';
 import { getHotkeyValidationError } from '../../shared/hotkeys';
 import type { Activity } from '../../shared/types';
-import { BLOCK_DEFINITIONS, getBlockDefinition, getEffectivePortDefinitions } from '../../shared/v2/blockRegistry';
+import { BLOCK_DEFINITIONS, getBlockDefinition, getEffectivePortDefinition, getEffectivePortDefinitions } from '../../shared/v2/blockRegistry';
 import { compileWorkspace, getConnectionValidationError } from '../../shared/v2/compiler';
 import { formatEventHandler, formatRunType } from '../../shared/v2/labels';
 import { createSandboxGraphRuntime } from '../../shared/v2/sandboxRuntime';
 import { createWorkspaceBlockClipboard, pasteWorkspaceBlockClipboard, type WorkspaceBlockClipboard } from '../../shared/v2/workspaceClipboard';
 import { createEdge, createWorkspaceNode } from '../../shared/v2/workspace';
-import type { BlockDefinition, BlockKind, GraphEventHandler, GraphPortDefinition, GraphValue, WorkspaceBlockSettings, WorkspaceFileV2, WorkspaceNodeV2 } from '../../shared/v2/types';
+import type { BlockDefinition, BlockKind, GraphEventHandler, GraphPortDefinition, GraphValue, RiskLevel, WorkspaceBlockSettings, WorkspaceFileV2, WorkspaceNodeV2 } from '../../shared/v2/types';
 import { extractVariableReferences, normalizeVariableName, validateVariableName, variableDrivenInputHandles } from '../../shared/v2/variables';
 import { executeCompiledActionPackV2 } from '../../shared/v2/vm';
 import { toActivityDraft, updateActivityDraft, type ActivityDraft } from '../drafts';
@@ -152,6 +152,17 @@ function shortDataType(type: string): string {
 function categoryLabel(category: BlockDefinition['category']): string {
   return CATEGORY_LABELS[category] ?? category;
 }
+
+const BLOCK_SEARCH_TERMS: Partial<Record<BlockKind, string>> = {
+  TextTransform: 'clean text trim whitespace clipboard normalize uppercase lowercase url encode decode control characters',
+  TextSplitJoin: 'split join lines comma list data to string string to data clipboard',
+  UrlQuery: 'query params url parts parse set delete keep sort rebuild campaign links',
+  DictOperation: 'dictionary dict keys values merge delete has key object',
+  ConditionOut: 'condition conditional run background alarm trigger',
+  ExtendedDataIn: 'clipboard page raw html high risk input',
+  ExtendedDataOut: 'clipboard page mutation high risk output',
+  Convert: 'data to string string to url json dict number',
+};
 
 function settingText(value: unknown): string {
   return value === undefined || value === null ? '' : String(value);
@@ -280,6 +291,30 @@ function SettingField({
   );
 }
 
+function portRiskClass(risk: RiskLevel): string {
+  if (risk === 'high') {
+    return 'risk-badge-danger';
+  }
+
+  if (risk === 'extended') {
+    return 'risk-badge-warn';
+  }
+
+  return 'risk-badge-soft';
+}
+
+function PortRiskBadge({ risk }: { risk?: RiskLevel }) {
+  if (!risk || risk === 'safe') {
+    return null;
+  }
+
+  return (
+    <span className={`risk-badge ${portRiskClass(risk)} px-1.5 py-0.5 text-[9px] normal-case tracking-normal`}>
+      {risk}
+    </span>
+  );
+}
+
 function updateNodeSettings(workspace: WorkspaceFileV2, nodeId: string, settings: Partial<WorkspaceBlockSettings>): WorkspaceFileV2 {
   return {
     ...workspace,
@@ -380,6 +415,7 @@ function renderBlockSettings(
               <option value="LT">Less</option>
               <option value="LTE">Less/Equal</option>
               <option value="EQ">Equal</option>
+              <option value="NEQ">Not Equal</option>
               <option value="GT">Greater</option>
               <option value="GTE">Greater/Equal</option>
             </select>
@@ -735,6 +771,108 @@ function renderBlockSettings(
         </div>
       );
     }
+    case 'TextTransform':
+      return (
+        <div className="mt-3 grid gap-2">
+          <SettingField help="Transforms text without regex. Useful before clipboard output, logs, and prompts." label="Mode">
+            <select className={inputClass} value={node.settings.textTransformMode ?? 'TRIM'} onChange={(event) => onSettingsChange({ textTransformMode: event.target.value as WorkspaceBlockSettings['textTransformMode'] })}>
+              <option value="TRIM">Trim edges</option>
+              <option value="COLLAPSE_WHITESPACE">Collapse whitespace</option>
+              <option value="NORMALIZE_LINE_ENDINGS">Normalize line endings</option>
+              <option value="STRIP_CONTROL_CHARS">Strip control characters</option>
+              <option value="UPPERCASE">Uppercase</option>
+              <option value="LOWERCASE">Lowercase</option>
+              <option value="TITLE_CASE">Title case</option>
+              <option value="URL_ENCODE">URL encode</option>
+              <option value="URL_DECODE">URL decode</option>
+            </select>
+          </SettingField>
+        </div>
+      );
+    case 'TextSplitJoin':
+      return (
+        <div className="mt-3 grid gap-2">
+          <SettingField help="Splits text into data lists or joins data lists back into text." label="Mode">
+            <select className={inputClass} value={node.settings.splitJoinMode ?? 'SPLIT_LINES'} onChange={(event) => onSettingsChange({ splitJoinMode: event.target.value as WorkspaceBlockSettings['splitJoinMode'] })}>
+              <option value="SPLIT_LINES">Split lines</option>
+              <option value="SPLIT_WHITESPACE">Split whitespace</option>
+              <option value="SPLIT_COMMA">Split comma</option>
+              <option value="SPLIT_CUSTOM">Split custom</option>
+              <option value="JOIN_LINES">Join lines</option>
+              <option value="JOIN_SPACE">Join spaces</option>
+              <option value="JOIN_COMMA">Join comma</option>
+              <option value="JOIN_CUSTOM">Join custom</option>
+            </select>
+          </SettingField>
+          {['SPLIT_CUSTOM', 'JOIN_CUSTOM'].includes(node.settings.splitJoinMode ?? '') ? (
+            <SettingField help="Custom separator used by custom split or join modes." label="Separator">
+              <input className={variableAwareClass(node.settings.splitJoinSeparator, variables, inputClass)} value={settingText(node.settings.splitJoinSeparator ?? ',')} onChange={(event) => onSettingsChange({ splitJoinSeparator: event.target.value })} />
+            </SettingField>
+          ) : null}
+        </div>
+      );
+    case 'UrlQuery':
+      return (
+        <div className="mt-3 grid gap-2">
+          <SettingField help="Parses or updates query parameters without requiring regex." label="Mode">
+            <select className={inputClass} value={node.settings.urlQueryMode ?? 'PARSE'} onChange={(event) => onSettingsChange({ urlQueryMode: event.target.value as WorkspaceBlockSettings['urlQueryMode'] })}>
+              <option value="PARSE">Parse URL parts</option>
+              <option value="GET_PARAM">Get parameter</option>
+              <option value="SET_PARAM">Set parameter</option>
+              <option value="DELETE_PARAM">Delete parameter</option>
+              <option value="KEEP_PARAMS">Keep only parameters</option>
+              <option value="SORT_PARAMS">Sort parameters</option>
+              <option value="REBUILD">Rebuild URL</option>
+            </select>
+          </SettingField>
+          {['GET_PARAM', 'SET_PARAM', 'DELETE_PARAM'].includes(node.settings.urlQueryMode ?? '') ? (
+            !isConnected('key') ? (
+              <SettingField help="Parameter name used when Key is not connected." label="Key">
+                <input className={variableAwareClass(node.settings.urlQueryKey, variables, inputClass)} value={settingText(node.settings.urlQueryKey)} onChange={(event) => onSettingsChange({ urlQueryKey: event.target.value })} />
+              </SettingField>
+            ) : connectedNote('Key')
+          ) : null}
+          {node.settings.urlQueryMode === 'SET_PARAM' ? (
+            !isConnected('value') ? (
+              <SettingField help="Parameter value used when Value is not connected." label="Value">
+                <input className={variableAwareClass(node.settings.urlQueryValue, variables, inputClass)} value={settingText(node.settings.urlQueryValue)} onChange={(event) => onSettingsChange({ urlQueryValue: event.target.value })} />
+              </SettingField>
+            ) : connectedNote('Value')
+          ) : null}
+          {node.settings.urlQueryMode === 'KEEP_PARAMS' ? (
+            <SettingField help="Comma or space separated parameter names to keep." label="Keep parameters">
+              <input className={variableAwareClass(node.settings.urlQueryParams, variables, inputClass)} placeholder="id slug page" value={settingText(node.settings.urlQueryParams)} onChange={(event) => onSettingsChange({ urlQueryParams: event.target.value })} />
+            </SettingField>
+          ) : null}
+        </div>
+      );
+    case 'DictOperation':
+      return (
+        <div className="mt-3 grid gap-2">
+          <SettingField help="Utility operations for dictionary data." label="Mode">
+            <select className={inputClass} value={node.settings.dictOperationMode ?? 'KEYS'} onChange={(event) => onSettingsChange({ dictOperationMode: event.target.value as WorkspaceBlockSettings['dictOperationMode'] })}>
+              <option value="KEYS">List keys</option>
+              <option value="VALUES">List values</option>
+              <option value="HAS_KEY">Has key</option>
+              <option value="DELETE_KEY">Delete key</option>
+              <option value="MERGE">Merge dictionaries</option>
+            </select>
+          </SettingField>
+          {['HAS_KEY', 'DELETE_KEY'].includes(node.settings.dictOperationMode ?? '') ? (
+            !isConnected('key') ? (
+              <SettingField help="Dictionary key used when Key is not connected." label="Key">
+                <input className={variableAwareClass(node.settings.dictKey, variables, inputClass)} value={settingText(node.settings.dictKey)} onChange={(event) => onSettingsChange({ dictKey: event.target.value })} />
+              </SettingField>
+            ) : connectedNote('Key')
+          ) : null}
+        </div>
+      );
+    case 'ConditionOut':
+      return (
+        <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] leading-5 text-slate-600">
+          Use this terminal block in a conditional Run check. When Condition is true, the selected Action Pack can run from the background alarm.
+        </p>
+      );
     case 'SaveStringToLog':
       return (
         <div className="mt-3 grid gap-2">
@@ -972,6 +1110,7 @@ const WorkspaceBlockNode = memo(function WorkspaceBlockNode({ data, selected }: 
             />
           ) : null}
           <span className="truncate">{port.label}</span>
+          <PortRiskBadge risk={port.risk} />
           <span className={`${direction === 'input' ? 'ml-auto' : 'ml-1 mr-auto'} font-mono text-[9px] text-slate-400`}>{shortDataType(port.dataType)}</span>
           {direction === 'output' ? (
             <Handle
@@ -1084,6 +1223,7 @@ const WorkspaceBlockNode = memo(function WorkspaceBlockNode({ data, selected }: 
               <span className="ml-2 flex items-center gap-1.5">
                 {input.label}
                 {input.description ? <HelpTooltip label={`${input.label} input`} text={input.description} /> : null}
+                <PortRiskBadge risk={input.risk} />
               </span>
               <span className="ml-auto font-mono text-[10px]">{input.dataType}</span>
             </div>
@@ -1093,6 +1233,7 @@ const WorkspaceBlockNode = memo(function WorkspaceBlockNode({ data, selected }: 
               <span className="flex items-center gap-1.5">
                 {output.label}
                 {output.description ? <HelpTooltip label={`${output.label} output`} text={output.description} /> : null}
+                <PortRiskBadge risk={output.risk} />
               </span>
               <span className="ml-auto mr-2 font-mono text-[10px]">{output.dataType}</span>
               <Handle
@@ -1281,15 +1422,130 @@ function groupedRiskReasons(reasons: string[]): Array<{ key: string; summary: st
   return output;
 }
 
+function nodeIdsForValidationMessage(workspace: WorkspaceFileV2, message: string): string[] {
+  const normalized = message.toLowerCase();
+  return workspace.nodes
+    .filter((node) => {
+      const title = blockTitle(node).toLowerCase();
+      const definition = getBlockDefinition(node.type).label.toLowerCase();
+      return normalized.includes(title) || normalized.includes(definition);
+    })
+    .map((node) => node.id);
+}
+
+interface ConnectionQuickFix {
+  edgeId: string;
+  label: string;
+  nodeKind: BlockKind;
+  settings: Partial<WorkspaceBlockSettings>;
+}
+
+function connectionQuickFix(workspace: WorkspaceFileV2, edgeId: string): ConnectionQuickFix | null {
+  const edge = workspace.edges.find((candidate) => candidate.id === edgeId);
+  if (!edge) {
+    return null;
+  }
+
+  const sourceNode = workspace.nodes.find((node) => node.id === edge.source);
+  const targetNode = workspace.nodes.find((node) => node.id === edge.target);
+  const sourcePort = sourceNode ? getEffectivePortDefinition(sourceNode, 'output', edge.sourceHandle) : null;
+  const targetPort = targetNode ? getEffectivePortDefinition(targetNode, 'input', edge.targetHandle) : null;
+  if (!sourceNode || !targetNode || !sourcePort || !targetPort) {
+    return null;
+  }
+
+  if (targetPort.dataType === 'string') {
+    return {
+      edgeId,
+      label: `Insert Text Transform before ${targetPort.label}`,
+      nodeKind: 'TextTransform',
+      settings: { textTransformMode: 'TRIM' },
+    };
+  }
+
+  if (targetPort.dataType === 'URL' && sourcePort.dataType === 'string') {
+    return {
+      edgeId,
+      label: `Insert String to URL before ${targetPort.label}`,
+      nodeKind: 'Convert',
+      settings: { convertMode: 'STRING_TO_URL' },
+    };
+  }
+
+  if (targetPort.dataType === 'data' && sourcePort.dataType === 'string') {
+    return {
+      edgeId,
+      label: `Split text before ${targetPort.label}`,
+      nodeKind: 'TextSplitJoin',
+      settings: { splitJoinMode: 'SPLIT_LINES' },
+    };
+  }
+
+  if (targetPort.dataType === 'dict' && sourcePort.dataType === 'JSON') {
+    return {
+      edgeId,
+      label: `Convert JSON to Dict before ${targetPort.label}`,
+      nodeKind: 'Convert',
+      settings: { convertMode: 'JSON_TO_DICT' },
+    };
+  }
+
+  if (targetPort.dataType === 'JSON' && sourcePort.dataType === 'dict') {
+    return {
+      edgeId,
+      label: `Convert Dict to JSON before ${targetPort.label}`,
+      nodeKind: 'Convert',
+      settings: { convertMode: 'DICT_TO_JSON' },
+    };
+  }
+
+  if (targetPort.dataType === 'number' && sourcePort.dataType === 'floatingPoint') {
+    return {
+      edgeId,
+      label: `Convert Float to Number before ${targetPort.label}`,
+      nodeKind: 'Convert',
+      settings: { convertMode: 'FLOAT_TO_NUMBER' },
+    };
+  }
+
+  return null;
+}
+
+function applyConnectionQuickFix(workspace: WorkspaceFileV2, fix: ConnectionQuickFix): WorkspaceFileV2 {
+  const edge = workspace.edges.find((candidate) => candidate.id === fix.edgeId);
+  const sourceNode = edge ? workspace.nodes.find((node) => node.id === edge.source) : null;
+  const targetNode = edge ? workspace.nodes.find((node) => node.id === edge.target) : null;
+  if (!edge || !sourceNode || !targetNode) {
+    return workspace;
+  }
+
+  const inserted = createWorkspaceNode(fix.nodeKind, {
+    x: Math.round((sourceNode.position.x + targetNode.position.x) / 2),
+    y: Math.round((sourceNode.position.y + targetNode.position.y) / 2) + 80,
+  }, fix.settings);
+
+  return {
+    ...workspace,
+    metadata: { ...workspace.metadata, updated_at: Date.now() },
+    nodes: [...workspace.nodes, inserted],
+    edges: [
+      ...workspace.edges.filter((candidate) => candidate.id !== fix.edgeId),
+      createEdge(edge.source, edge.sourceHandle, inserted.id, 'input'),
+      createEdge(inserted.id, 'result', edge.target, edge.targetHandle),
+    ],
+  };
+}
+
 interface WorkspaceFlowProps {
   advancedModeEnabled: boolean;
   workspace: WorkspaceFileV2;
   onWorkspaceChange: (workspace: WorkspaceFileV2, options?: WorkspaceChangeOptions) => void;
   invalidEdgeIds: Set<string>;
+  focusRequest?: { requestId: number; nodeIds: string[] } | null;
   heightClassName?: string;
 }
 
-function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, invalidEdgeIds, heightClassName = 'h-[720px]' }: WorkspaceFlowProps) {
+function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, invalidEdgeIds, focusRequest, heightClassName = 'h-[720px]' }: WorkspaceFlowProps) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const pendingSelectionRef = useRef<Set<string> | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; flowX: number; flowY: number } | null>(null);
@@ -1678,12 +1934,22 @@ function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, inva
       return;
     }
 
+    pendingSelectionRef.current = new Set(nodeIds);
+    updateSelectedNodeIds(new Set(nodeIds));
     void flowInstance.fitView({
       nodes: Array.from(nodeIds).map((id) => ({ id })),
       padding: 0.22,
       duration: 240,
     });
   }
+
+  useEffect(() => {
+    if (!focusRequest || !flowInstance || focusRequest.nodeIds.length === 0) {
+      return;
+    }
+
+    focusNodeIds(new Set(focusRequest.nodeIds));
+  }, [flowInstance, focusRequest]);
 
   function tidyEventLanes(): void {
     onWorkspaceChange(tidyWorkspaceByEventLanes(workspace));
@@ -1905,7 +2171,8 @@ function BlockPicker({ onAddBlock }: { onAddBlock: (kind: BlockKind) => void }) 
       return (
         definition.label.toLowerCase().includes(normalizedQuery) ||
         definition.kind.toLowerCase().includes(normalizedQuery) ||
-        definition.category.toLowerCase().includes(normalizedQuery)
+        definition.category.toLowerCase().includes(normalizedQuery) ||
+        (BLOCK_SEARCH_TERMS[definition.kind]?.includes(normalizedQuery) ?? false)
       );
     });
   }, [category, query]);
@@ -1917,7 +2184,7 @@ function BlockPicker({ onAddBlock }: { onAddBlock: (kind: BlockKind) => void }) 
           Add Block
         </button>
         <div className="flex flex-wrap gap-1.5">
-          {['RegExpression', 'Substitution', 'Logical', 'Math', 'SaveStringToLog', 'Abort', 'SharedState', 'OverlayControl', 'OverlayDraw'].map((kind) => {
+          {['TextTransform', 'UrlQuery', 'Substitution', 'Logical', 'ConditionOut', 'SaveStringToLog', 'Abort', 'SharedState', 'OverlayControl', 'OverlayDraw'].map((kind) => {
             const definition = getBlockDefinition(kind as BlockKind);
             return (
               <button
@@ -2013,8 +2280,26 @@ export function WorkspaceEditor({
   const [debugOutput, setDebugOutput] = useState<string | null>(null);
   const [debugError, setDebugError] = useState<string | null>(null);
   const [debugTrace, setDebugTrace] = useState<Array<{ nodeId: string; op: string; message: string; valueType?: string; preview?: string }>>([]);
-  const compileResult = useMemo(() => compileWorkspace(workspace), [workspace]);
+  const [focusRequest, setFocusRequest] = useState<{ requestId: number; nodeIds: string[] } | null>(null);
+  const conditionWorkspaces = useMemo(() => {
+    const byId = new Map(allWorkspaces.map((candidate) => [candidate.metadata.id, candidate]));
+    byId.set(workspace.metadata.id, workspace);
+    return Array.from(byId.values());
+  }, [allWorkspaces, workspace]);
+  const conditionWorkspaceOptions = useMemo(
+    () => conditionWorkspaces
+      .slice()
+      .sort((left, right) => left.metadata.name.localeCompare(right.metadata.name)),
+    [conditionWorkspaces],
+  );
+  const compileResult = useMemo(() => compileWorkspace(workspace, { conditionWorkspaces }), [conditionWorkspaces, workspace]);
   const invalidEdgeIds = useMemo(() => new Set(compileResult.validation.invalidEdgeIds), [compileResult.validation.invalidEdgeIds]);
+  const connectionQuickFixes = useMemo(
+    () => Array.from(invalidEdgeIds)
+      .map((edgeId) => connectionQuickFix(workspace, edgeId))
+      .filter((fix): fix is ConnectionQuickFix => Boolean(fix)),
+    [invalidEdgeIds, workspace],
+  );
   const riskReasonGroups = useMemo(() => groupedRiskReasons(compileResult.validation.risk.reasons), [compileResult.validation.risk.reasons]);
   const hotkeyError = workspace.trigger.type === 'HOTKEY' ? getHotkeyValidationError(workspace.trigger.hotkey, []) : null;
   const urlFilter = workspace.trigger.sourceFilters?.find((filter) => filter.source === 'url')?.pattern ?? '';
@@ -2049,6 +2334,29 @@ export function WorkspaceEditor({
     });
   }
 
+  function focusValidationMessage(message: string): void {
+    const nodeIds = nodeIdsForValidationMessage(workspace, message);
+    if (nodeIds.length > 0) {
+      setFocusRequest({ requestId: Date.now(), nodeIds });
+    }
+  }
+
+  function applyQuickFix(fix: ConnectionQuickFix): void {
+    onWorkspaceChange(applyConnectionQuickFix(workspace, fix));
+  }
+
+  async function copyDebugTrace(): Promise<void> {
+    if (debugTrace.length === 0) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(debugTrace, null, 2));
+    } catch (error) {
+      setDebugError(error instanceof Error ? error.message : 'Could not copy the debug trace.');
+    }
+  }
+
   async function runWorkspaceDebug(): Promise<void> {
     setDebugBusy(true);
     setDebugOutput(null);
@@ -2056,7 +2364,7 @@ export function WorkspaceEditor({
     setDebugTrace([]);
 
     try {
-      const result = compileWorkspace(workspace);
+      const result = compileWorkspace(workspace, { conditionWorkspaces });
       if (!result.ok || !result.pack) {
         setDebugError(result.validation.errors.join('\n') || 'Workspace did not compile.');
         return;
@@ -2143,6 +2451,7 @@ export function WorkspaceEditor({
       <ReactFlowProvider>
         <WorkspaceFlow
           advancedModeEnabled={advancedModeEnabled}
+          focusRequest={focusRequest}
           heightClassName={heightClassName}
           invalidEdgeIds={invalidEdgeIds}
           workspace={workspace}
@@ -2229,7 +2538,7 @@ export function WorkspaceEditor({
             <option value="HOTKEY">Hotkey</option>
             <option value="CONTEXT_MENU">Context Menu</option>
             <option value="INTERVAL">Recurring interval</option>
-            <option disabled value="CONDITIONAL">Conditional (not available)</option>
+            <option value="CONDITIONAL">Conditional</option>
             <option value="NEVER">Never</option>
           </select>
         </label>
@@ -2253,8 +2562,19 @@ export function WorkspaceEditor({
               </select>
             </label>
             <label className="field-shell">
-              <span className="field-label">Condition Workspace ID</span>
-              <input className="field-input" placeholder="Optional condition workspace UUID" value={workspace.trigger.conditionWorkspaceId ?? ''} onChange={(event) => updateWorkspace({ trigger: { ...workspace.trigger, conditionWorkspaceId: event.target.value } })} />
+              <span className="field-label">Condition Workspace</span>
+              <select className="field-select" value={workspace.trigger.conditionWorkspaceId ?? workspace.metadata.id} onChange={(event) => updateWorkspace({ trigger: { ...workspace.trigger, conditionWorkspaceId: event.target.value } })}>
+                {conditionWorkspaceOptions.map((conditionWorkspace) => (
+                  <option key={conditionWorkspace.metadata.id} value={conditionWorkspace.metadata.id}>
+                    {conditionWorkspace.metadata.name}
+                    {conditionWorkspace.metadata.id === workspace.metadata.id ? ' (this workspace)' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field-shell">
+              <span className="field-label">Check Interval Seconds</span>
+              <input className="field-input" min={30} type="number" value={Math.max(30, Math.round((workspace.trigger.intervalMs ?? 60000) / 1000))} onChange={(event) => updateWorkspace({ trigger: { ...workspace.trigger, intervalMs: Math.max(30, Number.parseInt(event.target.value || '30', 10)) * 1000 } })} />
             </label>
           </>
         ) : null}
@@ -2344,19 +2664,27 @@ export function WorkspaceEditor({
           </label>
         </div>
         {debugTrace.length > 0 ? (
-          <div className="mt-4 max-h-72 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/80">
-            <ol className="divide-y divide-slate-200 text-xs">
-              {debugTrace.map((entry, index) => (
-                <li key={`${entry.nodeId}:${index}`} className="grid gap-1 px-4 py-3 md:grid-cols-[12rem_1fr]">
-                  <span className="font-mono font-semibold text-slate-600">{entry.op}</span>
-                  <span className="text-slate-700">
-                    <span className="font-semibold">{entry.message}</span>
-                    {entry.preview ? <span className="ml-2 break-all text-slate-500">{entry.preview}</span> : null}
-                    <span className="ml-2 font-mono text-slate-400">{entry.nodeId}</span>
-                  </span>
-                </li>
-              ))}
-            </ol>
+          <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/80">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-2">
+              <p className="text-xs font-semibold text-slate-700">Trace ({debugTrace.length})</p>
+              <button className="ghost-button px-3 py-1.5 text-xs" type="button" onClick={() => void copyDebugTrace()}>
+                Copy Trace
+              </button>
+            </div>
+            <div className="max-h-72 overflow-y-auto">
+              <ol className="divide-y divide-slate-200 text-xs">
+                {debugTrace.map((entry, index) => (
+                  <li key={`${entry.nodeId}:${index}`} className="grid gap-1 px-4 py-3 md:grid-cols-[12rem_1fr]">
+                    <span className="font-mono font-semibold text-slate-600">{entry.op}</span>
+                    <span className="text-slate-700">
+                      <span className="font-semibold">{entry.message}</span>
+                      {entry.preview ? <span className="ml-2 break-all text-slate-500">{entry.preview}</span> : null}
+                      <span className="ml-2 font-mono text-slate-400">{entry.nodeId}</span>
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </div>
           </div>
         ) : null}
       </div>
@@ -2366,10 +2694,29 @@ export function WorkspaceEditor({
           <p className="text-sm font-semibold">{compileResult.validation.valid ? 'Workspace can build.' : 'Build is blocked.'}</p>
           {compileResult.validation.errors.length > 0 ? (
             <ul className="mt-2 list-disc pl-5 text-sm">
-              {compileResult.validation.errors.map((error) => (
-                <li key={error}>{error}</li>
-              ))}
+              {compileResult.validation.errors.map((error, index) => {
+                const nodeIds = nodeIdsForValidationMessage(workspace, error);
+                return (
+                  <li key={`${error}:${index}`}>
+                    <span>{error}</span>
+                    {nodeIds.length > 0 ? (
+                      <button className="ml-2 rounded-md border border-rose-200 bg-white px-2 py-0.5 text-xs font-semibold text-rose-700 hover:bg-rose-50" type="button" onClick={() => focusValidationMessage(error)}>
+                        Focus
+                      </button>
+                    ) : null}
+                  </li>
+                );
+              })}
             </ul>
+          ) : null}
+          {connectionQuickFixes.length > 0 ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {connectionQuickFixes.map((fix) => (
+                <button key={fix.edgeId} className="rounded-md border border-rose-200 bg-white px-2.5 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50" type="button" onClick={() => applyQuickFix(fix)}>
+                  {fix.label}
+                </button>
+              ))}
+            </div>
           ) : null}
         </div>
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">

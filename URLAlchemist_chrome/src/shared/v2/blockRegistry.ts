@@ -181,13 +181,13 @@ export const BLOCK_REGISTRY: Record<BlockKind, BlockDefinition> = {
     category: 'flow',
     inputs: [],
     outputs: [
-      port('clipboard', 'Clipboard', 'string', { risk: 'high' }),
-      port('pageText', 'Page Text', 'string', { risk: 'high' }),
-      port('rawHtml', 'Raw HTML', 'string', { risk: 'high' }),
+      port('clipboard', 'Clipboard', 'string', { risk: 'high', description: 'High risk: reads current clipboard text.' }),
+      port('pageText', 'Page Text', 'string', { risk: 'high', description: 'High risk: reads visible page text.' }),
+      port('rawHtml', 'Raw HTML', 'string', { risk: 'high', description: 'High risk: reads raw page HTML.' }),
       port('mediaData', 'Media Data', 'dict', { risk: 'extended' }),
       port('pageLinks', 'Page Links', 'data', { risk: 'extended' }),
-      port('jsMetadata', 'JS Metadata', 'dict', { risk: 'high' }),
-      port('consoleOutput', 'Console', 'data', { risk: 'high' }),
+      port('jsMetadata', 'JS Metadata', 'dict', { risk: 'high', description: 'High risk: reads page script metadata.' }),
+      port('consoleOutput', 'Console', 'data', { risk: 'high', description: 'High risk: reads captured console output.' }),
     ],
     flags: defaultFlags,
     defaultSettings: {},
@@ -199,11 +199,11 @@ export const BLOCK_REGISTRY: Record<BlockKind, BlockDefinition> = {
     label: 'Extended Out',
     category: 'flow',
     inputs: [
-      port('clipboard', 'Clipboard', 'string', { risk: 'high' }),
-      port('clipboardBinary', 'Clipboard (Binary)', 'asset', { risk: 'high' }),
-      port('pageText', 'Page Text', 'string', { risk: 'high' }),
-      port('domMutation', 'DOM Mutation', 'data', { risk: 'high' }),
-      port('fileBlob', 'File Blob', 'data', { risk: 'high' }),
+      port('clipboard', 'Clipboard', 'string', { risk: 'high', description: 'High risk: replaces current clipboard text.' }),
+      port('clipboardBinary', 'Clipboard (Binary)', 'asset', { risk: 'high', description: 'High risk: writes image, audio, video, or file-like data to the clipboard.' }),
+      port('pageText', 'Page Text', 'string', { risk: 'high', description: 'High risk: mutates page text.' }),
+      port('domMutation', 'DOM Mutation', 'data', { risk: 'high', description: 'High risk: applies structured page mutations.' }),
+      port('fileBlob', 'File Blob', 'data', { risk: 'high', description: 'High risk: prepares file-like output.' }),
     ],
     outputs: [],
     flags: defaultFlags,
@@ -671,6 +671,74 @@ export const BLOCK_REGISTRY: Record<BlockKind, BlockDefinition> = {
     },
     risk: 'safe',
   },
+  TextTransform: {
+    kind: 'TextTransform',
+    typeId: BLOCK_TYPE_IDS.TextTransform,
+    label: 'Text Transform',
+    category: 'convert',
+    inputs: [port('input', 'Text', 'Any', { required: true })],
+    outputs: [port('result', 'Text', 'string')],
+    flags: defaultFlags,
+    defaultSettings: {
+      textTransformMode: 'TRIM',
+    },
+    risk: 'safe',
+  },
+  TextSplitJoin: {
+    kind: 'TextSplitJoin',
+    typeId: BLOCK_TYPE_IDS.TextSplitJoin,
+    label: 'Text Split/Join',
+    category: 'convert',
+    inputs: [port('input', 'Input', 'Any', { required: true })],
+    outputs: [port('result', 'Result', 'Any')],
+    flags: defaultFlags,
+    defaultSettings: {
+      splitJoinMode: 'SPLIT_LINES',
+      splitJoinSeparator: ',',
+    },
+    risk: 'safe',
+  },
+  UrlQuery: {
+    kind: 'UrlQuery',
+    typeId: BLOCK_TYPE_IDS.UrlQuery,
+    label: 'URL Query',
+    category: 'data',
+    inputs: [port('input', 'URL / Parts', 'Any', { required: true }), port('key', 'Key', 'string'), port('value', 'Value', 'string')],
+    outputs: [port('result', 'Result', 'Any')],
+    flags: defaultFlags,
+    defaultSettings: {
+      urlQueryMode: 'PARSE',
+      urlQueryKey: '',
+      urlQueryValue: '',
+      urlQueryParams: '',
+    },
+    risk: 'safe',
+  },
+  DictOperation: {
+    kind: 'DictOperation',
+    typeId: BLOCK_TYPE_IDS.DictOperation,
+    label: 'Dict Operation',
+    category: 'data',
+    inputs: [port('dict', 'Dict', 'dict', { required: true }), port('other', 'Other', 'dict'), port('key', 'Key', 'string')],
+    outputs: [port('result', 'Result', 'Any')],
+    flags: defaultFlags,
+    defaultSettings: {
+      dictOperationMode: 'KEYS',
+      dictKey: '',
+    },
+    risk: 'safe',
+  },
+  ConditionOut: {
+    kind: 'ConditionOut',
+    typeId: BLOCK_TYPE_IDS.ConditionOut,
+    label: 'Condition Out',
+    category: 'flow',
+    inputs: [port('condition', 'Condition', 'bool', { required: true })],
+    outputs: [],
+    flags: defaultFlags,
+    defaultSettings: {},
+    risk: 'safe',
+  },
 };
 
 export const BLOCK_DEFINITIONS = Object.values(BLOCK_REGISTRY);
@@ -720,6 +788,55 @@ function effectiveConvertPorts(
   }
 }
 
+function effectiveTextSplitJoinPorts(
+  node: Pick<WorkspaceNodeV2, 'settings'>,
+  direction: 'input' | 'output',
+): GraphPortDefinition[] {
+  const mode = node.settings.splitJoinMode ?? 'SPLIT_LINES';
+  const joining = mode.startsWith('JOIN_');
+  if (direction === 'input') {
+    return [port('input', joining ? 'List' : 'Text', joining ? 'data' : 'string', { required: true })];
+  }
+
+  return [port('result', joining ? 'Text' : 'List', joining ? 'string' : 'data')];
+}
+
+function effectiveUrlQueryPorts(
+  node: Pick<WorkspaceNodeV2, 'settings'>,
+  direction: 'input' | 'output',
+): GraphPortDefinition[] {
+  if (direction === 'input') {
+    return [port('input', 'URL / Parts', 'Any', { required: true }), port('key', 'Key', 'string'), port('value', 'Value', 'string')];
+  }
+
+  const mode = node.settings.urlQueryMode ?? 'PARSE';
+  if (mode === 'PARSE') {
+    return [port('result', 'Parts', 'dict')];
+  }
+  if (mode === 'GET_PARAM') {
+    return [port('result', 'Value', 'string')];
+  }
+  return [port('result', 'URL', 'URL')];
+}
+
+function effectiveDictOperationPorts(
+  node: Pick<WorkspaceNodeV2, 'settings'>,
+  direction: 'input' | 'output',
+): GraphPortDefinition[] {
+  if (direction === 'input') {
+    return [port('dict', 'Dict', 'dict', { required: true }), port('other', 'Other', 'dict'), port('key', 'Key', 'string')];
+  }
+
+  const mode = node.settings.dictOperationMode ?? 'KEYS';
+  if (mode === 'HAS_KEY') {
+    return [port('result', 'Exists', 'bool')];
+  }
+  if (mode === 'KEYS' || mode === 'VALUES') {
+    return [port('result', mode === 'KEYS' ? 'Keys' : 'Values', 'data')];
+  }
+  return [port('result', 'Dict', 'dict')];
+}
+
 export function getEffectivePortDefinitions(
   node: Pick<WorkspaceNodeV2, 'type' | 'settings'>,
   direction: 'input' | 'output',
@@ -735,6 +852,18 @@ export function getEffectivePortDefinitions(
 
   if (node.type === 'Convert') {
     return effectiveConvertPorts(node, direction);
+  }
+
+  if (node.type === 'TextSplitJoin') {
+    return effectiveTextSplitJoinPorts(node, direction);
+  }
+
+  if (node.type === 'UrlQuery') {
+    return effectiveUrlQueryPorts(node, direction);
+  }
+
+  if (node.type === 'DictOperation') {
+    return effectiveDictOperationPorts(node, direction);
   }
 
   if ((node.type === 'FetchData' || node.type === 'HttpRequest') && direction === 'output') {

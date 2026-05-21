@@ -19,15 +19,17 @@ import type { ActionPack, EngineIssue, GlobalSettings, TriggerType, WorkspaceTri
 import { base64FromBytes, readLimitedResponseBytes } from '../shared/v2/remoteBytes';
 import { validateRemoteUrl } from '../shared/v2/remoteUrl';
 import type { AssetRef, CompiledActionPackV2, GraphEventHandler, GraphValue, OverlayRuntimeEvent, WorkspaceInputSource } from '../shared/v2/types';
-import { executeCompiledActionPackV2, type AssetRequest, type DisplayRequest, type GraphRuntime, type OverlayControlRequest, type OverlayDrawRequest, type UserInteractionRequest } from '../shared/v2/vm';
+import { evaluateCompiledActionPackCondition, executeCompiledActionPackV2, type AssetRequest, type DisplayRequest, type GraphRuntime, type OverlayControlRequest, type OverlayDrawRequest, type UserInteractionRequest } from '../shared/v2/vm';
 import { createOffscreenRegexExecutor, readClipboardFromOffscreen, writeClipboardBinaryFromOffscreen, writeClipboardFromOffscreen } from './offscreenBridge';
 
 const redirectTrail = new Map<string, { url: string; depth: number; expiresAt: number }>();
 const fallbackTriggerHistory = new Map<string, number[]>();
 const INTERVAL_ALARM_PREFIX = 'url-alchemist-interval:';
+const CONDITIONAL_ALARM_PREFIX = 'url-alchemist-conditional:';
 const remoteAssetCache = new Map<string, AssetRef>();
 const fallbackOverlaySessions = new Map<string, { active: boolean; url: string; updatedAt: number }>();
 const fallbackSharedState = new Map<string, GraphValue>();
+const fallbackConditionStates = new Map<string, boolean>();
 
 function sessionStorageArea(): chrome.storage.SessionStorageArea | undefined {
   return chrome.storage?.session;
@@ -39,6 +41,10 @@ function overlaySessionKey(tabId: number, packId: string): string {
 
 function sharedStateKey(packId: string, key: string): string {
   return `url-alchemist-v2-shared:${packId}:${key}`;
+}
+
+function conditionStateStorageKey(pack: CompiledActionPackV2): string {
+  return pack.triggerPlan.conditionStateKey ?? `url-alchemist-condition:${pack.manifest.id}`;
 }
 
 async function getOverlaySession(tabId: number, packId: string): Promise<{ active: boolean; url: string; updatedAt: number }> {
@@ -100,6 +106,28 @@ async function deleteSharedGraphValue(packId: string, key: string): Promise<void
   }
 
   await sessionStorage.remove(storageKey);
+}
+
+async function loadConditionState(pack: CompiledActionPackV2): Promise<boolean> {
+  const key = conditionStateStorageKey(pack);
+  const sessionStorage = sessionStorageArea();
+  if (!sessionStorage) {
+    return fallbackConditionStates.get(key) ?? false;
+  }
+
+  const stored = await sessionStorage.get(key);
+  return stored[key] === true;
+}
+
+async function saveConditionState(pack: CompiledActionPackV2, matched: boolean): Promise<void> {
+  const key = conditionStateStorageKey(pack);
+  const sessionStorage = sessionStorageArea();
+  if (!sessionStorage) {
+    fallbackConditionStates.set(key, matched);
+    return;
+  }
+
+  await sessionStorage.set({ [key]: matched });
 }
 const baseRuntime: GraphRuntime = {
   regex: createOffscreenRegexExecutor(),
@@ -561,7 +589,7 @@ async function syncIntervalAlarms(): Promise<void> {
   const existing = await chrome.alarms.getAll();
   await Promise.all(
     existing
-      .filter((alarm) => alarm.name.startsWith(INTERVAL_ALARM_PREFIX))
+      .filter((alarm) => alarm.name.startsWith(INTERVAL_ALARM_PREFIX) || alarm.name.startsWith(CONDITIONAL_ALARM_PREFIX))
       .map((alarm) => chrome.alarms.clear(alarm.name)),
   );
 
@@ -571,12 +599,13 @@ async function syncIntervalAlarms(): Promise<void> {
 
   await Promise.all(
     state.actionPacksV2
-      .filter((pack) => pack.manifest.enabled && pack.triggerPlan.type === 'INTERVAL')
-      .map((pack) =>
-        chrome.alarms.create(`${INTERVAL_ALARM_PREFIX}${pack.manifest.id}`, {
+      .filter((pack) => pack.manifest.enabled && (pack.triggerPlan.type === 'INTERVAL' || pack.triggerPlan.type === 'CONDITIONAL'))
+      .map((pack) => {
+        const prefix = pack.triggerPlan.type === 'CONDITIONAL' ? CONDITIONAL_ALARM_PREFIX : INTERVAL_ALARM_PREFIX;
+        return chrome.alarms.create(`${prefix}${pack.manifest.id}`, {
           periodInMinutes: Math.max(0.5, (pack.triggerPlan.intervalMs ?? 60_000) / 60_000),
-        }),
-      ),
+        });
+      }),
   );
 }
 
@@ -588,6 +617,42 @@ async function runIntervalPack(packId: string): Promise<void> {
   }
 
   await applyPacksToTab(tab.id, tab.url, 'INTERVAL', undefined, {
+    tabId: tab.id,
+    pageTitle: tab.title,
+  }, ['url'], packId);
+}
+
+async function runConditionalPack(packId: string): Promise<void> {
+  const state = await loadStoredState();
+  if (!state.settings.globalEnabled) {
+    return;
+  }
+
+  const pack = state.actionPacksV2.find((candidate) => candidate.manifest.id === packId);
+  if (!pack || !pack.manifest.enabled || pack.triggerPlan.type !== 'CONDITIONAL') {
+    return;
+  }
+
+  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+  const tab = tabs[0];
+  if (tab?.id === undefined || !tab.url) {
+    return;
+  }
+
+  const runtime = createRunRuntime({ tabId: tab.id, pageTitle: tab.title }, state.settings, pack.manifest.id, tab.url, pack.manifest.name);
+  const condition = await evaluateCompiledActionPackCondition(tab.url, pack, runtime, state.settings);
+  if (condition.issues.length > 0) {
+    logV2Issues(pack, condition.issues);
+  }
+
+  const wasMatched = await loadConditionState(pack);
+  await saveConditionState(pack, condition.matched);
+  const shouldRun = condition.matched && (pack.triggerPlan.conditionalMode === 'WHILE_TRUE' || !wasMatched);
+  if (!shouldRun) {
+    return;
+  }
+
+  await applyPacksToTab(tab.id, tab.url, 'CONDITIONAL', undefined, {
     tabId: tab.id,
     pageTitle: tab.title,
   }, ['url'], packId);
@@ -814,11 +879,11 @@ chrome.webNavigation.onBeforeNavigate.addListener((details) => {
 });
 
 chrome.alarms?.onAlarm.addListener((alarm) => {
-  if (!alarm.name.startsWith(INTERVAL_ALARM_PREFIX)) {
-    return;
+  if (alarm.name.startsWith(INTERVAL_ALARM_PREFIX)) {
+    void runIntervalPack(alarm.name.slice(INTERVAL_ALARM_PREFIX.length));
+  } else if (alarm.name.startsWith(CONDITIONAL_ALARM_PREFIX)) {
+    void runConditionalPack(alarm.name.slice(CONDITIONAL_ALARM_PREFIX.length));
   }
-
-  void runIntervalPack(alarm.name.slice(INTERVAL_ALARM_PREFIX.length));
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {

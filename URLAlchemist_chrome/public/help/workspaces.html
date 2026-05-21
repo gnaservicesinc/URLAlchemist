@@ -19,6 +19,7 @@
 <p>Use the Workspace Editor to add blocks, select and move one or more blocks, connect compatible ports, and configure metadata. Start from a bundled example when you want a practical pattern, then save a copy and adjust the blocks. Workspaces can be saved while incomplete, but compiling requires a valid graph and at least one output path.</p>
 <h2>Run Settings</h2>
 <p><strong>Run on input data</strong> starts a pack when configured inputs arrive, such as URL, selected text, link URL, page title, clipboard, page text, or page metadata. Hotkey, context-menu, interval, conditional, keyboard, mouse, and tick events are separate triggers or event handlers.</p>
+<p><strong>Conditional</strong> runs use a selected condition workspace with exactly one connected <strong>Condition Out</strong> block. Version 2.1 evaluates those conditions from browser alarms, supports rising-edge and while-true behavior, and limits the condition VM to background-safe read/transform blocks.</p>
 <h2>Saving and Recovery</h2>
 <p>The Save Workspace command writes the current source document into installed workspaces. While editing, URL Alchemist also writes a temporary recovery draft so browser crashes or tab closes do not discard hours of work.</p>
 <p class="note">Viewport changes are saved with the workspace so the editor reopens at the same pan and zoom.</p>
@@ -30,6 +31,9 @@
 <p><strong>Substitution</strong> formats strings without writing a regex. Connect values to <code>$1</code>, <code>$2</code>, and later inputs, then type those tokens into the pattern field. A dollar sign followed by a number is reserved for these connector variables.</p>
 <p>When a literal field uses a declared variable, the matching input connector is disabled for that field. Use either a connected input or a variable reference, not both.</p>
 <p>Select multiple blocks with Shift-click or Shift-drag. Use the canvas toolbar or <code>Ctrl+C</code>/<code>Ctrl+V</code> on Windows and <code>Cmd+C</code>/<code>Cmd+V</code> on macOS to copy and paste selected blocks.</p>
+<h2>Utility Blocks</h2>
+<p><strong>Text Transform</strong> handles common cleanup such as trimming, whitespace collapse, control-character stripping, case changes, and URL encode/decode. <strong>Text Split/Join</strong> converts between text and list data by lines, whitespace, comma, or a custom separator.</p>
+<p><strong>URL Query</strong> parses URL parts, gets or changes parameters, keeps named parameters, sorts parameters, and rebuilds URLs without regex. <strong>Dict Operation</strong> merges dictionaries, deletes keys, checks keys, and lists keys or values.</p>
 <h2>Debug Blocks</h2>
 <p><strong>Save string to log</strong> writes a timestamped entry to the current Action Pack log with a severity level. <strong>Abort</strong> stops the current run when its boolean input is true and returns exit code <code>130</code>.</p>
 <h2>Interactive Blocks</h2>

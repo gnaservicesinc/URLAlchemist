@@ -223,6 +223,44 @@ export function getVariableFieldSpecs(node: WorkspaceNodeV2): VariableFieldSpec[
         expectedType: 'string',
         numericMode: 'substitution',
       }];
+    case 'TextSplitJoin':
+      return [{
+        setting: 'splitJoinSeparator',
+        label: 'Separator',
+        expectedType: 'string',
+        numericMode: 'forbidden',
+      }];
+    case 'UrlQuery':
+      return [
+        {
+          setting: 'urlQueryKey',
+          label: 'Query key',
+          expectedType: 'string',
+          inputHandle: 'key',
+          numericMode: 'forbidden',
+        },
+        {
+          setting: 'urlQueryValue',
+          label: 'Query value',
+          expectedType: 'string',
+          inputHandle: 'value',
+          numericMode: 'forbidden',
+        },
+        {
+          setting: 'urlQueryParams',
+          label: 'Allowed parameters',
+          expectedType: 'string',
+          numericMode: 'forbidden',
+        },
+      ];
+    case 'DictOperation':
+      return [{
+        setting: 'dictKey',
+        label: 'Key',
+        expectedType: 'string',
+        inputHandle: 'key',
+        numericMode: 'forbidden',
+      }];
     case 'SharedState':
       return [{
         setting: 'selectFalseValue',

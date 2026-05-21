@@ -115,6 +115,9 @@ export function BundledExamplesPanel({
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <span className={`risk-badge ${riskClass(example.risk)}`}>{riskLabel(example.risk)}</span>
+                  <span className="risk-badge risk-badge-soft">Chrome</span>
+                  <span className="risk-badge risk-badge-soft">Firefox desktop</span>
+                  <span className="risk-badge risk-badge-warn">Android source-only</span>
                   {installed ? <span className="risk-badge risk-badge-soft">Installed</span> : null}
                   {savedWorkspace ? <span className="risk-badge risk-badge-soft">Workspace saved</span> : null}
                 </div>

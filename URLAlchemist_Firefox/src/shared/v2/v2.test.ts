@@ -14,14 +14,13 @@ import { HOTKEY_TRIGGER_MESSAGE, isHotkeyTriggerMessage, isOverlayAppEventMessag
 import { getDefaultState } from '../storage';
 import { normalizeStoredState } from '../validation';
 import { validateCompiledActionPackV2 } from './actionPackValidator';
-import { getFirefoxActionPackCompatibility } from './browserCompatibility';
 import { BUNDLED_ACTION_PACK_EXAMPLES, createBundledExampleActionPacks, createBundledExampleWorkspaces } from './bundledExamples';
 import { compileWorkspace } from './compiler';
 import { explainRiskReason } from './explain';
 import { createSandboxGraphRuntime } from './sandboxRuntime';
 import { ACTION_PACK_SCHEMA_VERSION, LEGACY_ACTION_PACK_SCHEMA_VERSION, type CompiledActionPackV2, type GraphValue } from './types';
 import { extractVariableReferences, resolveVariableText } from './variables';
-import { executeCompiledActionPackV2, type GraphRuntime } from './vm';
+import { evaluateCompiledActionPackCondition, executeCompiledActionPackV2, type GraphRuntime } from './vm';
 import { createEdge, createDefaultWorkspace, createWorkspaceNode, validateWorkspaceFile, workspaceFromLegacyPack } from './workspace';
 import { createWorkspaceBlockClipboard, pasteWorkspaceBlockClipboard } from './workspaceClipboard';
 import {
@@ -106,6 +105,54 @@ function createBasicCompiledPack() {
   }
 
   return compiled.pack;
+}
+
+function createConditionalWorkspace(conditionValue = '1') {
+  const workspace = createDefaultWorkspace();
+  const dataIn = workspace.nodes.find((node) => node.type === 'DataFlowIn')!;
+  const dataOut = workspace.nodes.find((node) => node.type === 'DataFlowOut')!;
+  const constant = createWorkspaceNode('Constant', { x: 260, y: 20 }, {
+    literalDataType: 'bool',
+    literalValue: conditionValue,
+  });
+  const conditionOut = createWorkspaceNode('ConditionOut', { x: 560, y: 20 });
+
+  return {
+    ...workspace,
+    trigger: {
+      type: 'CONDITIONAL' as const,
+      conditionalMode: 'RISING_EDGE' as const,
+      intervalMs: 30_000,
+      inputSources: ['url' as const],
+      conditionWorkspaceId: workspace.metadata.id,
+    },
+    nodes: [...workspace.nodes, constant, conditionOut],
+    edges: [
+      createEdge(dataIn.id, 'url', dataOut.id, 'url'),
+      createEdge(constant.id, 'value', conditionOut.id, 'condition'),
+    ],
+  };
+}
+
+async function runWorkspaceForClipboard(
+  workspace: ReturnType<typeof createDefaultWorkspace>,
+  sourceValues: Partial<Record<string, GraphValue>> = {},
+  inputUrl = 'https://example.com/?b=2&a=1&utm=1&id=7',
+) {
+  const compiled = compileWorkspace(workspace, { conditionWorkspaces: [workspace] });
+  expect(compiled.ok, compiled.validation.errors.join('; ')).toBe(true);
+  let clipboard = '';
+  const result = await executeCompiledActionPackV2(inputUrl, compiled.pack!, {
+    ...runtime,
+    readSource: async (source) => sourceValues[source] ?? runtime.readSource?.(source),
+    writeDestination: async (destination, value) => {
+      if (destination === 'clipboard') {
+        clipboard = typeof value.value === 'string' ? value.value : JSON.stringify(value.value);
+      }
+    },
+  }, DEFAULT_SETTINGS);
+  expect(result.issues, result.issues.map((issue) => issue.message).join('; ')).toEqual([]);
+  return { clipboard, result, pack: compiled.pack! };
 }
 
 async function encodeActionPackCandidate(candidate: unknown): Promise<Uint8Array> {
@@ -262,29 +309,6 @@ describe('v2 workspace compiler and VM', () => {
 
     expect(result.ok).toBe(false);
     expect(result.validation.errors.join(' ')).toContain('terminal side-effect');
-  });
-
-  it('reports Firefox compatibility blockers for unsupported binary clipboard output', () => {
-    const basePack = createBasicCompiledPack();
-    const pack: CompiledActionPackV2 = {
-      ...basePack,
-      vm: {
-        ...basePack.vm,
-        instructions: [
-          ...basePack.vm.instructions,
-          {
-            op: 'OUTPUT',
-            nodeId: 'binary-output',
-            destination: 'clipboardBinary',
-            dataType: 'asset',
-            risk: 'high',
-          },
-        ],
-      },
-    };
-
-    const report = getFirefoxActionPackCompatibility(pack);
-    expect(report.blockers.join(' ')).toContain('binary clipboard output');
   });
 
   it('allows storage-only workspaces without URL Data Out', () => {
@@ -1160,7 +1184,7 @@ describe('v2 workspace compiler and VM', () => {
     }
   });
 
-  it('blocks interval triggers below the background minimum', () => {
+  it('blocks interval triggers below the Chrome background minimum', () => {
     const workspace = createDefaultWorkspace();
     const dataIn = workspace.nodes.find((node) => node.type === 'DataFlowIn')!;
     const dataOut = workspace.nodes.find((node) => node.type === 'DataFlowOut')!;
@@ -1177,7 +1201,7 @@ describe('v2 workspace compiler and VM', () => {
     expect(compiled.validation.errors.join(' ')).toContain('Interval trigger');
   });
 
-  it('blocks conditional triggers until the runtime supports them', () => {
+  it('requires a connected Condition Out block for conditional triggers', () => {
     const workspace = createDefaultWorkspace();
     const dataIn = workspace.nodes.find((node) => node.type === 'DataFlowIn')!;
     const dataOut = workspace.nodes.find((node) => node.type === 'DataFlowOut')!;
@@ -1191,7 +1215,161 @@ describe('v2 workspace compiler and VM', () => {
     });
 
     expect(compiled.ok).toBe(false);
-    expect(compiled.validation.errors.join(' ')).toContain('Conditional triggers are not supported');
+    expect(compiled.validation.errors.join(' ')).toContain('Conditional Run requires exactly one connected Condition Out block');
+  });
+
+  it('embeds and evaluates a condition VM for conditional triggers', async () => {
+    const workspace = createConditionalWorkspace('1');
+    const compiled = compileWorkspace(workspace, { conditionWorkspaces: [workspace] });
+
+    expect(compiled.ok).toBe(true);
+    expect(compiled.pack?.triggerPlan.conditionVm?.instructions.some((instruction) => instruction.op === 'CONDITION_OUT')).toBe(true);
+    expect(compiled.pack?.triggerPlan.conditionStateKey).toContain(workspace.metadata.id);
+
+    const condition = await evaluateCompiledActionPackCondition('https://example.com/', compiled.pack!, runtime, DEFAULT_SETTINGS);
+    expect(condition.matched).toBe(true);
+    expect(condition.issues).toEqual([]);
+  });
+
+  it('runs every Text Transform mode', async () => {
+    const cases = [
+      ['TRIM', '  Text  ', 'Text'],
+      ['COLLAPSE_WHITESPACE', '  a\t b\n c  ', 'a b c'],
+      ['NORMALIZE_LINE_ENDINGS', 'a\r\nb\rc', 'a\nb\nc'],
+      ['STRIP_CONTROL_CHARS', 'a\u0000b\u0007c\n', 'abc\n'],
+      ['UPPERCASE', 'Abc', 'ABC'],
+      ['LOWERCASE', 'Abc', 'abc'],
+      ['TITLE_CASE', 'hello world', 'Hello World'],
+      ['URL_ENCODE', 'a b&c', 'a%20b%26c'],
+      ['URL_DECODE', 'a%20b%26c', 'a b&c'],
+    ] as const;
+
+    for (const [mode, inputValue, expected] of cases) {
+      const workspace = createDefaultWorkspace();
+      const dataIn = workspace.nodes.find((node) => node.type === 'DataFlowIn')!;
+      const transform = createWorkspaceNode('TextTransform', { x: 260, y: 80 }, { textTransformMode: mode });
+      const output = createWorkspaceNode('ExtendedDataOut', { x: 560, y: 80 });
+      const result = await runWorkspaceForClipboard({
+        ...workspace,
+        trigger: { type: 'CONTEXT_MENU', inputSources: ['selectedText'] },
+        nodes: [...workspace.nodes, transform, output],
+        edges: [
+          createEdge(dataIn.id, 'selectedText', transform.id, 'input'),
+          createEdge(transform.id, 'result', output.id, 'clipboard'),
+        ],
+      }, { selectedText: { type: 'string', value: inputValue } });
+
+      expect(result.clipboard).toBe(expected);
+    }
+  });
+
+  it('runs Text Split/Join modes', async () => {
+    const splitCases = [
+      ['SPLIT_LINES', 'a\r\nb\nc', 'JOIN_CUSTOM', '|', 'a|b|c'],
+      ['SPLIT_WHITESPACE', 'a  b\tc', 'JOIN_COMMA', ',', 'a, b, c'],
+      ['SPLIT_COMMA', 'a, b,c', 'JOIN_SPACE', ' ', 'a b c'],
+      ['SPLIT_CUSTOM', 'a|b|c', 'JOIN_LINES', '|', 'a\nb\nc'],
+    ] as const;
+
+    for (const [splitMode, inputValue, joinMode, separator, expected] of splitCases) {
+      const workspace = createDefaultWorkspace();
+      const dataIn = workspace.nodes.find((node) => node.type === 'DataFlowIn')!;
+      const split = createWorkspaceNode('TextSplitJoin', { x: 260, y: 80 }, { splitJoinMode: splitMode, splitJoinSeparator: separator });
+      const join = createWorkspaceNode('TextSplitJoin', { x: 560, y: 80 }, { splitJoinMode: joinMode, splitJoinSeparator: separator });
+      const output = createWorkspaceNode('ExtendedDataOut', { x: 860, y: 80 });
+      const result = await runWorkspaceForClipboard({
+        ...workspace,
+        trigger: { type: 'CONTEXT_MENU', inputSources: ['selectedText'] },
+        nodes: [...workspace.nodes, split, join, output],
+        edges: [
+          createEdge(dataIn.id, 'selectedText', split.id, 'input'),
+          createEdge(split.id, 'result', join.id, 'input'),
+          createEdge(join.id, 'result', output.id, 'clipboard'),
+        ],
+      }, { selectedText: { type: 'string', value: inputValue } });
+
+      expect(result.clipboard).toBe(expected);
+    }
+  });
+
+  it('runs URL Query modes', async () => {
+    const workspace = createDefaultWorkspace();
+    const dataIn = workspace.nodes.find((node) => node.type === 'DataFlowIn')!;
+    const dataOut = workspace.nodes.find((node) => node.type === 'DataFlowOut')!;
+    const keep = createWorkspaceNode('UrlQuery', { x: 260, y: 80 }, { urlQueryMode: 'KEEP_PARAMS', urlQueryParams: 'id a' });
+    const set = createWorkspaceNode('UrlQuery', { x: 520, y: 80 }, { urlQueryMode: 'SET_PARAM', urlQueryKey: 'page', urlQueryValue: '2' });
+    const del = createWorkspaceNode('UrlQuery', { x: 780, y: 80 }, { urlQueryMode: 'DELETE_PARAM', urlQueryKey: 'a' });
+    const sort = createWorkspaceNode('UrlQuery', { x: 1040, y: 80 }, { urlQueryMode: 'SORT_PARAMS' });
+    const run = await executeCompiledActionPackV2(
+      'https://example.com/path?b=2&id=7&a=1&utm=1',
+      compileWorkspace({
+        ...workspace,
+        nodes: [...workspace.nodes, keep, set, del, sort],
+        edges: [
+          createEdge(dataIn.id, 'url', keep.id, 'input'),
+          createEdge(keep.id, 'result', set.id, 'input'),
+          createEdge(set.id, 'result', del.id, 'input'),
+          createEdge(del.id, 'result', sort.id, 'input'),
+          createEdge(sort.id, 'result', dataOut.id, 'url'),
+        ],
+      }).pack!,
+      runtime,
+      DEFAULT_SETTINGS,
+    );
+    expect(run.finalUrl).toBe('https://example.com/path?id=7&page=2');
+
+    const parseWorkspace = createDefaultWorkspace();
+    const parseInput = parseWorkspace.nodes.find((node) => node.type === 'DataFlowIn')!;
+    const parse = createWorkspaceNode('UrlQuery', { x: 260, y: 80 }, { urlQueryMode: 'PARSE' });
+    const rebuild = createWorkspaceNode('UrlQuery', { x: 520, y: 80 }, { urlQueryMode: 'REBUILD' });
+    const get = createWorkspaceNode('UrlQuery', { x: 780, y: 80 }, { urlQueryMode: 'GET_PARAM', urlQueryKey: 'id' });
+    const output = createWorkspaceNode('ExtendedDataOut', { x: 1040, y: 80 });
+    const parsed = await runWorkspaceForClipboard({
+      ...parseWorkspace,
+      nodes: [...parseWorkspace.nodes, parse, rebuild, get, output],
+      edges: [
+        createEdge(parseInput.id, 'url', parse.id, 'input'),
+        createEdge(parse.id, 'result', rebuild.id, 'input'),
+        createEdge(rebuild.id, 'result', get.id, 'input'),
+        createEdge(get.id, 'result', output.id, 'clipboard'),
+      ],
+    }, {}, 'https://example.com/path?id=7&a=1');
+    expect(parsed.clipboard).toBe('7');
+  });
+
+  it('runs Dict Operation modes', async () => {
+    const cases = [
+      ['KEYS', 'a, b'],
+      ['VALUES', 'one, two'],
+      ['HAS_KEY', '1'],
+      ['DELETE_KEY', '{"b":{"type":"string","value":"two"}}'],
+      ['MERGE', '{"a":{"type":"string","value":"one"},"b":{"type":"string","value":"two"},"c":{"type":"string","value":"three"}}'],
+    ] as const;
+
+    for (const [mode, expected] of cases) {
+      const workspace = createDefaultWorkspace();
+      const dict = createWorkspaceNode('Constant', { x: 0, y: 40 }, { literalDataType: 'dict', literalValue: '{"a":"one","b":"two"}' });
+      const other = createWorkspaceNode('Constant', { x: 0, y: 180 }, { literalDataType: 'dict', literalValue: '{"c":"three"}' });
+      const op = createWorkspaceNode('DictOperation', { x: 280, y: 80 }, { dictOperationMode: mode, dictKey: 'a' });
+      const asText = mode === 'HAS_KEY'
+        ? createWorkspaceNode('TextTransform', { x: 560, y: 80 }, { textTransformMode: 'TRIM' })
+        : mode === 'KEYS' || mode === 'VALUES'
+          ? createWorkspaceNode('TextSplitJoin', { x: 560, y: 80 }, { splitJoinMode: 'JOIN_COMMA' })
+          : createWorkspaceNode('Convert', { x: 560, y: 80 }, { convertMode: 'DICT_TO_JSON' });
+      const output = createWorkspaceNode('ExtendedDataOut', { x: 840, y: 80 });
+      const result = await runWorkspaceForClipboard({
+        ...workspace,
+        nodes: [...workspace.nodes, dict, other, op, asText, output],
+        edges: [
+          createEdge(dict.id, 'value', op.id, 'dict'),
+          createEdge(other.id, 'value', op.id, 'other'),
+          createEdge(op.id, 'result', asText.id, 'input'),
+          createEdge(asText.id, 'result', output.id, 'clipboard'),
+        ],
+      });
+
+      expect(result.clipboard).toBe(expected);
+    }
   });
 
   it('uses a connected Regex payload input before the text payload field', async () => {
@@ -1444,7 +1622,7 @@ describe('v2 workspace compiler and VM', () => {
     ).rejects.toThrow('Unsafe regular expression rejected');
   });
 
-  it('rejects imported conditional trigger plans until the runtime supports them', async () => {
+  it('rejects imported conditional trigger plans without embedded condition programs', async () => {
     const basePack = createBasicCompiledPack();
     const pack: CompiledActionPackV2 = {
       ...basePack,
@@ -1465,7 +1643,39 @@ describe('v2 workspace compiler and VM', () => {
 
     await expect(
       importCompiledActionPackV2Binary(await exportCompiledActionPackV2Binary(pack)),
-    ).rejects.toThrow('CONDITIONAL is not supported');
+    ).rejects.toThrow('triggerPlan.conditionVm is required');
+  });
+
+  it('rejects imported conditional condition VMs with side-effect instructions', async () => {
+    const workspace = createConditionalWorkspace('1');
+    const compiled = compileWorkspace(workspace, { conditionWorkspaces: [workspace] });
+    expect(compiled.ok).toBe(true);
+    const pack = compiled.pack!;
+    const conditionVm = pack.triggerPlan.conditionVm!;
+    const unsafePack: CompiledActionPackV2 = {
+      ...pack,
+      triggerPlan: {
+        ...pack.triggerPlan,
+        conditionVm: {
+          ...conditionVm,
+          instructions: [
+            ...conditionVm.instructions,
+            {
+              op: 'OUTPUT',
+              nodeId: 'unsafe-condition-output',
+              input: pack.triggerPlan.conditionOutput,
+              destination: 'clipboard',
+              dataType: 'string',
+              risk: 'high',
+            },
+          ],
+        },
+      },
+    };
+
+    await expect(
+      importCompiledActionPackV2Binary(await exportCompiledActionPackV2Binary(unsafePack)),
+    ).rejects.toThrow('not allowed in conditional Run checks');
   });
 
   it('runs staged SaveLoad and output instructions without persistent side effects', async () => {

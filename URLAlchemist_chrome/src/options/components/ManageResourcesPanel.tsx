@@ -55,6 +55,7 @@ function pairedWorkspaceId(pack: CompiledActionPackV2): string {
 }
 
 function WorkspaceCard({
+  conditionWorkspaces,
   workspace,
   onCompileExportWorkspace,
   onDeleteWorkspace,
@@ -64,8 +65,8 @@ function WorkspaceCard({
 }: Pick<
   ManageResourcesPanelProps,
   'onCompileExportWorkspace' | 'onDeleteWorkspace' | 'onExportWorkspace' | 'onOpenWorkspace' | 'onUpdateWorkspaceMetadata'
-> & { workspace: WorkspaceFileV2 }) {
-  const compileResult = useMemo(() => compileWorkspace(workspace), [workspace]);
+> & { conditionWorkspaces: WorkspaceFileV2[]; workspace: WorkspaceFileV2 }) {
+  const compileResult = useMemo(() => compileWorkspace(workspace, { conditionWorkspaces }), [conditionWorkspaces, workspace]);
 
   return (
     <article className="rounded-lg border border-slate-200 bg-white/85 p-5 shadow-[0_12px_28px_rgba(31,41,55,0.07)]">
@@ -291,6 +292,7 @@ export function ManageResourcesPanel(props: ManageResourcesPanelProps) {
           return (
             <div key={workspace.metadata.id} className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_70px_minmax(0,1fr)]">
               <WorkspaceCard
+                conditionWorkspaces={props.workspaces}
                 workspace={workspace}
                 onCompileExportWorkspace={props.onCompileExportWorkspace}
                 onDeleteWorkspace={props.onDeleteWorkspace}

@@ -45,11 +45,11 @@ function traceRemaining(pack: CompiledActionPackV2): string {
   return `${minutes} min remaining`;
 }
 
-async function auditBytes(bytes: Uint8Array): Promise<AuditReport> {
+async function auditBytes(bytes: Uint8Array, conditionWorkspaces: WorkspaceFileV2[]): Promise<AuditReport> {
   const artifact = await importAnyArtifact(bytes);
 
   if (artifact.kind === 'workspace') {
-    const compiled = compileWorkspace(artifact.workspace);
+    const compiled = compileWorkspace(artifact.workspace, { conditionWorkspaces: [...conditionWorkspaces, artifact.workspace] });
     return {
       errors: compiled.validation.errors,
       instructions: compiled.pack?.vm.instructions ?? [],
@@ -109,7 +109,7 @@ export function SecurityPanel({
   const workspaceAlerts = useMemo(
     () =>
       workspaces.flatMap((workspace) => {
-        const result = compileWorkspace(workspace);
+        const result = compileWorkspace(workspace, { conditionWorkspaces: workspaces });
         return [
           ...result.validation.errors.map((message) => ({ workspace, severity: 'error' as const, message })),
           ...result.validation.warnings.map((message) => ({ workspace, severity: 'warning' as const, message })),
@@ -123,7 +123,7 @@ export function SecurityPanel({
     setAuditError(null);
     setAuditReport(null);
     try {
-      setAuditReport(await auditBytes(new Uint8Array(await file.arrayBuffer())));
+      setAuditReport(await auditBytes(new Uint8Array(await file.arrayBuffer()), workspaces));
     } catch (error) {
       setAuditError(error instanceof Error ? error.message : 'Unable to audit this file.');
     } finally {

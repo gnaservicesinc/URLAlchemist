@@ -11,5 +11,20 @@
     "test:chrome": "npm --prefix ./URLAlchemist_chrome run test",
     "test:firefox": "npm --prefix ./URLAlchemist_Firefox run test",
     "version:update": "bash ./change_version.sh"
-  }
+  },
+  "version": "1.0.0",
+  "description": "URL Alchemist",
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gnaservicesinc/URLAlchemist.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/gnaservicesinc/URLAlchemist/issues"
+  },
+  "homepage": "https://github.com/gnaservicesinc/URLAlchemist#readme"
 }

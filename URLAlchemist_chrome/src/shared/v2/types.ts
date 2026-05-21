@@ -1,20 +1,24 @@
 import type { ActionPack, ActionPackLogSeverity, ActionType, MatchMode, WorkspaceTriggerType } from '../types';
 
-export const WORKSPACE_SCHEMA_VERSION = 5;
-export const LEGACY_WORKSPACE_SCHEMA_VERSION = 4;
-export const OLDER_WORKSPACE_SCHEMA_VERSION = 3;
-export const ACTION_PACK_SCHEMA_VERSION = 5;
-export const LEGACY_ACTION_PACK_SCHEMA_VERSION = 4;
-export const OLDER_ACTION_PACK_SCHEMA_VERSION = 3;
+export const WORKSPACE_SCHEMA_VERSION = 6;
+export const LEGACY_WORKSPACE_SCHEMA_VERSION = 5;
+export const OLDER_WORKSPACE_SCHEMA_VERSION = 4;
+export const EARLIEST_WORKSPACE_SCHEMA_VERSION = 3;
+export const ACTION_PACK_SCHEMA_VERSION = 6;
+export const LEGACY_ACTION_PACK_SCHEMA_VERSION = 5;
+export const OLDER_ACTION_PACK_SCHEMA_VERSION = 4;
+export const EARLIEST_ACTION_PACK_SCHEMA_VERSION = 3;
 export const SUPPORTED_WORKSPACE_SCHEMA_VERSIONS = [
   WORKSPACE_SCHEMA_VERSION,
   LEGACY_WORKSPACE_SCHEMA_VERSION,
   OLDER_WORKSPACE_SCHEMA_VERSION,
+  EARLIEST_WORKSPACE_SCHEMA_VERSION,
 ] as const;
 export const SUPPORTED_ACTION_PACK_SCHEMA_VERSIONS = [
   ACTION_PACK_SCHEMA_VERSION,
   LEGACY_ACTION_PACK_SCHEMA_VERSION,
   OLDER_ACTION_PACK_SCHEMA_VERSION,
+  EARLIEST_ACTION_PACK_SCHEMA_VERSION,
 ] as const;
 export const INPUT_TRIGGER_HISTORY_LIMIT = 25;
 export const INPUT_TRIGGER_BURST_LIMIT = 10;
@@ -110,6 +114,11 @@ export const BLOCK_TYPE_IDS = {
   SaveStringToLog: 40,
   Abort: 41,
   Substitution: 42,
+  TextTransform: 43,
+  TextSplitJoin: 44,
+  UrlQuery: 45,
+  DictOperation: 46,
+  ConditionOut: 47,
 } as const;
 
 export type BlockKind = keyof typeof BLOCK_TYPE_IDS;
@@ -235,6 +244,34 @@ export type GraphEventHandler = 'trigger' | 'keyboard' | 'mouse' | 'tick';
 export type OverlayControlAction = 'START' | 'STOP' | 'TOGGLE' | 'STATUS';
 export type SharedStateMode = 'GET' | 'SET' | 'DELETE' | 'EXISTS';
 export type ListOperationMode = 'APPEND' | 'PREPEND' | 'DROP_LAST' | 'GET' | 'LENGTH' | 'CONTAINS_POINT';
+export type TextTransformMode =
+  | 'TRIM'
+  | 'COLLAPSE_WHITESPACE'
+  | 'NORMALIZE_LINE_ENDINGS'
+  | 'STRIP_CONTROL_CHARS'
+  | 'UPPERCASE'
+  | 'LOWERCASE'
+  | 'TITLE_CASE'
+  | 'URL_ENCODE'
+  | 'URL_DECODE';
+export type TextSplitJoinMode =
+  | 'SPLIT_LINES'
+  | 'SPLIT_WHITESPACE'
+  | 'SPLIT_COMMA'
+  | 'SPLIT_CUSTOM'
+  | 'JOIN_LINES'
+  | 'JOIN_SPACE'
+  | 'JOIN_COMMA'
+  | 'JOIN_CUSTOM';
+export type UrlQueryMode =
+  | 'PARSE'
+  | 'GET_PARAM'
+  | 'SET_PARAM'
+  | 'DELETE_PARAM'
+  | 'KEEP_PARAMS'
+  | 'SORT_PARAMS'
+  | 'REBUILD';
+export type DictOperationMode = 'MERGE' | 'DELETE_KEY' | 'HAS_KEY' | 'KEYS' | 'VALUES';
 
 export type OverlayRuntimeEvent =
   | {
@@ -307,7 +344,7 @@ export interface WorkspaceBlockSettings {
   regexBuilder?: WorkspaceRegexBuilderState;
   regexSourceMode?: WorkspaceRegexSourceMode;
   regexHelperInput?: string;
-  operator?: 'LT' | 'LTE' | 'EQ' | 'GT' | 'GTE';
+  operator?: 'LT' | 'LTE' | 'EQ' | 'NEQ' | 'GT' | 'GTE';
   compareValue?: string;
   booleanOutput?: boolean;
   mathOperation?: 'ADD' | 'SUBTRACT' | 'MULTIPLY' | 'DIVIDE' | 'MODULO';
@@ -345,6 +382,14 @@ export interface WorkspaceBlockSettings {
   randomMax?: number;
   selectTrueValue?: string;
   selectFalseValue?: string;
+  textTransformMode?: TextTransformMode;
+  splitJoinMode?: TextSplitJoinMode;
+  splitJoinSeparator?: string;
+  urlQueryMode?: UrlQueryMode;
+  urlQueryKey?: string;
+  urlQueryValue?: string;
+  urlQueryParams?: string;
+  dictOperationMode?: DictOperationMode;
 }
 
 export interface WorkspaceNodeV2 {
@@ -414,6 +459,9 @@ export interface CompiledTriggerPlan {
   intervalMs?: number;
   conditionalMode?: ConditionalTriggerMode;
   conditionWorkspaceId?: string;
+  conditionVm?: GraphVmProgram;
+  conditionOutput?: string;
+  conditionStateKey?: string;
   safety: CompiledTriggerSafety;
 }
 
@@ -662,6 +710,49 @@ export type GraphVmInstruction =
 	      output: string;
 	      template: string;
 	      values: string[];
+	    }
+	  | {
+	      op: 'TEXT_TRANSFORM';
+	      nodeId: string;
+	      input?: string;
+	      output: string;
+	      mode: TextTransformMode;
+	    }
+	  | {
+	      op: 'TEXT_SPLIT_JOIN';
+	      nodeId: string;
+	      input?: string;
+	      output: string;
+	      mode: TextSplitJoinMode;
+	      separator: string;
+	    }
+	  | {
+	      op: 'URL_QUERY';
+	      nodeId: string;
+	      input?: string;
+	      key?: string;
+	      value?: string;
+	      output: string;
+	      mode: UrlQueryMode;
+	      fallbackKey: string;
+	      fallbackValue: string;
+	      fallbackParams: string;
+	    }
+	  | {
+	      op: 'DICT_OP';
+	      nodeId: string;
+	      dict?: string;
+	      other?: string;
+	      key?: string;
+	      output: string;
+	      mode: DictOperationMode;
+	      fallbackKey: string;
+	    }
+	  | {
+	      op: 'CONDITION_OUT';
+	      nodeId: string;
+	      condition?: string;
+	      output: string;
 	    }
 	  | {
 	      op: 'LOG';

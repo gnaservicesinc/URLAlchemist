@@ -6,7 +6,7 @@ import type { EngineRuntime } from '../engine/runtime';
 import { validateRemoteUrl } from './remoteUrl';
 import { readLimitedResponseBytes } from './remoteBytes';
 import { extractVariableReferences, resolveVariableText } from './variables';
-import type { AssetRef, CompiledActionPackV2, GraphEventHandler, GraphValue, GraphVmInstruction, OverlayRuntimeEvent } from './types';
+import type { AssetRef, CompiledActionPackV2, GraphEventHandler, GraphValue, GraphVmInstruction, GraphVmProgram, OverlayRuntimeEvent } from './types';
 
 export interface RemoteRequest {
   url: string;
@@ -158,6 +158,25 @@ function trace(state: VmState, instruction: GraphVmInstruction, message: string,
     valueType: value?.type,
     preview: value ? previewValue(value) : undefined,
   });
+}
+
+function createVmState(event?: OverlayRuntimeEvent): VmState {
+  const mouseX = event?.kind === 'mouse' ? event.x : -1;
+  const mouseY = event?.kind === 'mouse' ? event.y : -1;
+  return {
+    values: new Map(),
+    globals: new Map([
+      ['$mouse_x', { type: 'number', value: mouseX }],
+      ['$mouse_y', { type: 'number', value: mouseY }],
+    ]),
+    locals: new Map(),
+    loopSteps: 0,
+    issues: [],
+    trace: [],
+    outputs: new Map(),
+    aborted: false,
+    exitCode: 0,
+  };
 }
 
 function bytes(value: GraphValue): number {
@@ -729,6 +748,119 @@ function graphList(value: GraphValue | undefined): unknown[] {
   return [];
 }
 
+function graphDictEntries(value: GraphValue | undefined): Record<string, GraphValue> {
+  if (value?.type !== 'dict' || typeof value.value !== 'object' || value.value === null || Array.isArray(value.value)) {
+    return {};
+  }
+
+  return value.value;
+}
+
+function applyTextTransform(input: string, mode: Extract<GraphVmInstruction, { op: 'TEXT_TRANSFORM' }>['mode']): string {
+  switch (mode) {
+    case 'COLLAPSE_WHITESPACE':
+      return input.replace(/\s+/g, ' ').trim();
+    case 'NORMALIZE_LINE_ENDINGS':
+      return input.replace(/\r\n?/g, '\n');
+    case 'STRIP_CONTROL_CHARS':
+      return input.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '');
+    case 'UPPERCASE':
+      return input.toUpperCase();
+    case 'LOWERCASE':
+      return input.toLowerCase();
+    case 'TITLE_CASE':
+      return input.toLowerCase().replace(/\b[\p{L}\p{N}]/gu, (character) => character.toUpperCase());
+    case 'URL_ENCODE':
+      return encodeURIComponent(input);
+    case 'URL_DECODE':
+      try {
+        return decodeURIComponent(input);
+      } catch {
+        return input;
+      }
+    case 'TRIM':
+    default:
+      return input.trim();
+  }
+}
+
+function splitText(input: string, mode: Extract<GraphVmInstruction, { op: 'TEXT_SPLIT_JOIN' }>['mode'], separator: string): string[] {
+  switch (mode) {
+    case 'SPLIT_WHITESPACE':
+      return input.trim() ? input.trim().split(/\s+/g) : [];
+    case 'SPLIT_COMMA':
+      return input.split(',').map((entry) => entry.trim()).filter(Boolean);
+    case 'SPLIT_CUSTOM':
+      return separator ? input.split(separator) : [input];
+    case 'SPLIT_LINES':
+    default:
+      return input.replace(/\r\n?/g, '\n').split('\n');
+  }
+}
+
+function joinText(value: GraphValue | undefined, mode: Extract<GraphVmInstruction, { op: 'TEXT_SPLIT_JOIN' }>['mode'], separator: string): string {
+  const list = graphList(value).map((entry) => typeof entry === 'string' ? entry : JSON.stringify(entry));
+  const glue = mode === 'JOIN_LINES'
+    ? '\n'
+    : mode === 'JOIN_SPACE'
+      ? ' '
+      : mode === 'JOIN_COMMA'
+        ? ', '
+        : separator;
+  return list.join(glue);
+}
+
+function urlPartsValue(url: URL): GraphValue {
+  return dictValue({
+    href: url.href,
+    origin: url.origin,
+    protocol: url.protocol,
+    host: url.host,
+    hostname: url.hostname,
+    pathname: url.pathname,
+    search: url.search,
+    hash: url.hash,
+    params: {
+      type: 'dict',
+      value: Object.fromEntries(Array.from(url.searchParams.entries()).map(([key, value]) => [key, { type: 'string', value }])),
+    },
+  });
+}
+
+function urlFromParts(value: GraphValue | undefined): URL {
+  if (typeof value?.value === 'string') {
+    return new URL(value.value);
+  }
+
+  const dict = graphDictEntries(value);
+  const href = dict.href ? asString(dict.href) : '';
+  if (href) {
+    return new URL(href);
+  }
+
+  const origin = dict.origin ? asString(dict.origin) : 'https://example.com';
+  const pathname = dict.pathname ? asString(dict.pathname) : '/';
+  const url = new URL(pathname, origin);
+  const params = graphDictEntries(dict.params);
+  Object.entries(params).forEach(([key, entry]) => {
+    url.searchParams.set(key, asString(entry));
+  });
+  if (dict.hash) {
+    url.hash = asString(dict.hash);
+  }
+  return url;
+}
+
+function sortUrlSearchParams(url: URL): void {
+  const entries = Array.from(url.searchParams.entries()).sort(([left], [right]) => left.localeCompare(right));
+  url.search = '';
+  entries.forEach(([key, value]) => url.searchParams.append(key, value));
+}
+
+function parseParamList(raw: string): string[] {
+  return raw.split(/[,\s]+/g).map((entry) => entry.trim()).filter(Boolean);
+}
+
 function plainObject(value: unknown): Record<string, unknown> {
   if (isGraphValue(value)) {
     return plainObject(plainValue(value));
@@ -763,11 +895,37 @@ function eventInstructions(pack: CompiledActionPackV2, handler: GraphEventHandle
   return handler === 'trigger' ? pack.vm.instructions : [];
 }
 
+async function executeInstructionList(
+  instructions: GraphVmInstruction[],
+  program: GraphVmProgram,
+  state: VmState,
+  runtime: GraphRuntime,
+  pack: CompiledActionPackV2,
+  settings: GlobalSettings,
+  inputUrl: string,
+  event: OverlayRuntimeEvent | undefined,
+): Promise<void> {
+  const stepBudget = effectiveVmInstructionLimit(settings, program.stepBudget);
+  for (const [index, instruction] of instructions.entries()) {
+    if (index >= stepBudget) {
+      state.issues.push(issue('VM step budget exceeded; pack execution was aborted'));
+      break;
+    }
+
+    const issueCount = state.issues.length;
+    await executeInstruction(instruction, state, runtime, pack, program, inputUrl, event);
+    if (state.aborted || (state.issues.length > issueCount && program.safety.abortOnFailure)) {
+      break;
+    }
+  }
+}
+
 async function executeInstruction(
   instruction: GraphVmInstruction,
   state: VmState,
   runtime: GraphRuntime,
   pack: CompiledActionPackV2,
+  program: GraphVmProgram,
   inputUrl: string,
   event: OverlayRuntimeEvent | undefined,
 ): Promise<void> {
@@ -775,12 +933,12 @@ async function executeInstruction(
     case 'SOURCE': {
       const external = await runtime.readSource?.(instruction.source);
       const value = external ?? defaultSourceValue(instruction.source, inputUrl, event);
-      setValue(state, instruction.output, value, pack.vm.valueByteLimit);
+      setValue(state, instruction.output, value, program.valueByteLimit);
       trace(state, instruction, `Read ${instruction.source}`, value);
       break;
     }
     case 'CONSTANT': {
-      setValue(state, instruction.output, instruction.value, pack.vm.valueByteLimit);
+      setValue(state, instruction.output, instruction.value, program.valueByteLimit);
       trace(state, instruction, 'Loaded constant', instruction.value);
       break;
     }
@@ -805,7 +963,7 @@ async function executeInstruction(
         nthOccurrence: instruction.nthOccurrence,
       });
       const value = graphValueFromUnknown(transformed.result, source?.type === 'URL' ? 'URL' : 'string');
-      setValue(state, instruction.output, value, pack.vm.valueByteLimit);
+      setValue(state, instruction.output, value, program.valueByteLimit);
       trace(state, instruction, transformed.matched ? 'Regex matched' : 'Regex did not match', value);
       break;
     }
@@ -819,7 +977,7 @@ async function executeInstruction(
         timeoutMs: instruction.timeoutMs,
         maxBytes: instruction.maxBytes,
       });
-      setValue(state, instruction.output, value, pack.vm.valueByteLimit);
+      setValue(state, instruction.output, value, program.valueByteLimit);
       trace(state, instruction, 'Fetched remote data', value);
       break;
     }
@@ -834,13 +992,13 @@ async function executeInstruction(
         timeoutMs: instruction.timeoutMs,
         maxBytes: instruction.maxBytes,
       });
-      setValue(state, instruction.output, value, pack.vm.valueByteLimit);
+      setValue(state, instruction.output, value, program.valueByteLimit);
       trace(state, instruction, `${instruction.method} remote data`, value);
       break;
     }
     case 'SYSTEM_DATA': {
       const value = systemData(instruction.mode);
-      setValue(state, instruction.output, value, pack.vm.valueByteLimit);
+      setValue(state, instruction.output, value, program.valueByteLimit);
       trace(state, instruction, `Read ${instruction.mode}`, value);
       break;
     }
@@ -856,7 +1014,7 @@ async function executeInstruction(
         minValue: instruction.minValue,
         maxValue: instruction.maxValue,
       });
-      setValue(state, instruction.output, value, pack.vm.valueByteLimit);
+      setValue(state, instruction.output, value, program.valueByteLimit);
       trace(state, instruction, 'User interaction completed', value);
       break;
     }
@@ -893,7 +1051,7 @@ async function executeInstruction(
         captureMouse: instruction.captureMouse,
       });
       if (instruction.output) {
-        setValue(state, instruction.output, value, pack.vm.valueByteLimit);
+        setValue(state, instruction.output, value, program.valueByteLimit);
       }
       trace(state, instruction, 'Display completed', value);
       break;
@@ -914,29 +1072,35 @@ async function executeInstruction(
               ? left < right
               : instruction.operator === 'LTE'
                 ? left <= right
-                : instruction.operator === 'GT'
-                  ? left > right
-                  : instruction.operator === 'GTE'
-                    ? left >= right
-                    : left === right;
+                : instruction.operator === 'NEQ'
+                  ? left !== right
+                  : instruction.operator === 'GT'
+                    ? left > right
+                    : instruction.operator === 'GTE'
+                      ? left >= right
+                      : left === right;
           })()
         : (() => {
             const left = asString(source);
-            const right = compareRaw;
+            const right = compareRaw.startsWith('$') || compareRaw.startsWith('_')
+              ? asString(parseVariableOrLiteral(state, compareRaw))
+              : compareRaw;
             return instruction.operator === 'LT'
               ? left < right
               : instruction.operator === 'LTE'
                 ? left <= right
-                : instruction.operator === 'GT'
-                  ? left > right
-                  : instruction.operator === 'GTE'
-                    ? left >= right
-                    : left === right;
+                : instruction.operator === 'NEQ'
+                  ? left !== right
+                  : instruction.operator === 'GT'
+                    ? left > right
+                    : instruction.operator === 'GTE'
+                      ? left >= right
+                      : left === right;
           })();
       const value: GraphValue = instruction.booleanOutput
         ? { type: 'bool', value: matched ? 1 : 0 }
         : { type: 'number', value: matched ? asNumber(source) : 0 };
-      setValue(state, instruction.output, value, pack.vm.valueByteLimit);
+      setValue(state, instruction.output, value, program.valueByteLimit);
       trace(state, instruction, 'Compared value', value);
       break;
     }
@@ -947,7 +1111,7 @@ async function executeInstruction(
       const value: GraphValue = Array.isArray(result)
         ? { type: 'number', value: result }
         : { type: Number.isInteger(result) ? 'number' : 'floatingPoint', value: result };
-      setValue(state, instruction.output, value, pack.vm.valueByteLimit);
+      setValue(state, instruction.output, value, program.valueByteLimit);
       trace(state, instruction, 'Calculated value', value);
       break;
     }
@@ -985,7 +1149,7 @@ async function executeInstruction(
           break;
       }
 
-      setValue(state, instruction.output, value, pack.vm.valueByteLimit);
+      setValue(state, instruction.output, value, program.valueByteLimit);
       trace(state, instruction, 'Converted value', value);
       break;
     }
@@ -1003,7 +1167,7 @@ async function executeInstruction(
       break;
     }
     case 'SAVELOAD': {
-      const key = instruction.key ? asString(getValue(state, instruction.key)) : instruction.fallbackKey;
+      const key = instruction.key ? asString(getValue(state, instruction.key)) : resolveFallbackText(state, instruction.fallbackKey);
       if (!key) {
         state.issues.push(issue('SaveLoad block skipped because key is empty', instruction.nodeId));
         break;
@@ -1013,7 +1177,7 @@ async function executeInstruction(
         const value = getValue(state, instruction.value) ?? { type: 'Any', value: null };
         await runtime.saveSessionValue?.(key, value);
         if (instruction.output) {
-          setValue(state, instruction.output, { type: 'bool', value: 1 }, pack.vm.valueByteLimit);
+          setValue(state, instruction.output, { type: 'bool', value: 1 }, program.valueByteLimit);
         }
         trace(state, instruction, `Saved ${key}`, value);
         break;
@@ -1022,7 +1186,7 @@ async function executeInstruction(
       const loaded = await runtime.loadSessionValue?.(key);
       const value = instruction.mode === 'EXISTS' ? { type: 'bool', value: loaded ? 1 : 0 } : loaded ?? { type: 'Any', value: null };
       if (instruction.output) {
-        setValue(state, instruction.output, value as GraphValue, pack.vm.valueByteLimit);
+        setValue(state, instruction.output, value as GraphValue, program.valueByteLimit);
       }
       trace(state, instruction, `Loaded ${key}`, value as GraphValue);
       break;
@@ -1037,27 +1201,27 @@ async function executeInstruction(
       if (instruction.fallbackDictName) {
         state.globals.set(instruction.fallbackDictName, next);
       }
-      setValue(state, instruction.output, next, pack.vm.valueByteLimit);
+      setValue(state, instruction.output, next, program.valueByteLimit);
       trace(state, instruction, `Updated dict key ${key}`, next);
       break;
     }
     case 'LOOP': {
       const count = Math.max(1, Math.min(instruction.loopLimit, Math.trunc(asNumber(getValue(state, instruction.count)) || instruction.loopLimit)));
       state.loopSteps += count;
-      if (state.loopSteps > pack.vm.loopBudget) {
+      if (state.loopSteps > program.loopBudget) {
         state.issues.push(issue('Loop budget exceeded; pack execution was aborted', instruction.nodeId));
         return;
       }
 
       const value = getValue(state, instruction.input) ?? { type: 'Any', value: null };
-      setValue(state, instruction.output, value, pack.vm.valueByteLimit);
+      setValue(state, instruction.output, value, program.valueByteLimit);
       trace(state, instruction, `Looped ${count} time${count === 1 ? '' : 's'}`, value);
       break;
     }
     case 'SLEEP': {
       if (!enabledValue(state, instruction.enabled)) {
         if (instruction.output) {
-          setValue(state, instruction.output, { type: 'bool', value: 0 }, pack.vm.valueByteLimit);
+          setValue(state, instruction.output, { type: 'bool', value: 0 }, program.valueByteLimit);
         }
         trace(state, instruction, 'Sleep skipped');
         break;
@@ -1066,13 +1230,13 @@ async function executeInstruction(
       const durationMs = Math.max(0, Math.min(60_000, Math.trunc(instruction.duration ? asNumber(getValue(state, instruction.duration)) : instruction.fallbackMs)));
       await (runtime.sleep ?? ((ms) => new Promise<void>((resolve) => globalThis.setTimeout(resolve, ms))))(durationMs);
       if (instruction.output) {
-        setValue(state, instruction.output, { type: 'bool', value: 1 }, pack.vm.valueByteLimit);
+        setValue(state, instruction.output, { type: 'bool', value: 1 }, program.valueByteLimit);
       }
       trace(state, instruction, `Slept ${durationMs}ms`);
       break;
     }
     case 'SHARED_STATE': {
-      const key = instruction.key ? asString(getValue(state, instruction.key)) : instruction.fallbackKey;
+      const key = instruction.key ? asString(getValue(state, instruction.key)) : resolveFallbackText(state, instruction.fallbackKey);
       if (!key) {
         state.issues.push(issue('Shared State skipped because key is empty', instruction.nodeId));
         break;
@@ -1081,7 +1245,7 @@ async function executeInstruction(
 
       if (!enabledValue(state, instruction.enabled)) {
         if (instruction.output) {
-          setValue(state, instruction.output, instruction.mode === 'EXISTS' ? { type: 'bool', value: 0 } : fallbackValue, pack.vm.valueByteLimit);
+          setValue(state, instruction.output, instruction.mode === 'EXISTS' ? { type: 'bool', value: 0 } : fallbackValue, program.valueByteLimit);
         }
         trace(state, instruction, `Shared State ${instruction.mode.toLowerCase()} skipped`);
         break;
@@ -1091,7 +1255,7 @@ async function executeInstruction(
         const value = getValue(state, instruction.value) ?? fallbackValue;
         await runtime.saveSessionValue?.(key, value);
         if (instruction.output) {
-          setValue(state, instruction.output, value, pack.vm.valueByteLimit);
+          setValue(state, instruction.output, value, program.valueByteLimit);
         }
         trace(state, instruction, `Saved shared state ${key}`, value);
         break;
@@ -1103,7 +1267,7 @@ async function executeInstruction(
           await runtime.saveSessionValue?.(key, { type: 'Any', value: null });
         }
         if (instruction.output) {
-          setValue(state, instruction.output, { type: 'bool', value: 1 }, pack.vm.valueByteLimit);
+          setValue(state, instruction.output, { type: 'bool', value: 1 }, program.valueByteLimit);
         }
         trace(state, instruction, `Deleted shared state ${key}`);
         break;
@@ -1114,7 +1278,7 @@ async function executeInstruction(
         ? { type: 'bool', value: loaded ? 1 : 0 } as GraphValue
         : loaded ?? fallbackValue;
       if (instruction.output) {
-        setValue(state, instruction.output, value, pack.vm.valueByteLimit);
+        setValue(state, instruction.output, value, program.valueByteLimit);
       }
       trace(state, instruction, `Loaded shared state ${key}`, value);
       break;
@@ -1124,7 +1288,7 @@ async function executeInstruction(
       const dict = source?.type === 'dict' ? source.value : {};
       const key = instruction.key ? asString(getValue(state, instruction.key)) : instruction.fallbackKey;
       const value = key && Object.prototype.hasOwnProperty.call(dict, key) ? dict[key] : instruction.fallbackValue;
-      setValue(state, instruction.output, value ?? instruction.fallbackValue, pack.vm.valueByteLimit);
+      setValue(state, instruction.output, value ?? instruction.fallbackValue, program.valueByteLimit);
       trace(state, instruction, `Read dict key ${key}`, value ?? instruction.fallbackValue);
       break;
     }
@@ -1156,7 +1320,7 @@ async function executeInstruction(
           break;
       }
 
-      setValue(state, instruction.output, value, pack.vm.valueByteLimit);
+      setValue(state, instruction.output, value, program.valueByteLimit);
       trace(state, instruction, `List ${instruction.operation.toLowerCase()}`, value);
       break;
     }
@@ -1164,7 +1328,7 @@ async function executeInstruction(
       const selected = truthy(getValue(state, instruction.condition))
         ? getValue(state, instruction.trueValue) ?? instruction.fallbackTrue
         : getValue(state, instruction.falseValue) ?? instruction.fallbackFalse;
-      setValue(state, instruction.output, selected, pack.vm.valueByteLimit);
+      setValue(state, instruction.output, selected, program.valueByteLimit);
       trace(state, instruction, 'Selected value', selected);
       break;
     }
@@ -1174,15 +1338,119 @@ async function executeInstruction(
       const low = Math.min(min, max);
       const high = Math.max(min, max);
       const value: GraphValue = { type: 'number', value: low + Math.floor(Math.random() * (high - low + 1)) };
-      setValue(state, instruction.output, value, pack.vm.valueByteLimit);
+      setValue(state, instruction.output, value, program.valueByteLimit);
       trace(state, instruction, 'Generated random integer', value);
       break;
     }
     case 'SUBSTITUTE': {
       const inputValues = instruction.values.map((entry) => getValue(state, entry));
       const value: GraphValue = { type: 'string', value: applySubstitutionTemplate(instruction.template, inputValues, state) };
-      setValue(state, instruction.output, value, pack.vm.valueByteLimit);
+      setValue(state, instruction.output, value, program.valueByteLimit);
       trace(state, instruction, 'Applied substitution', value);
+      break;
+    }
+    case 'TEXT_TRANSFORM': {
+      const value: GraphValue = { type: 'string', value: applyTextTransform(asString(getValue(state, instruction.input)), instruction.mode) };
+      setValue(state, instruction.output, value, program.valueByteLimit);
+      trace(state, instruction, 'Transformed text', value);
+      break;
+    }
+    case 'TEXT_SPLIT_JOIN': {
+      const joining = instruction.mode.startsWith('JOIN_');
+      const value: GraphValue = joining
+        ? { type: 'string', value: joinText(getValue(state, instruction.input), instruction.mode, instruction.separator) }
+        : { type: 'data', value: splitText(asString(getValue(state, instruction.input)), instruction.mode, instruction.separator) };
+      setValue(state, instruction.output, value, program.valueByteLimit);
+      trace(state, instruction, joining ? 'Joined text' : 'Split text', value);
+      break;
+    }
+    case 'URL_QUERY': {
+      const source = getValue(state, instruction.input);
+      const key = instruction.key ? asString(getValue(state, instruction.key)) : resolveFallbackText(state, instruction.fallbackKey);
+      const rawValue = instruction.value ? asString(getValue(state, instruction.value)) : resolveFallbackText(state, instruction.fallbackValue);
+      const url = urlFromParts(source);
+      let value: GraphValue;
+
+      switch (instruction.mode) {
+        case 'PARSE':
+          value = urlPartsValue(url);
+          break;
+        case 'GET_PARAM':
+          value = { type: 'string', value: key ? url.searchParams.get(key) ?? '' : '' };
+          break;
+        case 'SET_PARAM':
+          if (key) {
+            url.searchParams.set(key, rawValue);
+          }
+          value = { type: 'URL', value: url.toString() };
+          break;
+        case 'DELETE_PARAM':
+          if (key) {
+            url.searchParams.delete(key);
+          }
+          value = { type: 'URL', value: url.toString() };
+          break;
+        case 'KEEP_PARAMS': {
+          const keep = new Set(parseParamList(resolveFallbackText(state, instruction.fallbackParams || key)));
+          Array.from(url.searchParams.keys()).forEach((param) => {
+            if (!keep.has(param)) {
+              url.searchParams.delete(param);
+            }
+          });
+          value = { type: 'URL', value: url.toString() };
+          break;
+        }
+        case 'SORT_PARAMS':
+          sortUrlSearchParams(url);
+          value = { type: 'URL', value: url.toString() };
+          break;
+        case 'REBUILD':
+        default:
+          value = { type: 'URL', value: url.toString() };
+          break;
+      }
+
+      setValue(state, instruction.output, value, program.valueByteLimit);
+      trace(state, instruction, 'Updated URL query', value);
+      break;
+    }
+    case 'DICT_OP': {
+      const dict = graphDictEntries(getValue(state, instruction.dict));
+      const other = graphDictEntries(getValue(state, instruction.other));
+      const key = instruction.key ? asString(getValue(state, instruction.key)) : resolveFallbackText(state, instruction.fallbackKey);
+      let value: GraphValue;
+
+      switch (instruction.mode) {
+        case 'MERGE':
+          value = { type: 'dict', value: { ...dict, ...other } };
+          break;
+        case 'DELETE_KEY': {
+          const next = { ...dict };
+          delete next[key];
+          value = { type: 'dict', value: next };
+          break;
+        }
+        case 'HAS_KEY':
+          value = { type: 'bool', value: Object.prototype.hasOwnProperty.call(dict, key) ? 1 : 0 };
+          break;
+        case 'VALUES':
+          value = { type: 'data', value: Object.values(dict).map((entry) => plainValue(entry)) };
+          break;
+        case 'KEYS':
+        default:
+          value = { type: 'data', value: Object.keys(dict) };
+          break;
+      }
+
+      setValue(state, instruction.output, value, program.valueByteLimit);
+      trace(state, instruction, 'Updated dictionary', value);
+      break;
+    }
+    case 'CONDITION_OUT': {
+      const value: GraphValue = { type: 'bool', value: truthy(getValue(state, instruction.condition)) ? 1 : 0 };
+      setValue(state, instruction.output, value, program.valueByteLimit);
+      state.outputs.set('condition', value);
+      trace(state, instruction, 'Evaluated condition', value);
       break;
     }
     case 'LOG': {
@@ -1193,7 +1461,7 @@ async function executeInstruction(
         nodeId: instruction.nodeId,
       });
       if (instruction.output) {
-        setValue(state, instruction.output, { type: 'bool', value: 1 }, pack.vm.valueByteLimit);
+        setValue(state, instruction.output, { type: 'bool', value: 1 }, program.valueByteLimit);
       }
       trace(state, instruction, `Logged ${instruction.severity}`, { type: 'string', value: message });
       break;
@@ -1201,7 +1469,7 @@ async function executeInstruction(
     case 'ABORT': {
       const shouldAbort = instruction.condition === undefined || truthy(getValue(state, instruction.condition));
       if (instruction.output) {
-        setValue(state, instruction.output, { type: 'bool', value: shouldAbort ? 1 : 0 }, pack.vm.valueByteLimit);
+        setValue(state, instruction.output, { type: 'bool', value: shouldAbort ? 1 : 0 }, program.valueByteLimit);
       }
       if (!shouldAbort) {
         trace(state, instruction, 'Abort skipped');
@@ -1216,7 +1484,7 @@ async function executeInstruction(
     case 'OVERLAY_CONTROL': {
       if (!enabledValue(state, instruction.enabled)) {
         if (instruction.output) {
-          setValue(state, instruction.output, dictValue({ ok: true, skipped: true, active: false }), pack.vm.valueByteLimit);
+          setValue(state, instruction.output, dictValue({ ok: true, skipped: true, active: false }), program.valueByteLimit);
         }
         trace(state, instruction, 'Overlay control skipped');
         break;
@@ -1233,7 +1501,7 @@ async function executeInstruction(
         background: instruction.background,
       });
       if (instruction.output) {
-        setValue(state, instruction.output, value, pack.vm.valueByteLimit);
+        setValue(state, instruction.output, value, program.valueByteLimit);
       }
       trace(state, instruction, `Overlay ${instruction.action.toLowerCase()}`, value);
       break;
@@ -1241,7 +1509,7 @@ async function executeInstruction(
     case 'OVERLAY_DRAW': {
       if (!enabledValue(state, instruction.enabled)) {
         if (instruction.output) {
-          setValue(state, instruction.output, dictValue({ ok: true, skipped: true }), pack.vm.valueByteLimit);
+          setValue(state, instruction.output, dictValue({ ok: true, skipped: true }), program.valueByteLimit);
         }
         trace(state, instruction, 'Overlay draw skipped');
         break;
@@ -1257,7 +1525,7 @@ async function executeInstruction(
         background: instruction.background,
       });
       if (instruction.output) {
-        setValue(state, instruction.output, value, pack.vm.valueByteLimit);
+        setValue(state, instruction.output, value, program.valueByteLimit);
       }
       trace(state, instruction, 'Overlay draw completed', value);
       break;
@@ -1292,22 +1560,7 @@ export async function executeCompiledActionPackV2(
   options: GraphExecutionOptions = {},
 ): Promise<GraphExecutionResult> {
   const event = options.event;
-  const mouseX = event?.kind === 'mouse' ? event.x : -1;
-  const mouseY = event?.kind === 'mouse' ? event.y : -1;
-  const state: VmState = {
-    values: new Map(),
-    globals: new Map([
-      ['$mouse_x', { type: 'number', value: mouseX }],
-      ['$mouse_y', { type: 'number', value: mouseY }],
-    ]),
-    locals: new Map(),
-    loopSteps: 0,
-    issues: [],
-    trace: [],
-    outputs: new Map(),
-    aborted: false,
-    exitCode: 0,
-  };
+  const state = createVmState(event);
 
   if (/^file:/i.test(inputUrl) && !settings.allowLocalFiles) {
     return {
@@ -1323,20 +1576,8 @@ export async function executeCompiledActionPackV2(
   }
 
   try {
-    const stepBudget = effectiveVmInstructionLimit(settings, pack.vm.stepBudget);
     const instructions = eventInstructions(pack, options.handler ?? 'trigger');
-      for (const [index, instruction] of instructions.entries()) {
-      if (index >= stepBudget) {
-        state.issues.push(issue('VM step budget exceeded; pack execution was aborted'));
-        break;
-      }
-
-      const issueCount = state.issues.length;
-      await executeInstruction(instruction, state, runtime, pack, inputUrl, event);
-      if (state.aborted || (state.issues.length > issueCount && pack.vm.safety.abortOnFailure)) {
-        break;
-      }
-    }
+    await executeInstructionList(instructions, pack.vm, state, runtime, pack, settings, inputUrl, event);
   } catch (error) {
     state.issues.push(issue(error instanceof Error ? error.message : 'The compiled graph failed during execution'));
     state.exitCode = 1;
@@ -1366,5 +1607,35 @@ export async function executeCompiledActionPackV2(
     trace: state.trace,
     exitCode: state.exitCode,
     aborted: state.aborted,
+  };
+}
+
+export async function evaluateCompiledActionPackCondition(
+  inputUrl: string,
+  pack: CompiledActionPackV2,
+  runtime: GraphRuntime,
+  settings: GlobalSettings,
+): Promise<{ matched: boolean; issues: EngineIssue[]; trace: GraphTraceEntry[] }> {
+  const conditionVm = pack.triggerPlan.conditionVm;
+  const conditionOutput = pack.triggerPlan.conditionOutput;
+  if (!conditionVm || !conditionOutput) {
+    return {
+      matched: pack.triggerPlan.type !== 'CONDITIONAL',
+      issues: pack.triggerPlan.type === 'CONDITIONAL' ? [issue('Conditional Run is missing its compiled condition program')] : [],
+      trace: [],
+    };
+  }
+
+  const state = createVmState({ kind: 'trigger', url: inputUrl });
+  try {
+    await executeInstructionList(conditionVm.instructions, conditionVm, state, runtime, pack, settings, inputUrl, { kind: 'trigger', url: inputUrl });
+  } catch (error) {
+    state.issues.push(issue(error instanceof Error ? error.message : 'Conditional Run check failed'));
+  }
+
+  return {
+    matched: truthy(state.outputs.get('condition') ?? state.values.get(conditionOutput)),
+    issues: state.issues,
+    trace: state.trace,
   };
 }

@@ -28,7 +28,7 @@ import {
 
 const GRAPH_DATA_TYPES = ['bool', 'number', 'floatingPoint', 'string', 'URL', 'JSON', 'data', 'dict', 'asset', 'Any'] as const;
 const RISK_LEVELS = ['safe', 'extended', 'high'] as const;
-const COMPARE_OPERATORS = ['LT', 'LTE', 'EQ', 'GT', 'GTE'] as const;
+const COMPARE_OPERATORS = ['LT', 'LTE', 'EQ', 'NEQ', 'GT', 'GTE'] as const;
 const MATH_OPERATIONS = ['ADD', 'SUBTRACT', 'MULTIPLY', 'DIVIDE', 'MODULO'] as const;
 const CONVERT_MODES = [
   'FLOAT_TO_NUMBER',
@@ -50,10 +50,35 @@ const GRAPH_EVENT_HANDLERS = ['trigger', 'keyboard', 'mouse', 'tick'] as const;
 const OVERLAY_CONTROL_ACTIONS = ['START', 'STOP', 'TOGGLE', 'STATUS'] as const;
 const SHARED_STATE_MODES = ['GET', 'SET', 'DELETE', 'EXISTS'] as const;
 const LIST_OPERATIONS = ['APPEND', 'PREPEND', 'DROP_LAST', 'GET', 'LENGTH', 'CONTAINS_POINT'] as const;
+const TEXT_TRANSFORM_MODES = ['TRIM', 'COLLAPSE_WHITESPACE', 'NORMALIZE_LINE_ENDINGS', 'STRIP_CONTROL_CHARS', 'UPPERCASE', 'LOWERCASE', 'TITLE_CASE', 'URL_ENCODE', 'URL_DECODE'] as const;
+const TEXT_SPLIT_JOIN_MODES = ['SPLIT_LINES', 'SPLIT_WHITESPACE', 'SPLIT_COMMA', 'SPLIT_CUSTOM', 'JOIN_LINES', 'JOIN_SPACE', 'JOIN_COMMA', 'JOIN_CUSTOM'] as const;
+const URL_QUERY_MODES = ['PARSE', 'GET_PARAM', 'SET_PARAM', 'DELETE_PARAM', 'KEEP_PARAMS', 'SORT_PARAMS', 'REBUILD'] as const;
+const DICT_OPERATION_MODES = ['MERGE', 'DELETE_KEY', 'HAS_KEY', 'KEYS', 'VALUES'] as const;
 const LOG_SEVERITIES = ['debug', 'info', 'warn', 'error'] as const;
 const ASSET_KINDS = ['image', 'video', 'audio', 'unknown'] as const;
 const ASSET_SOURCES = ['remote', 'embedded', 'picked-file'] as const;
 const ASSET_COMPRESSION = ['gzip', 'none'] as const;
+const CONDITION_VM_OPS = new Set<GraphVmInstruction['op']>([
+  'SOURCE',
+  'CONSTANT',
+  'SYSTEM_DATA',
+  'COMPARE',
+  'MATH',
+  'CONVERT',
+  'DECLARE',
+  'DICT_SET',
+  'DICT_GET',
+  'LIST_OP',
+  'SELECT',
+  'SAVELOAD',
+  'SHARED_STATE',
+  'SUBSTITUTE',
+  'TEXT_TRANSFORM',
+  'TEXT_SPLIT_JOIN',
+  'URL_QUERY',
+  'DICT_OP',
+  'CONDITION_OUT',
+]);
 const WORKSPACE_INPUT_SOURCES = [
   'url',
   'linkUrl',
@@ -410,6 +435,19 @@ function addRisk(risk: CompiledRiskSummary, level: RiskLevel, reason: string, di
       risk.usesHighRiskOutput = true;
     }
   }
+}
+
+function mergeRisk(target: CompiledRiskSummary, source: CompiledRiskSummary): void {
+  target.highest = combineRisk(target.highest, source.highest);
+  target.usesExtendedInput = target.usesExtendedInput || source.usesExtendedInput;
+  target.usesExtendedOutput = target.usesExtendedOutput || source.usesExtendedOutput;
+  target.usesHighRiskInput = target.usesHighRiskInput || source.usesHighRiskInput;
+  target.usesHighRiskOutput = target.usesHighRiskOutput || source.usesHighRiskOutput;
+  source.reasons.forEach((reason) => {
+    if (!target.reasons.includes(reason)) {
+      target.reasons.push(reason);
+    }
+  });
 }
 
 function deriveRequiredPermissions(instructions: GraphVmInstruction[]): string[] {
@@ -1100,6 +1138,85 @@ function validateInstruction(
 
       return instruction as GraphVmInstruction;
     }
+    case 'TEXT_TRANSFORM': {
+      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'mode'], ['input'])) {
+        addError(errors, prefix, 'TEXT_TRANSFORM instruction has invalid keys');
+        return null;
+      }
+
+      assertReference(errors, symbolTable, instruction.input, `${prefix}.input`);
+      assertReference(errors, symbolTable, instruction.output, `${prefix}.output`, true);
+      if (!isEnumValue(TEXT_TRANSFORM_MODES, instruction.mode)) {
+        addError(errors, prefix, 'mode is invalid');
+      }
+
+      return instruction as GraphVmInstruction;
+    }
+    case 'TEXT_SPLIT_JOIN': {
+      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'mode', 'separator'], ['input'])) {
+        addError(errors, prefix, 'TEXT_SPLIT_JOIN instruction has invalid keys');
+        return null;
+      }
+
+      assertReference(errors, symbolTable, instruction.input, `${prefix}.input`);
+      assertReference(errors, symbolTable, instruction.output, `${prefix}.output`, true);
+      if (!isEnumValue(TEXT_SPLIT_JOIN_MODES, instruction.mode)) {
+        addError(errors, prefix, 'mode is invalid');
+      }
+      if (!isString(instruction.separator) || instruction.separator.length > 256) {
+        addError(errors, prefix, 'separator must be a string of 256 characters or less');
+      }
+
+      return instruction as GraphVmInstruction;
+    }
+    case 'URL_QUERY': {
+      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'mode', 'fallbackKey', 'fallbackValue', 'fallbackParams'], ['input', 'key', 'value'])) {
+        addError(errors, prefix, 'URL_QUERY instruction has invalid keys');
+        return null;
+      }
+
+      assertReference(errors, symbolTable, instruction.input, `${prefix}.input`);
+      assertReference(errors, symbolTable, instruction.key, `${prefix}.key`);
+      assertReference(errors, symbolTable, instruction.value, `${prefix}.value`);
+      assertReference(errors, symbolTable, instruction.output, `${prefix}.output`, true);
+      if (!isEnumValue(URL_QUERY_MODES, instruction.mode)) {
+        addError(errors, prefix, 'mode is invalid');
+      }
+      if (!isString(instruction.fallbackKey) || !isString(instruction.fallbackValue) || !isString(instruction.fallbackParams)) {
+        addError(errors, prefix, 'fallback fields must be strings');
+      }
+
+      return instruction as GraphVmInstruction;
+    }
+    case 'DICT_OP': {
+      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'mode', 'fallbackKey'], ['dict', 'other', 'key'])) {
+        addError(errors, prefix, 'DICT_OP instruction has invalid keys');
+        return null;
+      }
+
+      assertReference(errors, symbolTable, instruction.dict, `${prefix}.dict`);
+      assertReference(errors, symbolTable, instruction.other, `${prefix}.other`);
+      assertReference(errors, symbolTable, instruction.key, `${prefix}.key`);
+      assertReference(errors, symbolTable, instruction.output, `${prefix}.output`, true);
+      if (!isEnumValue(DICT_OPERATION_MODES, instruction.mode)) {
+        addError(errors, prefix, 'mode is invalid');
+      }
+      if (!isString(instruction.fallbackKey) || instruction.fallbackKey.length > 256) {
+        addError(errors, prefix, 'fallbackKey must be a string of 256 characters or less');
+      }
+
+      return instruction as GraphVmInstruction;
+    }
+    case 'CONDITION_OUT': {
+      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output'], ['condition'])) {
+        addError(errors, prefix, 'CONDITION_OUT instruction has invalid keys');
+        return null;
+      }
+
+      assertReference(errors, symbolTable, instruction.condition, `${prefix}.condition`);
+      assertReference(errors, symbolTable, instruction.output, `${prefix}.output`, true);
+      return instruction as GraphVmInstruction;
+    }
     case 'LOG': {
       if (!hasExactKeys(instruction, ['op', 'nodeId', 'severity', 'fallbackMessage'], ['message', 'output'])) {
         addError(errors, prefix, 'LOG instruction has invalid keys');
@@ -1309,16 +1426,14 @@ function validateBuilder(value: unknown, errors: string[]): CompiledActionPackV2
   return errors.length === 0 ? (value as unknown as CompiledActionPackV2['builder']) : null;
 }
 
-function validateTriggerPlan(value: unknown, errors: string[]): CompiledTriggerPlan | null {
-  if (!isRecord(value) || !hasExactKeys(value, ['type', 'inputSources', 'sourceFilters', 'safety'], ['intervalMs', 'conditionalMode', 'conditionWorkspaceId'])) {
+function validateTriggerPlan(value: unknown, errors: string[]): { plan: CompiledTriggerPlan; risk: CompiledRiskSummary; allInstructions: GraphVmInstruction[] } | null {
+  if (!isRecord(value) || !hasExactKeys(value, ['type', 'inputSources', 'sourceFilters', 'safety'], ['intervalMs', 'conditionalMode', 'conditionWorkspaceId', 'conditionVm', 'conditionOutput', 'conditionStateKey'])) {
     errors.push('triggerPlan must be an exact trigger plan object');
     return null;
   }
 
   if (!isEnumValue(WORKSPACE_TRIGGER_TYPES, value.type)) {
     errors.push('triggerPlan.type is invalid');
-  } else if (value.type === 'CONDITIONAL') {
-    errors.push('triggerPlan.type CONDITIONAL is not supported by the runtime yet');
   }
 
   if (!Array.isArray(value.inputSources) || !value.inputSources.every((source) => isEnumValue(WORKSPACE_INPUT_SOURCES, source))) {
@@ -1333,6 +1448,31 @@ function validateTriggerPlan(value: unknown, errors: string[]): CompiledTriggerP
 
   if (value.conditionalMode !== undefined && !isEnumValue(CONDITIONAL_MODES, value.conditionalMode)) {
     errors.push('triggerPlan.conditionalMode is invalid');
+  }
+
+  let conditionVmValidation: ReturnType<typeof validateVm> = null;
+  if (value.type === 'CONDITIONAL') {
+    if (value.conditionVm === undefined) {
+      errors.push('triggerPlan.conditionVm is required for CONDITIONAL packs');
+    } else {
+      conditionVmValidation = validateVm(value.conditionVm, errors);
+      if (isRecord(value.conditionVm) && value.conditionVm.eventHandlers !== undefined) {
+        errors.push('triggerPlan.conditionVm cannot contain eventHandlers');
+      }
+      if (conditionVmValidation) {
+        validateConditionVmInstructions(conditionVmValidation.allInstructions, errors);
+      }
+    }
+
+    if (!isString(value.conditionOutput) || !value.conditionOutput.trim()) {
+      errors.push('triggerPlan.conditionOutput is required for CONDITIONAL packs');
+    }
+
+    if (!isString(value.conditionStateKey) || !value.conditionStateKey.trim() || value.conditionStateKey.length > 256) {
+      errors.push('triggerPlan.conditionStateKey is required for CONDITIONAL packs');
+    }
+  } else if (value.conditionVm !== undefined || value.conditionOutput !== undefined || value.conditionStateKey !== undefined) {
+    errors.push('triggerPlan condition fields are only allowed for CONDITIONAL packs');
   }
 
   if (!isRecord(value.safety) || !hasExactKeys(value.safety, ['timestampHistoryLimit', 'burstLimit', 'burstWindowMs'])) {
@@ -1351,7 +1491,46 @@ function validateTriggerPlan(value: unknown, errors: string[]): CompiledTriggerP
     }
   }
 
-  return errors.length === 0 ? value as unknown as CompiledTriggerPlan : null;
+  if (errors.length > 0) {
+    return null;
+  }
+
+  const risk = emptyRisk();
+  if (conditionVmValidation) {
+    mergeRisk(risk, conditionVmValidation.risk);
+  }
+
+  return {
+    plan: value as unknown as CompiledTriggerPlan,
+    risk,
+    allInstructions: conditionVmValidation?.allInstructions ?? [],
+  };
+}
+
+function validateConditionVmInstructions(instructions: GraphVmInstruction[], errors: string[]): void {
+  const conditionOutputs = instructions.filter((instruction) => instruction.op === 'CONDITION_OUT');
+  if (conditionOutputs.length !== 1) {
+    errors.push('triggerPlan.conditionVm must contain exactly one CONDITION_OUT instruction');
+  }
+
+  instructions.forEach((instruction, index) => {
+    if (!CONDITION_VM_OPS.has(instruction.op)) {
+      errors.push(`triggerPlan.conditionVm.instructions[${index}] uses ${instruction.op}, which is not allowed in conditional Run checks`);
+      return;
+    }
+
+    if (instruction.op === 'SOURCE' && instruction.source !== 'url') {
+      errors.push(`triggerPlan.conditionVm.instructions[${index}] can only read the current URL source`);
+    }
+
+    if (instruction.op === 'SAVELOAD' && !['GET', 'EXISTS'].includes(instruction.mode)) {
+      errors.push(`triggerPlan.conditionVm.instructions[${index}] can only use SaveLoad Get or Exists`);
+    }
+
+    if (instruction.op === 'SHARED_STATE' && !['GET', 'EXISTS'].includes(instruction.mode)) {
+      errors.push(`triggerPlan.conditionVm.instructions[${index}] can only use Shared State Get or Exists`);
+    }
+  });
 }
 
 function validateSafetyPolicy(value: unknown, errors: string[]): GraphVmSafetyPolicy | null {
@@ -1697,15 +1876,20 @@ export function validateCompiledActionPackV2(candidate: unknown): ValidationResu
 
   const manifest = validateManifest(candidate.manifest, errors);
   const builder = validateBuilder(candidate.builder, errors);
-  const triggerPlan = validateTriggerPlan(candidate.triggerPlan, errors);
+  const triggerPlanValidation = validateTriggerPlan(candidate.triggerPlan, errors);
   const vmValidation = validateVm(candidate.vm, errors);
 
   if (vmValidation) {
-    const requiredPermissions = deriveRequiredPermissions(vmValidation.allInstructions);
-    validateRiskSummary(candidate.risk, vmValidation.risk, errors);
+    const allInstructions = [...vmValidation.allInstructions, ...(triggerPlanValidation?.allInstructions ?? [])];
+    const derivedRisk = { ...vmValidation.risk };
+    if (triggerPlanValidation) {
+      mergeRisk(derivedRisk, triggerPlanValidation.risk);
+    }
+    const requiredPermissions = deriveRequiredPermissions(allInstructions);
+    validateRiskSummary(candidate.risk, derivedRisk, errors);
     validateRequiredPermissions(candidate.requiredPermissions, requiredPermissions, errors);
 
-    if (errors.length === 0 && manifest && builder && triggerPlan) {
+    if (errors.length === 0 && manifest && builder && triggerPlanValidation) {
       return {
         ok: true,
         pack: {
@@ -1714,8 +1898,8 @@ export function validateCompiledActionPackV2(candidate: unknown): ValidationResu
           manifest,
           sourceWorkspaceId: candidate.sourceWorkspaceId as string | undefined,
           builder,
-          risk: vmValidation.risk,
-          triggerPlan,
+          risk: derivedRisk,
+          triggerPlan: triggerPlanValidation.plan,
           requiredPermissions,
           vm: vmValidation.vm,
           traceEnabledUntil: isNonNegativeInteger(candidate.traceEnabledUntil) ? candidate.traceEnabledUntil : undefined,

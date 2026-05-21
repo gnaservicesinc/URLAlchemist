@@ -8,7 +8,7 @@
 \f0\b\fs32 \cf0 URL Alchemist\
 
 \f1\b0\fs24 \
-URL Alchemist builds browser workflows from visual blocks. Create editable workspaces, compile them into portable binary Action Packs, and run those packs from page input data, hotkeys, context menus, intervals, or visible overlay events.\
+URL Alchemist builds browser workflows from visual blocks. Create editable workspaces, compile them into portable binary Action Packs, and run those packs from page input data, hotkeys, context menus, intervals, conditional checks, or visible overlay events.\
 \
 
 \f0\b What it can do\
@@ -30,8 +30,8 @@ URL Alchemist builds browser workflows from visual blocks. Create editable works
 
 \f1\b0 - Visual workspace editor with drag-and-drop blocks, saved pan and zoom, recovery drafts, pop-out editing, variable declarations, and clear variable-use highlighting.\
 - Run on input data from URL, selected text, link URL, page title, clipboard, page text, page links, page metadata, and related sources.\
-- Trigger support for page input data, context menus, hotkeys, intervals, and event-driven overlays.\
-- String, regex, list, dictionary, logic, math, loop, Substitution, Abort, SaveLoad, and shared-state blocks for building reusable workflows without custom code.\
+- Trigger support for page input data, context menus, hotkeys, intervals, conditional runs, and event-driven overlays.\
+- String, regex, text transform, text split/join, URL query, list, dictionary, logic, math, loop, Substitution, Abort, SaveLoad, and shared-state blocks for building reusable workflows without custom code.\
 - Remote data and asset blocks with HTTPS-only validation, byte limits, timeouts, and private-network blocking.\
 - Overlay-first interaction blocks for prompts, messages, image/video/audio display, input capture, keyboard events, mouse events, tick handlers, shared state, and grid drawing.\
 - Debugging tools including trace, per-pack logs, Save string to log, export log, clear log, and automatic log rotation.\
@@ -40,7 +40,7 @@ URL Alchemist builds browser workflows from visual blocks. Create editable works
 
 \f0\b Built-in examples\
 
-\f1\b0 The Examples tab includes practical packs and workspaces such as Clean Campaign Links, Keep Stable Query, GitHub PR Files Shortcut, Search Selected Text, Clipboard Search Launcher, Remember Current Page, Variable Use Across Runs, Copy Page Title, Debug Page Logger, Research Note Snapshot, Uppercase Selection Clipboard, Remote Text Fetch Preview, Remote POST Snapshot, Clean Words, Break Reminder, Playback Resume, Overlay Input Capture, and Snake Overlay Arcade. Examples are never installed automatically; you choose whether to install the compiled pack or open the workspace source.\
+\f1\b0 The Examples tab includes practical packs and workspaces such as Clean Campaign Links, Keep Stable Query, Query Param Manager, GitHub PR Files Shortcut, Search Selected Text, Clipboard Search Launcher, Remember Current Page, Variable Use Across Runs, Copy Page Title, Clipboard Cleanup, Debug Page Logger, Research Note Snapshot, Uppercase Selection Clipboard, Remote Text Fetch Preview, Remote POST Snapshot, Clean Words, Break Reminder, Daily Break Once, Playback Resume, Overlay Input Capture, and Snake Overlay Arcade. Examples are never installed automatically; you choose whether to install the compiled pack or open the workspace source.\
 \
 
 \f0\b Privacy and control\
@@ -48,4 +48,14 @@ URL Alchemist builds browser workflows from visual blocks. Create editable works
 \f1\b0 URL Alchemist stores data locally by default. Profile sync is optional and best-effort for small items. Clipboard access is optional. Local file navigation is disabled by default. Clipboard, raw page, remote request, page mutation, and overlay input behavior are surfaced as risk information before install.\
 \
 Build the browser workflows you actually need, inspect what they do, and keep control over how your tabs, URLs, page data, and overlays behave.\
+\
+URL Alchemist is open source.\
+https://github.com/gnaservicesinc/URLAlchemist\
+\
+Version 2.1.0 focuses on practical block-building, conditional runs, examples, and cross-browser polish.\
+- Added Text Transform, Text Split/Join, URL Query, Dict Operation, and Condition Out blocks.\
+- Added Conditional Run support with embedded, validated condition VMs and rising-edge or while-true scheduling.\
+- Added Clipboard Cleanup, Query Param Manager, and Daily Break Once examples.\
+- Added example compatibility chips, compile-error focus links, common type quick fixes, copyable debug traces, and clearer high-risk port labeling.\
+- Updated schema V6 validation, permission/risk recomputation, Firefox binary clipboard compatibility warnings, manifests/package versions, bundled examples, and help pages.\
 }

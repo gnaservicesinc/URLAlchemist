@@ -77,6 +77,31 @@ const SIDE_EFFECT_BLOCKS = new Set<BlockKind>([
   'SaveStringToLog',
   'Abort',
 ]);
+const CONDITION_SOURCE_BLOCKS = new Set<BlockKind>(['DataFlowIn']);
+const CONDITION_ALLOWED_BLOCKS = new Set<BlockKind>([
+  'DataFlowIn',
+  'SystemData',
+  'Constant',
+  'Logical',
+  'Math',
+  'Convert',
+  'TextTransform',
+  'TextSplitJoin',
+  'UrlQuery',
+  'DataStructure',
+  'DictGet',
+  'DictOperation',
+  'ListOperation',
+  'ConditionSelect',
+  'SaveLoad',
+  'SharedState',
+  'Declarations',
+  'ConditionOut',
+]);
+const TEXT_TRANSFORM_MODES = ['TRIM', 'COLLAPSE_WHITESPACE', 'NORMALIZE_LINE_ENDINGS', 'STRIP_CONTROL_CHARS', 'UPPERCASE', 'LOWERCASE', 'TITLE_CASE', 'URL_ENCODE', 'URL_DECODE'] as const;
+const TEXT_SPLIT_JOIN_MODES = ['SPLIT_LINES', 'SPLIT_WHITESPACE', 'SPLIT_COMMA', 'SPLIT_CUSTOM', 'JOIN_LINES', 'JOIN_SPACE', 'JOIN_COMMA', 'JOIN_CUSTOM'] as const;
+const URL_QUERY_MODES = ['PARSE', 'GET_PARAM', 'SET_PARAM', 'DELETE_PARAM', 'KEEP_PARAMS', 'SORT_PARAMS', 'REBUILD'] as const;
+const DICT_OPERATION_MODES = ['MERGE', 'DELETE_KEY', 'HAS_KEY', 'KEYS', 'VALUES'] as const;
 const WORKSPACE_INPUT_SOURCE_IDS = new Set<WorkspaceInputSource>([
   'url',
   'linkUrl',
@@ -95,6 +120,7 @@ const WORKSPACE_INPUT_SOURCE_IDS = new Set<WorkspaceInputSource>([
 interface CompileOptions {
   builderUuid?: string;
   buildTimeUtc?: number;
+  conditionWorkspaces?: WorkspaceFileV2[];
 }
 
 function validateRegexPattern(pattern: string): string | null {
@@ -258,6 +284,7 @@ function isTerminalNode(node: WorkspaceNodeV2): boolean {
   return (
     node.type === 'DataFlowOut' ||
     node.type === 'ExtendedDataOut' ||
+    node.type === 'ConditionOut' ||
     (node.type === 'SaveLoad' && (node.settings.saveLoadMode ?? 'SAVE') === 'SAVE') ||
     SIDE_EFFECT_BLOCKS.has(node.type) ||
     (node.type === 'SharedState' && ['SET', 'DELETE'].includes(node.settings.sharedStateMode ?? 'GET'))
@@ -268,6 +295,10 @@ function hasRunnableTerminalNode(workspace: WorkspaceFileV2, edgesByTarget: Map<
   return workspace.nodes.some((node) => {
     if (node.type === 'DataFlowOut' || node.type === 'ExtendedDataOut') {
       return getEffectivePortDefinitions(node, 'input').some((input) => edgesByTarget.has(`${node.id}:${input.id}`));
+    }
+
+    if (node.type === 'ConditionOut') {
+      return edgesByTarget.has(`${node.id}:condition`);
     }
 
     return isTerminalNode(node);
@@ -506,7 +537,6 @@ function validateWorkspace(workspace: WorkspaceFileV2): WorkspaceValidationState
   }
 
   if (triggerType === 'CONDITIONAL') {
-    errors.push('Conditional triggers are not supported by the Chrome runtime yet.');
     if (!['RISING_EDGE', 'WHILE_TRUE'].includes(workspace.trigger.conditionalMode ?? 'RISING_EDGE')) {
       errors.push('Conditional trigger mode must be Rising Edge or While True.');
     }
@@ -676,6 +706,22 @@ function validateWorkspace(workspace: WorkspaceFileV2): WorkspaceValidationState
       if (inputCount < 1 || inputCount > 24) {
         errors.push(`${node.settings.label || definition.label}: substitution connectors must be between 1 and 24.`);
       }
+    }
+
+    if (node.type === 'TextTransform' && !TEXT_TRANSFORM_MODES.includes(node.settings.textTransformMode ?? 'TRIM')) {
+      errors.push(`${node.settings.label || definition.label}: text transform mode is invalid.`);
+    }
+
+    if (node.type === 'TextSplitJoin' && !TEXT_SPLIT_JOIN_MODES.includes(node.settings.splitJoinMode ?? 'SPLIT_LINES')) {
+      errors.push(`${node.settings.label || definition.label}: split/join mode is invalid.`);
+    }
+
+    if (node.type === 'UrlQuery' && !URL_QUERY_MODES.includes(node.settings.urlQueryMode ?? 'PARSE')) {
+      errors.push(`${node.settings.label || definition.label}: URL query mode is invalid.`);
+    }
+
+    if (node.type === 'DictOperation' && !DICT_OPERATION_MODES.includes(node.settings.dictOperationMode ?? 'KEYS')) {
+      errors.push(`${node.settings.label || definition.label}: dict operation mode is invalid.`);
     }
 
     if (node.type === 'Declarations') {
@@ -1061,6 +1107,59 @@ function instructionForNode(
       });
       break;
     }
+    case 'TextTransform':
+      instructions.push({
+        op: 'TEXT_TRANSFORM',
+        nodeId: node.id,
+        input: connectedInput(edgesByTarget, node.id, 'input'),
+        output: symbol(node.id, 'result'),
+        mode: node.settings.textTransformMode ?? 'TRIM',
+      });
+      break;
+    case 'TextSplitJoin':
+      instructions.push({
+        op: 'TEXT_SPLIT_JOIN',
+        nodeId: node.id,
+        input: connectedInput(edgesByTarget, node.id, 'input'),
+        output: symbol(node.id, 'result'),
+        mode: node.settings.splitJoinMode ?? 'SPLIT_LINES',
+        separator: node.settings.splitJoinSeparator ?? ',',
+      });
+      break;
+    case 'UrlQuery':
+      instructions.push({
+        op: 'URL_QUERY',
+        nodeId: node.id,
+        input: connectedInput(edgesByTarget, node.id, 'input'),
+        key: connectedInput(edgesByTarget, node.id, 'key'),
+        value: connectedInput(edgesByTarget, node.id, 'value'),
+        output: symbol(node.id, 'result'),
+        mode: node.settings.urlQueryMode ?? 'PARSE',
+        fallbackKey: node.settings.urlQueryKey ?? '',
+        fallbackValue: node.settings.urlQueryValue ?? '',
+        fallbackParams: node.settings.urlQueryParams ?? '',
+      });
+      break;
+    case 'DictOperation':
+      instructions.push({
+        op: 'DICT_OP',
+        nodeId: node.id,
+        dict: connectedInput(edgesByTarget, node.id, 'dict'),
+        other: connectedInput(edgesByTarget, node.id, 'other'),
+        key: connectedInput(edgesByTarget, node.id, 'key'),
+        output: symbol(node.id, 'result'),
+        mode: node.settings.dictOperationMode ?? 'KEYS',
+        fallbackKey: node.settings.dictKey ?? '',
+      });
+      break;
+    case 'ConditionOut':
+      instructions.push({
+        op: 'CONDITION_OUT',
+        nodeId: node.id,
+        condition: connectedInput(edgesByTarget, node.id, 'condition'),
+        output: symbol(node.id, 'condition'),
+      });
+      break;
     case 'SaveStringToLog':
       instructions.push({
         op: 'LOG',
@@ -1222,6 +1321,9 @@ function buildSymbolTable(workspace: WorkspaceFileV2): Record<string, GraphDataT
     getEffectivePortDefinitions(node, 'output').forEach((output) => {
       symbolTable[symbol(node.id, output.id)] = output.dataType;
     });
+    if (node.type === 'ConditionOut') {
+      symbolTable[symbol(node.id, 'condition')] = 'bool';
+    }
   });
 
   return symbolTable;
@@ -1277,7 +1379,7 @@ function deriveInputSources(workspace: WorkspaceFileV2, reachable: Set<string>):
   return Array.from(sources).sort();
 }
 
-function compileTriggerPlan(workspace: WorkspaceFileV2, inputSources: WorkspaceInputSource[]): CompiledTriggerPlan {
+function compileTriggerPlan(workspace: WorkspaceFileV2, inputSources: WorkspaceInputSource[], condition?: ConditionCompileResult): CompiledTriggerPlan {
   const type = workspace.trigger.type === 'ALWAYS' ? 'INPUT_DATA' : workspace.trigger.type;
   const sourceFilters = [
     ...(workspace.trigger.sourceFilters ?? []),
@@ -1290,11 +1392,14 @@ function compileTriggerPlan(workspace: WorkspaceFileV2, inputSources: WorkspaceI
     type,
     inputSources,
     sourceFilters,
-    intervalMs: type === 'INTERVAL'
+    intervalMs: type === 'INTERVAL' || type === 'CONDITIONAL'
       ? Math.max(MIN_INTERVAL_TRIGGER_MS, Math.trunc(workspace.trigger.intervalMs ?? DEFAULT_INTERVAL_TRIGGER_MS))
       : undefined,
     conditionalMode: type === 'CONDITIONAL' ? workspace.trigger.conditionalMode ?? 'RISING_EDGE' : undefined,
     conditionWorkspaceId: type === 'CONDITIONAL' ? workspace.trigger.conditionWorkspaceId : undefined,
+    conditionVm: type === 'CONDITIONAL' ? condition?.vm : undefined,
+    conditionOutput: type === 'CONDITIONAL' ? condition?.output : undefined,
+    conditionStateKey: type === 'CONDITIONAL' ? `url-alchemist-condition:${workspace.metadata.id}` : undefined,
     safety: {
       timestampHistoryLimit: INPUT_TRIGGER_HISTORY_LIMIT,
       burstLimit: INPUT_TRIGGER_BURST_LIMIT,
@@ -1389,6 +1494,144 @@ function uniqueInstructions(instructions: GraphVmInstruction[]): GraphVmInstruct
   });
 }
 
+interface ConditionCompileResult {
+  vm: NonNullable<CompiledTriggerPlan['conditionVm']>;
+  output: string;
+}
+
+function mergeRiskSummary(target: CompiledRiskSummary, source: CompiledRiskSummary): void {
+  target.highest = combineRisk(target.highest, source.highest);
+  target.usesExtendedInput = target.usesExtendedInput || source.usesExtendedInput;
+  target.usesExtendedOutput = target.usesExtendedOutput || source.usesExtendedOutput;
+  target.usesHighRiskInput = target.usesHighRiskInput || source.usesHighRiskInput;
+  target.usesHighRiskOutput = target.usesHighRiskOutput || source.usesHighRiskOutput;
+  source.reasons.forEach((reason) => {
+    if (!target.reasons.includes(reason)) {
+      target.reasons.push(reason);
+    }
+  });
+}
+
+function findConditionWorkspace(workspace: WorkspaceFileV2, options: CompileOptions): WorkspaceFileV2 | null {
+  const conditionWorkspaceId = workspace.trigger.conditionWorkspaceId?.trim();
+  if (!conditionWorkspaceId || conditionWorkspaceId === workspace.metadata.id) {
+    return workspace;
+  }
+
+  return options.conditionWorkspaces?.find((candidate) => candidate.metadata.id === conditionWorkspaceId) ?? null;
+}
+
+function validateConditionNodes(workspace: WorkspaceFileV2, includedNodeIds: Set<string>): string[] {
+  const errors: string[] = [];
+  workspace.nodes.forEach((node) => {
+    if (!includedNodeIds.has(node.id)) {
+      return;
+    }
+
+    if (!CONDITION_ALLOWED_BLOCKS.has(node.type)) {
+      errors.push(`${node.settings.label || getBlockDefinition(node.type).label}: ${getBlockDefinition(node.type).label} cannot run in a conditional Run check.`);
+      return;
+    }
+
+    if (!CONDITION_SOURCE_BLOCKS.has(node.type) && (node.type === 'ExtendedDataIn' || node.type === 'OnTriggerEvent' || node.type === 'KeyboardIn' || node.type === 'MouseIn' || node.type === 'OverlayTickIn')) {
+      errors.push(`${node.settings.label || getBlockDefinition(node.type).label}: event and extended page sources are not available to conditional Run checks.`);
+    }
+
+    if (node.type === 'SaveLoad' && !['GET', 'EXISTS'].includes(node.settings.saveLoadMode ?? 'GET')) {
+      errors.push(`${node.settings.label || getBlockDefinition(node.type).label}: conditional Run checks can only use SaveLoad Get or Exists.`);
+    }
+
+    if (node.type === 'SharedState' && !['GET', 'EXISTS'].includes(node.settings.sharedStateMode ?? 'GET')) {
+      errors.push(`${node.settings.label || getBlockDefinition(node.type).label}: conditional Run checks can only use Shared State Get or Exists.`);
+    }
+  });
+
+  workspace.edges.forEach((edge) => {
+    if (!includedNodeIds.has(edge.source) || !includedNodeIds.has(edge.target)) {
+      return;
+    }
+
+    const sourceNode = findNode(workspace, edge.source);
+    if (sourceNode?.type === 'DataFlowIn' && edge.sourceHandle !== 'url') {
+      errors.push(`${sourceNode.settings.label || getBlockDefinition(sourceNode.type).label}: conditional Run checks can only read the current URL from Data In.`);
+    }
+  });
+
+  return errors;
+}
+
+function compileConditionProgram(workspace: WorkspaceFileV2): { ok: true; result: ConditionCompileResult; risk: CompiledRiskSummary; instructions: GraphVmInstruction[] } | { ok: false; errors: string[] } {
+  const edgesByTarget = new Map(workspace.edges.map((edge) => [`${edge.target}:${edge.targetHandle}`, edge]));
+  const terminals = workspace.nodes.filter((node) => node.type === 'ConditionOut' && edgesByTarget.has(`${node.id}:condition`));
+  if (terminals.length !== 1) {
+    return { ok: false, errors: ['Conditional Run requires exactly one connected Condition Out block in the selected condition workspace.'] };
+  }
+
+  const includedNodeIds = upstreamNodeIds(workspace, terminals[0].id);
+  const nodeErrors = validateConditionNodes(workspace, includedNodeIds);
+  if (nodeErrors.length > 0) {
+    return { ok: false, errors: nodeErrors };
+  }
+
+  const sorted = topologicalSort(workspace, includedNodeIds);
+  if (!sorted.ok) {
+    return { ok: false, errors: [`Condition workspace contains a cycle involving ${sorted.cycleIds.length} blocks.`] };
+  }
+
+  const instructions = uniqueInstructions(sorted.nodes.flatMap((node) => instructionForNode(node, workspace, edgesByTarget, includedNodeIds)));
+  const risk = emptyRisk();
+  instructions.forEach((instruction) => {
+    if (instruction.op === 'SAVELOAD') {
+      addRisk(risk, 'extended', 'Session storage access is extended risk.', 'output');
+    }
+    if (instruction.op === 'SHARED_STATE') {
+      addRisk(risk, 'extended', 'Session-scoped shared state is extended risk.', 'output');
+    }
+  });
+
+  return {
+    ok: true,
+    result: {
+      vm: {
+        instructions,
+        constants: {},
+        symbolTable: buildSymbolTable(workspace),
+        stepBudget: VM_STEP_BUDGET,
+        loopBudget: VM_LOOP_BUDGET,
+        valueByteLimit: VM_VALUE_BYTE_LIMIT,
+        safety: buildSafetyPolicy(instructions),
+      },
+      output: symbol(terminals[0].id, 'condition'),
+    },
+    risk,
+    instructions,
+  };
+}
+
+function compileConditionForWorkspace(workspace: WorkspaceFileV2, options: CompileOptions): { ok: true; result?: ConditionCompileResult; risk?: CompiledRiskSummary; instructions: GraphVmInstruction[] } | { ok: false; errors: string[] } {
+  const triggerType = workspace.trigger.type === 'ALWAYS' ? 'INPUT_DATA' : workspace.trigger.type;
+  if (triggerType !== 'CONDITIONAL') {
+    return { ok: true, instructions: [] };
+  }
+
+  const conditionWorkspace = findConditionWorkspace(workspace, options);
+  if (!conditionWorkspace) {
+    return { ok: false, errors: [`Conditional Run could not find condition workspace ${workspace.trigger.conditionWorkspaceId}.`] };
+  }
+
+  const compiled = compileConditionProgram(conditionWorkspace);
+  if (!compiled.ok) {
+    return compiled;
+  }
+
+  return {
+    ok: true,
+    result: compiled.result,
+    risk: compiled.risk,
+    instructions: compiled.instructions,
+  };
+}
+
 export function compileWorkspace(workspace: WorkspaceFileV2, options: CompileOptions = {}): GraphCompileResult {
   const validation = validateWorkspace(workspace);
   const workspaceWithValidation: WorkspaceFileV2 = {
@@ -1454,10 +1697,32 @@ export function compileWorkspace(workspace: WorkspaceFileV2, options: CompileOpt
     ]),
   ) as Record<GraphEventHandler, GraphVmInstruction[]>;
   const instructions = uniqueInstructions(EVENT_HANDLERS.flatMap((handler) => eventHandlers[handler]));
-  const triggerPlan = compileTriggerPlan(workspace, deriveInputSources(workspace, reachable));
+  const condition = compileConditionForWorkspace(workspace, options);
+  if (!condition.ok) {
+    const conditionValidation: WorkspaceValidationState = {
+      ...validation,
+      valid: false,
+      errors: [...validation.errors, ...condition.errors],
+    };
+
+    return {
+      ok: false,
+      workspace: {
+        ...workspaceWithValidation,
+        validationState: conditionValidation,
+      },
+      validation: conditionValidation,
+    };
+  }
+
+  const triggerPlan = compileTriggerPlan(workspace, deriveInputSources(workspace, reachable), condition.result);
   const safety = buildSafetyPolicy(instructions);
   const risk = { ...validation.risk };
-  instructions.forEach((instruction) => {
+  if (condition.risk) {
+    mergeRiskSummary(risk, condition.risk);
+  }
+  const allInstructions = [...instructions, ...condition.instructions];
+  allInstructions.forEach((instruction) => {
     if ('risk' in instruction && getRiskRank(instruction.risk) > 0) {
       const label = instruction.op === 'OUTPUT' ? instruction.destination : instruction.source;
       addRisk(
@@ -1565,7 +1830,7 @@ export function compileWorkspace(workspace: WorkspaceFileV2, options: CompileOpt
     },
     risk,
     triggerPlan,
-    requiredPermissions: requiredPermissionsForInstructions(instructions),
+    requiredPermissions: requiredPermissionsForInstructions(allInstructions),
     vm: {
       instructions,
       eventHandlers,
