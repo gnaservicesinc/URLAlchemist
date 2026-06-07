@@ -30,13 +30,18 @@ import type {
   GraphDataType,
   GraphValue,
   GraphVmInstruction,
+  GraphVmProgram,
   GraphVmSafetyPolicy,
   RiskLevel,
   AssetFetchKind,
+  ContentBlockerChallengeTask,
+  ContentBlockerDecisionProgram,
+  ContentBlockerSurfaceId,
   UserInteractionKind,
   WorkspaceInputSource,
   WorkspaceEdgeV2,
   WorkspaceFileV2,
+  WorkspaceGraphSurface,
   WorkspaceNodeV2,
   WorkspaceValidationState,
 } from './types';
@@ -59,6 +64,7 @@ const VM_VALUE_BYTE_LIMIT = 256 * 1024;
 const EVENT_HANDLERS: GraphEventHandler[] = ['trigger', 'keyboard', 'mouse', 'tick'];
 const EVENT_SOURCE_BLOCKS = new Map<BlockKind, GraphEventHandler>([
   ['DataFlowIn', 'trigger'],
+  ['ContentDataIn', 'trigger'],
   ['ExtendedDataIn', 'trigger'],
   ['OnTriggerEvent', 'trigger'],
   ['KeyboardIn', 'keyboard'],
@@ -78,6 +84,37 @@ const SIDE_EFFECT_BLOCKS = new Set<BlockKind>([
   'Abort',
 ]);
 const CONDITION_SOURCE_BLOCKS = new Set<BlockKind>(['DataFlowIn']);
+const CONTENT_BLOCKER_DECISION_ALLOWED_BLOCKS = new Set<BlockKind>([
+  'ContentDataIn',
+  'SystemData',
+  'Constant',
+  'Logical',
+  'Math',
+  'Convert',
+  'TextTransform',
+  'TextSplitJoin',
+  'UrlQuery',
+  'DataStructure',
+  'DictGet',
+  'DictOperation',
+  'ListOperation',
+  'ConditionSelect',
+  'RandomNumber',
+  'SaveLoad',
+  'SharedState',
+  'Declarations',
+  'Substitution',
+  'RegExpression',
+  'DecisionOut',
+  'SaveStringToLog',
+]);
+const CONTENT_BLOCKER_CHALLENGE_BLOCKS = new Set<BlockKind>([
+  'ChallengeTimer',
+  'ChallengeTyper',
+  'ChallengeClicker',
+  'ChallengeConfirm',
+  'ChallengeReason',
+]);
 const CONDITION_ALLOWED_BLOCKS = new Set<BlockKind>([
   'DataFlowIn',
   'SystemData',
@@ -108,6 +145,7 @@ const WORKSPACE_INPUT_SOURCE_IDS = new Set<WorkspaceInputSource>([
   'selectedText',
   'pageTitle',
   'pageMetadata',
+  'secondsOnPage',
   'clipboard',
   'pageText',
   'rawHtml',
@@ -285,6 +323,7 @@ function isTerminalNode(node: WorkspaceNodeV2): boolean {
     node.type === 'DataFlowOut' ||
     node.type === 'ExtendedDataOut' ||
     node.type === 'ConditionOut' ||
+    node.type === 'DecisionOut' ||
     (node.type === 'SaveLoad' && (node.settings.saveLoadMode ?? 'SAVE') === 'SAVE') ||
     SIDE_EFFECT_BLOCKS.has(node.type) ||
     (node.type === 'SharedState' && ['SET', 'DELETE'].includes(node.settings.sharedStateMode ?? 'GET'))
@@ -299,6 +338,10 @@ function hasRunnableTerminalNode(workspace: WorkspaceFileV2, edgesByTarget: Map<
 
     if (node.type === 'ConditionOut') {
       return edgesByTarget.has(`${node.id}:condition`);
+    }
+
+    if (node.type === 'DecisionOut') {
+      return edgesByTarget.has(`${node.id}:decision`);
     }
 
     return isTerminalNode(node);
@@ -506,7 +549,169 @@ function addRisk(risk: CompiledRiskSummary, level: RiskLevel, reason: string, di
   }
 }
 
+function surfaceNode(surface: WorkspaceGraphSurface, nodeId: string): WorkspaceNodeV2 | null {
+  return surface.nodes.find((node) => node.id === nodeId) ?? null;
+}
+
+function validateSurfaceConnections(
+  surface: WorkspaceGraphSurface,
+  allowedBlocks: Set<BlockKind>,
+  errors: string[],
+  invalidEdgeIds: string[],
+  risk: CompiledRiskSummary,
+): Map<string, WorkspaceEdgeV2> {
+  const nodeIds = new Set(surface.nodes.map((node) => node.id));
+  const edgesByTarget = new Map<string, WorkspaceEdgeV2>();
+
+  surface.nodes.forEach((node) => {
+    const definition = getBlockDefinition(node.type);
+    if (!allowedBlocks.has(node.type)) {
+      errors.push(`${surface.label}: ${node.settings.label || definition.label} cannot be used on this surface.`);
+    }
+  });
+
+  surface.edges.forEach((edge) => {
+    const sourceNode = surfaceNode(surface, edge.source);
+    const targetNode = surfaceNode(surface, edge.target);
+    const sourcePort = sourceNode ? getEffectivePortDefinition(sourceNode, 'output', edge.sourceHandle) : null;
+    const targetPort = targetNode ? getEffectivePortDefinition(targetNode, 'input', edge.targetHandle) : null;
+
+    if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target) || !sourcePort || !targetPort) {
+      invalidEdgeIds.push(edge.id);
+      errors.push(`${surface.label}: connection ${edge.id} references a missing block or port.`);
+      return;
+    }
+
+    const targetKey = edgeKey(edge);
+    if (edgesByTarget.has(targetKey)) {
+      invalidEdgeIds.push(edge.id);
+      errors.push(`${surface.label}: only one connection can feed ${targetNode!.settings.label || targetNode!.type}.${targetPort.label}.`);
+      return;
+    }
+    edgesByTarget.set(targetKey, edge);
+
+    if (!isTypeCompatible(sourcePort.dataType, targetPort.dataType)) {
+      invalidEdgeIds.push(edge.id);
+      errors.push(`${surface.label}: ${sourcePort.label} (${sourcePort.dataType}) cannot connect to ${targetPort.label} (${targetPort.dataType}).`);
+    }
+
+    if (sourcePort.risk && sourcePort.risk !== 'safe') {
+      addRisk(risk, sourcePort.risk, `${surface.label}: ${sourcePort.label} input is ${sourcePort.risk} risk.`, 'input');
+    }
+    if (targetPort.risk && targetPort.risk !== 'safe') {
+      addRisk(risk, targetPort.risk, `${surface.label}: ${targetPort.label} output is ${targetPort.risk} risk.`, 'output');
+    }
+  });
+
+  surface.nodes.forEach((node) => {
+    const definition = getBlockDefinition(node.type);
+    getEffectivePortDefinitions(node, 'input').forEach((input) => {
+      if (input.required && !edgesByTarget.has(`${node.id}:${input.id}`)) {
+        errors.push(`${surface.label}: ${node.settings.label || definition.label} requires ${input.label}.`);
+      }
+    });
+
+    if (node.type === 'RegExpression') {
+      const patternError = validateRegexPattern(node.settings.pattern ?? '');
+      if (patternError) {
+        errors.push(`${surface.label}: ${node.settings.label || definition.label}: ${patternError}`);
+      }
+    }
+
+    if (node.type === 'SaveStringToLog') {
+      addRisk(risk, 'extended', `${surface.label}: Action Pack logging stores local run data.`, 'output');
+    }
+  });
+
+  return edgesByTarget;
+}
+
+function contentBlockerSurface(workspace: WorkspaceFileV2, id: ContentBlockerSurfaceId): WorkspaceGraphSurface | null {
+  return workspace.surfaces?.find((surface) => surface.id === id) ?? null;
+}
+
+function validateContentBlockerWorkspace(workspace: WorkspaceFileV2): WorkspaceValidationState {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const invalidEdgeIds: string[] = [];
+  const risk = emptyRisk();
+
+  if (!workspace.metadata.name.trim()) {
+    errors.push('Workspace name is required.');
+  }
+
+  const pageLoad = contentBlockerSurface(workspace, 'page-load');
+  const recurring = contentBlockerSurface(workspace, 'recurring');
+  const challenge = contentBlockerSurface(workspace, 'challenge');
+  if (!pageLoad || !recurring || !challenge) {
+    errors.push('Content Blocker workspaces require Page Load Decision, Recurring Check, and Challenge Page surfaces.');
+  }
+
+  if ((workspace.contentBlocker?.recurringIntervalSeconds ?? 30) < 5) {
+    errors.push('Content Blocker recurring interval must be at least 5 seconds.');
+  }
+
+  if (pageLoad) {
+    const edgesByTarget = validateSurfaceConnections(pageLoad, CONTENT_BLOCKER_DECISION_ALLOWED_BLOCKS, errors, invalidEdgeIds, risk);
+    const terminals = pageLoad.nodes.filter((node) => node.type === 'DecisionOut' && edgesByTarget.has(`${node.id}:decision`));
+    if (terminals.length !== 1) {
+      errors.push('Page Load Decision requires exactly one connected Decision Out block.');
+    }
+  }
+
+  if (recurring && recurring.nodes.length > 0) {
+    const edgesByTarget = validateSurfaceConnections(recurring, CONTENT_BLOCKER_DECISION_ALLOWED_BLOCKS, errors, invalidEdgeIds, risk);
+    const terminals = recurring.nodes.filter((node) => node.type === 'DecisionOut' && edgesByTarget.has(`${node.id}:decision`));
+    if (terminals.length !== 1) {
+      errors.push('Recurring Check requires exactly one connected Decision Out block when it is not empty.');
+    }
+  }
+
+  if (challenge) {
+    const allowedChallengeBlocks = new Set<BlockKind>([
+      ...CONTENT_BLOCKER_CHALLENGE_BLOCKS,
+      'ChallengeComplete',
+      'Logical',
+      'Math',
+      'Constant',
+      'ConditionSelect',
+      'RandomNumber',
+      'Substitution',
+      'TextTransform',
+    ]);
+    validateSurfaceConnections(challenge, allowedChallengeBlocks, errors, invalidEdgeIds, risk);
+    if (!challenge.nodes.some((node) => node.type === 'ChallengeComplete')) {
+      errors.push('Challenge Page requires a Challenge Complete block.');
+    }
+    if (!challenge.nodes.some((node) => CONTENT_BLOCKER_CHALLENGE_BLOCKS.has(node.type))) {
+      errors.push('Challenge Page requires at least one Timer, Typer, Clicker, Confirm Choice, or Reason Prompt block.');
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings,
+    invalidEdgeIds,
+    risk,
+  };
+}
+
 function validateWorkspace(workspace: WorkspaceFileV2): WorkspaceValidationState {
+  if (workspace.workspaceType === 'content-blocker') {
+    return validateContentBlockerWorkspace(workspace);
+  }
+
+  const contentBlockerNodes = new Set<BlockKind>([
+    'ContentDataIn',
+    'DecisionOut',
+    'ChallengeTimer',
+    'ChallengeTyper',
+    'ChallengeClicker',
+    'ChallengeConfirm',
+    'ChallengeReason',
+    'ChallengeComplete',
+  ]);
   const errors: string[] = [];
   const warnings: string[] = [];
   const invalidEdgeIds: string[] = [];
@@ -610,6 +815,9 @@ function validateWorkspace(workspace: WorkspaceFileV2): WorkspaceValidationState
 
   workspace.nodes.forEach((node) => {
     const definition = getBlockDefinition(node.type);
+    if (contentBlockerNodes.has(node.type)) {
+      errors.push(`${definition.label} can only be used in Content Blocker workspaces.`);
+    }
     getEffectivePortDefinitions(node, 'input').forEach((input) => {
       if (input.required && !edgesByTarget.has(`${node.id}:${input.id}`)) {
         errors.push(`${node.settings.label || definition.label} requires ${input.label}.`);
@@ -851,6 +1059,7 @@ function instructionForNode(
 
   switch (node.type) {
     case 'DataFlowIn':
+    case 'ContentDataIn':
     case 'ExtendedDataIn':
     case 'OnTriggerEvent':
     case 'KeyboardIn':
@@ -1170,6 +1379,14 @@ function instructionForNode(
         output: symbol(node.id, 'condition'),
       });
       break;
+    case 'DecisionOut':
+      instructions.push({
+        op: 'DECISION_OUT',
+        nodeId: node.id,
+        decision: connectedInput(edgesByTarget, node.id, 'decision'),
+        output: symbol(node.id, 'decision'),
+      });
+      break;
     case 'SaveStringToLog':
       instructions.push({
         op: 'LOG',
@@ -1333,6 +1550,9 @@ function buildSymbolTable(workspace: WorkspaceFileV2): Record<string, GraphDataT
     });
     if (node.type === 'ConditionOut') {
       symbolTable[symbol(node.id, 'condition')] = 'bool';
+    }
+    if (node.type === 'DecisionOut') {
+      symbolTable[symbol(node.id, 'decision')] = 'number';
     }
   });
 
@@ -1642,6 +1862,257 @@ function compileConditionForWorkspace(workspace: WorkspaceFileV2, options: Compi
   };
 }
 
+function workspaceForSurface(workspace: WorkspaceFileV2, surface: WorkspaceGraphSurface): WorkspaceFileV2 {
+  return {
+    ...workspace,
+    workspaceType: 'data-modifier',
+    nodes: surface.nodes,
+    edges: surface.edges,
+    viewport: surface.viewport,
+    surfaces: undefined,
+    contentBlocker: undefined,
+    trigger: {
+      type: 'INPUT_DATA',
+      inputSources: ['url', 'pageTitle', 'pageMetadata', 'pageText', 'secondsOnPage'],
+      sourceFilters: [],
+    },
+  };
+}
+
+function compileDecisionSurfaceProgram(
+  workspace: WorkspaceFileV2,
+  surface: WorkspaceGraphSurface,
+): { ok: true; program: ContentBlockerDecisionProgram; risk: CompiledRiskSummary; instructions: GraphVmInstruction[] } | { ok: false; errors: string[] } {
+  const surfaceWorkspace = workspaceForSurface(workspace, surface);
+  const edgesByTarget = new Map(surfaceWorkspace.edges.map((edge) => [`${edge.target}:${edge.targetHandle}`, edge]));
+  const terminals = surfaceWorkspace.nodes.filter((node) => node.type === 'DecisionOut' && edgesByTarget.has(`${node.id}:decision`));
+  if (terminals.length !== 1) {
+    return { ok: false, errors: [`${surface.label} requires exactly one connected Decision Out block.`] };
+  }
+
+  const includedNodeIds = upstreamNodeIds(surfaceWorkspace, terminals[0].id);
+  const sorted = topologicalSort(surfaceWorkspace, includedNodeIds);
+  if (!sorted.ok) {
+    return { ok: false, errors: [`${surface.label} contains a cycle involving ${sorted.cycleIds.length} blocks.`] };
+  }
+
+  const instructions = uniqueInstructions(sorted.nodes.flatMap((node) => instructionForNode(node, surfaceWorkspace, edgesByTarget, includedNodeIds)));
+  const risk = emptyRisk();
+  instructions.forEach((instruction) => {
+    if ('risk' in instruction && getRiskRank(instruction.risk) > 0) {
+      const label = instruction.op === 'SOURCE' ? instruction.source : instruction.op;
+      addRisk(risk, instruction.risk, `${surface.label}: ${label} input is ${instruction.risk} risk.`, 'input');
+    }
+    if (instruction.op === 'SAVELOAD' || instruction.op === 'SHARED_STATE') {
+      addRisk(risk, 'extended', `${surface.label}: session state access is extended risk.`, 'output');
+    }
+    if (instruction.op === 'LOG') {
+      addRisk(risk, 'extended', `${surface.label}: Action Pack logging stores local run data.`, 'output');
+    }
+  });
+
+  return {
+    ok: true,
+    program: {
+      surfaceId: surface.id as Extract<ContentBlockerSurfaceId, 'page-load' | 'recurring'>,
+      vm: {
+        instructions,
+        constants: {},
+        symbolTable: buildSymbolTable(surfaceWorkspace),
+        stepBudget: VM_STEP_BUDGET,
+        loopBudget: VM_LOOP_BUDGET,
+        valueByteLimit: VM_VALUE_BYTE_LIMIT,
+        safety: buildSafetyPolicy(instructions),
+      },
+      output: symbol(terminals[0].id, 'decision'),
+    },
+    risk,
+    instructions,
+  };
+}
+
+function challengeTaskForNode(node: WorkspaceNodeV2): ContentBlockerChallengeTask | null {
+  const label = node.settings.label || getBlockDefinition(node.type).label;
+  switch (node.type) {
+    case 'ChallengeTimer':
+      return {
+        id: node.id,
+        kind: 'timer',
+        label,
+        seconds: Math.max(1, Math.min(3600, Math.trunc(node.settings.challengeSeconds ?? node.settings.sleepMs ?? 30))),
+      };
+    case 'ChallengeTyper':
+      return {
+        id: node.id,
+        kind: 'typer',
+        label,
+        text: String(node.settings.challengeText || node.settings.literalValue || 'I want to continue'),
+        count: Math.max(1, Math.min(25, Math.trunc((node.settings.challengeCount ?? Number.parseInt(node.settings.compareValue ?? '1', 10)) || 1))),
+      };
+    case 'ChallengeClicker':
+      return {
+        id: node.id,
+        kind: 'clicker',
+        label,
+        count: Math.max(1, Math.min(1000, Math.trunc(node.settings.challengeCount ?? 10))),
+      };
+    case 'ChallengeConfirm':
+      return {
+        id: node.id,
+        kind: 'confirm',
+        label,
+        text: node.settings.challengeText || 'Confirm that you want to continue.',
+      };
+    case 'ChallengeReason':
+      return {
+        id: node.id,
+        kind: 'reason',
+        label,
+        text: node.settings.challengeText || 'Why do you want to continue?',
+      };
+    default:
+      return null;
+  }
+}
+
+function compileChallengeTasks(surface: WorkspaceGraphSurface): ContentBlockerChallengeTask[] {
+  return surface.nodes
+    .filter((node) => CONTENT_BLOCKER_CHALLENGE_BLOCKS.has(node.type))
+    .slice()
+    .sort((left, right) => left.position.x === right.position.x ? left.position.y - right.position.y : left.position.x - right.position.x)
+    .map(challengeTaskForNode)
+    .filter((task): task is ContentBlockerChallengeTask => Boolean(task));
+}
+
+function compileContentBlockerWorkspace(
+  workspace: WorkspaceFileV2,
+  validation: WorkspaceValidationState,
+  workspaceWithValidation: WorkspaceFileV2,
+  options: CompileOptions,
+): GraphCompileResult {
+  const pageLoad = contentBlockerSurface(workspace, 'page-load');
+  const recurring = contentBlockerSurface(workspace, 'recurring');
+  const challenge = contentBlockerSurface(workspace, 'challenge');
+  if (!pageLoad || !recurring || !challenge) {
+    return { ok: false, workspace: workspaceWithValidation, validation };
+  }
+
+  const pageLoadProgram = compileDecisionSurfaceProgram(workspace, pageLoad);
+  if (!pageLoadProgram.ok) {
+    const nextValidation = {
+      ...validation,
+      valid: false,
+      errors: [...validation.errors, ...pageLoadProgram.errors],
+    };
+    return { ok: false, workspace: { ...workspaceWithValidation, validationState: nextValidation }, validation: nextValidation };
+  }
+
+  const recurringProgram = recurring.nodes.length > 0 ? compileDecisionSurfaceProgram(workspace, recurring) : undefined;
+  if (recurringProgram && !recurringProgram.ok) {
+    const nextValidation = {
+      ...validation,
+      valid: false,
+      errors: [...validation.errors, ...recurringProgram.errors],
+    };
+    return { ok: false, workspace: { ...workspaceWithValidation, validationState: nextValidation }, validation: nextValidation };
+  }
+
+  const risk = { ...validation.risk };
+  mergeRiskSummary(risk, pageLoadProgram.risk);
+  if (recurringProgram?.ok) {
+    mergeRiskSummary(risk, recurringProgram.risk);
+  }
+
+  const allInstructions = [
+    ...pageLoadProgram.instructions,
+    ...(recurringProgram?.ok ? recurringProgram.instructions : []),
+  ];
+  const safety = buildSafetyPolicy([]);
+  const triggerPlan = compileTriggerPlan(workspaceForSurface(workspace, pageLoad), ['url', 'pageTitle', 'pageMetadata', 'pageText'], undefined);
+  const contentBlocker = workspace.contentBlocker ?? {
+    lockLevel: 0,
+    allowLockIncrease: false,
+    recurringIntervalSeconds: 30,
+    blockPageTitle: 'Page blocked',
+    blockPageMessage: 'This page is blocked by URL Alchemist.',
+    challengePageTitle: 'Challenge required',
+    challengePageMessage: 'Complete the challenge to continue to the page.',
+  };
+
+  const pack: CompiledActionPackV2 = {
+    kind: 'action-pack.v2',
+    schemaVersion: ACTION_PACK_SCHEMA_VERSION,
+    manifest: {
+      id: workspace.metadata.id,
+      name: workspace.metadata.name,
+      version: workspace.metadata.version,
+      enabled: true,
+      metadata: {
+        author: workspace.metadata.author,
+        description: workspace.metadata.description,
+        created_at: workspace.metadata.created_at,
+        workspaceType: 'content-blocker',
+      },
+      trigger: {
+        type: 'INPUT_DATA',
+        inputSources: ['url', 'pageTitle', 'pageMetadata', 'pageText'],
+        sourceFilters: [],
+      },
+    },
+    sourceWorkspaceId: workspace.metadata.id,
+    builder: {
+      urlAlchemistVersion: URL_ALCHEMIST_VERSION,
+      buildTimeUtc: options.buildTimeUtc ?? Math.floor(Date.now() / 1000),
+      builderUuid: options.builderUuid ?? crypto.randomUUID(),
+    },
+    risk,
+    triggerPlan,
+    requiredPermissions: requiredPermissionsForInstructions(allInstructions),
+    vm: {
+      instructions: [],
+      eventHandlers: {
+        trigger: [],
+        keyboard: [],
+        mouse: [],
+        tick: [],
+      },
+      constants: {},
+      symbolTable: {},
+      stepBudget: VM_STEP_BUDGET,
+      loopBudget: VM_LOOP_BUDGET,
+      valueByteLimit: VM_VALUE_BYTE_LIMIT,
+      safety,
+    },
+    install: {
+      source: 'content-blocker',
+      trustStatus: 'trusted',
+      loggingEnabled: true,
+      installedAt: Date.now(),
+      contentBlocker: {
+        pageLoad: pageLoadProgram.program,
+        recurring: recurringProgram?.ok ? recurringProgram.program : undefined,
+        recurringIntervalSeconds: Math.max(5, Math.trunc(contentBlocker.recurringIntervalSeconds)),
+        challengeTitle: contentBlocker.challengePageTitle,
+        challengeMessage: contentBlocker.challengePageMessage,
+        blockTitle: contentBlocker.blockPageTitle,
+        blockMessage: contentBlocker.blockPageMessage,
+        challengeTasks: compileChallengeTasks(challenge),
+        allowLockIncrease: contentBlocker.allowLockIncrease,
+      },
+    },
+  };
+
+  return {
+    ok: true,
+    workspace: workspaceWithValidation,
+    validation: {
+      ...validation,
+      risk,
+    },
+    pack,
+  };
+}
+
 export function compileWorkspace(workspace: WorkspaceFileV2, options: CompileOptions = {}): GraphCompileResult {
   const validation = validateWorkspace(workspace);
   const workspaceWithValidation: WorkspaceFileV2 = {
@@ -1655,6 +2126,10 @@ export function compileWorkspace(workspace: WorkspaceFileV2, options: CompileOpt
       workspace: workspaceWithValidation,
       validation,
     };
+  }
+
+  if (workspace.workspaceType === 'content-blocker') {
+    return compileContentBlockerWorkspace(workspace, validation, workspaceWithValidation, options);
   }
 
   const reachableByHandler = collectHandlerReachability(workspace);

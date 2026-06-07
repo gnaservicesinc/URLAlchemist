@@ -1,21 +1,24 @@
 import type { ActionPack, ActionPackLogSeverity, ActionType, MatchMode, WorkspaceTriggerType } from '../types';
 
-export const WORKSPACE_SCHEMA_VERSION = 7;
-export const LEGACY_WORKSPACE_SCHEMA_VERSION = 6;
-export const OLDER_WORKSPACE_SCHEMA_VERSION = 5;
-export const ANCIENT_WORKSPACE_SCHEMA_VERSION = 4;
-export const EARLIEST_WORKSPACE_SCHEMA_VERSION = 3;
-export const ACTION_PACK_SCHEMA_VERSION = 7;
-export const LEGACY_ACTION_PACK_SCHEMA_VERSION = 6;
-export const OLDER_ACTION_PACK_SCHEMA_VERSION = 5;
-export const ANCIENT_ACTION_PACK_SCHEMA_VERSION = 4;
-export const EARLIEST_ACTION_PACK_SCHEMA_VERSION = 3;
+export const WORKSPACE_SCHEMA_VERSION = 8;
+export const LEGACY_WORKSPACE_SCHEMA_VERSION = 7;
+export const OLDER_WORKSPACE_SCHEMA_VERSION = 6;
+export const ANCIENT_WORKSPACE_SCHEMA_VERSION = 5;
+export const EARLIEST_WORKSPACE_SCHEMA_VERSION = 4;
+export const PRE_V2_WORKSPACE_SCHEMA_VERSION = 3;
+export const ACTION_PACK_SCHEMA_VERSION = 8;
+export const LEGACY_ACTION_PACK_SCHEMA_VERSION = 7;
+export const OLDER_ACTION_PACK_SCHEMA_VERSION = 6;
+export const ANCIENT_ACTION_PACK_SCHEMA_VERSION = 5;
+export const EARLIEST_ACTION_PACK_SCHEMA_VERSION = 4;
+export const PRE_V2_ACTION_PACK_SCHEMA_VERSION = 3;
 export const SUPPORTED_WORKSPACE_SCHEMA_VERSIONS = [
   WORKSPACE_SCHEMA_VERSION,
   LEGACY_WORKSPACE_SCHEMA_VERSION,
   OLDER_WORKSPACE_SCHEMA_VERSION,
   ANCIENT_WORKSPACE_SCHEMA_VERSION,
   EARLIEST_WORKSPACE_SCHEMA_VERSION,
+  PRE_V2_WORKSPACE_SCHEMA_VERSION,
 ] as const;
 export const SUPPORTED_ACTION_PACK_SCHEMA_VERSIONS = [
   ACTION_PACK_SCHEMA_VERSION,
@@ -23,6 +26,7 @@ export const SUPPORTED_ACTION_PACK_SCHEMA_VERSIONS = [
   OLDER_ACTION_PACK_SCHEMA_VERSION,
   ANCIENT_ACTION_PACK_SCHEMA_VERSION,
   EARLIEST_ACTION_PACK_SCHEMA_VERSION,
+  PRE_V2_ACTION_PACK_SCHEMA_VERSION,
 ] as const;
 export const INPUT_TRIGGER_HISTORY_LIMIT = 25;
 export const INPUT_TRIGGER_BURST_LIMIT = 10;
@@ -124,6 +128,14 @@ export const BLOCK_TYPE_IDS = {
   UrlQuery: 45,
   DictOperation: 46,
   ConditionOut: 47,
+  ContentDataIn: 48,
+  DecisionOut: 49,
+  ChallengeTimer: 50,
+  ChallengeTyper: 51,
+  ChallengeClicker: 52,
+  ChallengeConfirm: 53,
+  ChallengeReason: 54,
+  ChallengeComplete: 55,
 } as const;
 
 export type BlockKind = keyof typeof BLOCK_TYPE_IDS;
@@ -149,7 +161,7 @@ export interface BlockDefinition {
   kind: BlockKind;
   typeId: BlockTypeId;
   label: string;
-  category: 'flow' | 'logic' | 'regex' | 'math' | 'storage' | 'convert' | 'data' | 'interaction' | 'media' | 'debug';
+  category: 'flow' | 'logic' | 'regex' | 'math' | 'storage' | 'convert' | 'data' | 'interaction' | 'media' | 'debug' | 'content-blocker';
   inputs: GraphPortDefinition[];
   outputs: GraphPortDefinition[];
   flags: BlockFlags;
@@ -192,6 +204,7 @@ export type WorkspaceInputSource =
   | 'selectedText'
   | 'pageTitle'
   | 'pageMetadata'
+  | 'secondsOnPage'
   | 'clipboard'
   | 'pageText'
   | 'rawHtml'
@@ -274,6 +287,9 @@ export type UrlQueryMode =
   | 'SORT_PARAMS'
   | 'REBUILD';
 export type DictOperationMode = 'MERGE' | 'DELETE_KEY' | 'HAS_KEY' | 'KEYS' | 'VALUES';
+export type WorkspaceType = 'data-modifier' | 'content-blocker';
+export type ContentBlockerSurfaceId = 'page-load' | 'recurring' | 'challenge';
+export type ContentBlockerChallengeTaskKind = 'timer' | 'typer' | 'clicker' | 'confirm' | 'reason';
 
 export type OverlayRuntimeEvent =
   | {
@@ -393,6 +409,9 @@ export interface WorkspaceBlockSettings {
   urlQueryValue?: string;
   urlQueryParams?: string;
   dictOperationMode?: DictOperationMode;
+  challengeSeconds?: number;
+  challengeText?: string;
+  challengeCount?: number;
 }
 
 export interface WorkspaceNodeV2 {
@@ -420,6 +439,24 @@ export interface WorkspaceViewport {
   zoom: number;
 }
 
+export interface WorkspaceGraphSurface {
+  id: ContentBlockerSurfaceId;
+  label: string;
+  nodes: WorkspaceNodeV2[];
+  edges: WorkspaceEdgeV2[];
+  viewport: WorkspaceViewport;
+}
+
+export interface ContentBlockerWorkspaceConfig {
+  lockLevel: ActionPackLockLevel;
+  allowLockIncrease: boolean;
+  recurringIntervalSeconds: number;
+  blockPageTitle: string;
+  blockPageMessage: string;
+  challengePageTitle: string;
+  challengePageMessage: string;
+}
+
 export interface WorkspaceValidationState {
   valid: boolean;
   errors: string[];
@@ -431,10 +468,13 @@ export interface WorkspaceValidationState {
 export interface WorkspaceFileV2 {
   kind: 'workspace.v2';
   schemaVersion: typeof WORKSPACE_SCHEMA_VERSION;
+  workspaceType: WorkspaceType;
   metadata: WorkspaceMetadata;
   trigger: WorkspaceTrigger;
   nodes: WorkspaceNodeV2[];
   edges: WorkspaceEdgeV2[];
+  surfaces?: WorkspaceGraphSurface[];
+  contentBlocker?: ContentBlockerWorkspaceConfig;
   assets?: AssetRef[];
   viewport: WorkspaceViewport;
   validationState?: WorkspaceValidationState;
@@ -468,6 +508,37 @@ export interface CompiledTriggerPlan {
   safety: CompiledTriggerSafety;
 }
 
+export interface ContentBlockerDecisionProgram {
+  surfaceId: Extract<ContentBlockerSurfaceId, 'page-load' | 'recurring'>;
+  vm: GraphVmProgram;
+  output: string;
+}
+
+export interface ContentBlockerChallengeTask {
+  id: string;
+  kind: ContentBlockerChallengeTaskKind;
+  label: string;
+  seconds?: number;
+  text?: string;
+  count?: number;
+}
+
+export interface ContentBlockerInstallConfig {
+  pageLoad: ContentBlockerDecisionProgram;
+  recurring?: ContentBlockerDecisionProgram;
+  recurringIntervalSeconds: number;
+  challengeTitle: string;
+  challengeMessage: string;
+  blockTitle: string;
+  blockMessage: string;
+  challengeTasks: ContentBlockerChallengeTask[];
+  allowLockIncrease: boolean;
+  blockCount?: number;
+  challengeCount?: number;
+  lastBlockedAt?: number;
+  lastChallengedAt?: number;
+}
+
 export interface CompiledManifestV2 {
   id: string;
   name: string;
@@ -477,6 +548,7 @@ export interface CompiledManifestV2 {
     author?: string;
     description?: string;
     created_at: number;
+    workspaceType?: WorkspaceType;
   };
   trigger: WorkspaceTrigger;
 }
@@ -748,11 +820,17 @@ export type GraphVmInstruction =
 	      fallbackKey: string;
 	    }
 	  | {
-	      op: 'CONDITION_OUT';
-	      nodeId: string;
-	      condition?: string;
-	      output: string;
-	    }
+      op: 'CONDITION_OUT';
+      nodeId: string;
+      condition?: string;
+      output: string;
+    }
+  | {
+      op: 'DECISION_OUT';
+      nodeId: string;
+      decision?: string;
+      output: string;
+    }
 	  | {
 	      op: 'LOG';
 	      nodeId: string;
@@ -846,7 +924,7 @@ export interface CompiledActionPackV2 {
   install?: ActionPackInstallMetadata;
 }
 
-export type ActionPackSource = 'user-created' | 'bundled' | 'imported' | 'legacy-converted' | 'focus-guard';
+export type ActionPackSource = 'user-created' | 'bundled' | 'imported' | 'legacy-converted' | 'content-blocker' | 'focus-guard';
 export type TrustStatus = 'trusted' | 'review' | 'modified' | 'blocked' | 'user-reviewed';
 export type ActionPackLockLevel = 0 | 1 | 2 | 3;
 
@@ -885,6 +963,7 @@ export interface ActionPackInstallMetadata {
   };
   lockState?: ActionPackLockState;
   focusGuard?: FocusGuardConfig;
+  contentBlocker?: ContentBlockerInstallConfig;
 }
 
 export interface GraphCompileResult {

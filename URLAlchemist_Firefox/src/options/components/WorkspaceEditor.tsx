@@ -43,8 +43,8 @@ import { compileWorkspace, getConnectionValidationError } from '../../shared/v2/
 import { formatEventHandler, formatRunType } from '../../shared/v2/labels';
 import { createSandboxGraphRuntime } from '../../shared/v2/sandboxRuntime';
 import { createWorkspaceBlockClipboard, pasteWorkspaceBlockClipboard, type WorkspaceBlockClipboard } from '../../shared/v2/workspaceClipboard';
-import { createEdge, createWorkspaceNode } from '../../shared/v2/workspace';
-import type { AssetRef, BlockDefinition, BlockKind, GraphEventHandler, GraphPortDefinition, GraphValue, RiskLevel, WorkspaceBlockSettings, WorkspaceFileV2, WorkspaceNodeV2 } from '../../shared/v2/types';
+import { createDefaultContentBlockerWorkspace, createEdge, createWorkspaceNode } from '../../shared/v2/workspace';
+import type { AssetRef, BlockDefinition, BlockKind, ContentBlockerSurfaceId, GraphEventHandler, GraphPortDefinition, GraphValue, RiskLevel, WorkspaceBlockSettings, WorkspaceFileV2, WorkspaceGraphSurface, WorkspaceNodeV2, WorkspaceType } from '../../shared/v2/types';
 import { extractVariableReferences, normalizeVariableName, validateVariableName, variableDrivenInputHandles } from '../../shared/v2/variables';
 import { executeCompiledActionPackV2 } from '../../shared/v2/vm';
 import { toActivityDraft, updateActivityDraft, type ActivityDraft } from '../drafts';
@@ -64,7 +64,7 @@ interface WorkspaceEditorProps {
   isDirty: boolean;
   workspace: WorkspaceFileV2;
   resourceAssets: AssetRef[];
-  onNewWorkspace: () => void;
+  onNewWorkspace: (type?: WorkspaceType) => void;
   onSwitchWorkspace: (workspaceId: string) => void;
   onWorkspaceChange: (workspace: WorkspaceFileV2, options?: WorkspaceChangeOptions) => void;
   onUploadResource: (file: File) => Promise<AssetRef>;
@@ -119,6 +119,7 @@ const CATEGORY_LABELS: Record<BlockDefinition['category'], string> = {
   convert: 'Convert',
   data: 'Data',
   debug: 'Debug',
+  'content-blocker': 'Content Blocker',
   flow: 'Flow',
   interaction: 'Interaction',
   logic: 'Logic',
@@ -129,7 +130,7 @@ const CATEGORY_LABELS: Record<BlockDefinition['category'], string> = {
 };
 
 const EVENT_LANE_DEFINITIONS = [
-  { id: 'trigger', label: 'Trigger', sourceTypes: new Set<BlockKind>(['DataFlowIn', 'ExtendedDataIn', 'OnTriggerEvent']) },
+  { id: 'trigger', label: 'Trigger', sourceTypes: new Set<BlockKind>(['DataFlowIn', 'ContentDataIn', 'ExtendedDataIn', 'OnTriggerEvent']) },
   { id: 'keyboard', label: 'Keyboard', sourceTypes: new Set<BlockKind>(['KeyboardIn']) },
   { id: 'mouse', label: 'Mouse', sourceTypes: new Set<BlockKind>(['MouseIn']) },
   { id: 'tick', label: 'Tick', sourceTypes: new Set<BlockKind>(['OverlayTickIn']) },
@@ -162,10 +163,39 @@ const BLOCK_SEARCH_TERMS: Partial<Record<BlockKind, string>> = {
   UrlQuery: 'query params url parts parse set delete keep sort rebuild campaign links',
   DictOperation: 'dictionary dict keys values merge delete has key object',
   ConditionOut: 'condition conditional run background alarm trigger',
+  ContentDataIn: 'content blocker current url page title metadata text seconds on page',
+  DecisionOut: 'content blocker allow challenge block decision output 0 1 2',
+  ChallengeTimer: 'content blocker challenge timer countdown wait',
+  ChallengeTyper: 'content blocker challenge type text repeat',
+  ChallengeClicker: 'content blocker challenge click button count',
+  ChallengeConfirm: 'content blocker challenge confirm choice',
+  ChallengeReason: 'content blocker challenge reason prompt',
+  ChallengeComplete: 'content blocker challenge complete finish',
   ExtendedDataIn: 'clipboard page raw html high risk input',
   ExtendedDataOut: 'clipboard page mutation high risk output',
   Convert: 'data to string string to url json dict number',
 };
+
+const DEFAULT_QUICK_BLOCK_KINDS: BlockKind[] = ['TextTransform', 'UrlQuery', 'Substitution', 'Logical', 'ConditionOut', 'SaveStringToLog', 'Abort', 'SharedState', 'OverlayControl', 'OverlayDraw'];
+const CONTENT_BLOCKER_DECISION_BLOCK_KINDS: BlockKind[] = ['ContentDataIn', 'Constant', 'Logical', 'Math', 'ConditionSelect', 'TextTransform', 'UrlQuery', 'RegExpression', 'DecisionOut', 'SaveStringToLog'];
+const CONTENT_BLOCKER_CHALLENGE_BLOCK_KINDS: BlockKind[] = ['ChallengeTimer', 'ChallengeTyper', 'ChallengeClicker', 'ChallengeConfirm', 'ChallengeReason', 'ChallengeComplete', 'Constant', 'Math', 'Logical', 'ConditionSelect', 'TextTransform', 'Substitution'];
+const CONTENT_BLOCKER_SURFACE_META: Array<{ id: ContentBlockerSurfaceId; label: string; description: string }> = [
+  {
+    id: 'page-load',
+    label: 'Page Load Decision',
+    description: 'Runs once for each eligible http(s) page load. The required Decision Out block returns 0 to allow, 1 to challenge, or 2 to block.',
+  },
+  {
+    id: 'recurring',
+    label: 'Recurring Check',
+    description: 'Runs every configured interval while an allowed page stays open. Leave this surface empty to disable recurring checks.',
+  },
+  {
+    id: 'challenge',
+    label: 'Challenge Page',
+    description: 'Defines the tasks the user must complete before the current tab/session can revisit the original page.',
+  },
+];
 
 function settingText(value: unknown): string {
   return value === undefined || value === null ? '' : String(value);
@@ -884,6 +914,60 @@ function renderBlockSettings(
             ) : connectedNote('Key')
           ) : null}
         </div>
+      );
+    case 'DecisionOut':
+      return (
+        <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] leading-5 text-slate-600">
+          Output 0 to allow, 1 to show the challenge page, or 2 to block the page.
+        </p>
+      );
+    case 'ContentDataIn':
+      return (
+        <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] leading-5 text-slate-600">
+          Reads the current page context for Content Blocker decision surfaces.
+        </p>
+      );
+    case 'ChallengeTimer':
+      return (
+        <div className="mt-3">
+          {!isConnected('seconds') ? <SettingField help="Countdown time before this challenge task is complete." hint="1-3600 seconds" label="Seconds">
+            <input className={inputClass} min={1} max={3600} type="number" value={node.settings.challengeSeconds ?? 30} onChange={(event) => onSettingsChange({ challengeSeconds: Math.max(1, Number.parseInt(event.target.value || '30', 10)) })} />
+          </SettingField> : connectedNote('Seconds')}
+        </div>
+      );
+    case 'ChallengeTyper':
+      return (
+        <div className="mt-3 grid gap-2">
+          {!isConnected('text') ? <SettingField help="Text the user must type exactly." label="Text">
+            <input className={inputClass} value={settingText(node.settings.challengeText ?? 'I want to continue')} onChange={(event) => onSettingsChange({ challengeText: event.target.value })} />
+          </SettingField> : connectedNote('Text')}
+          {!isConnected('count') ? <SettingField help="Number of times the exact text must be typed on separate lines." hint="1-25" label="Times">
+            <input className={inputClass} min={1} max={25} type="number" value={node.settings.challengeCount ?? 1} onChange={(event) => onSettingsChange({ challengeCount: Math.max(1, Number.parseInt(event.target.value || '1', 10)) })} />
+          </SettingField> : connectedNote('Times')}
+        </div>
+      );
+    case 'ChallengeClicker':
+      return (
+        <div className="mt-3">
+          {!isConnected('count') ? <SettingField help="Number of button clicks required." hint="1-1000" label="Clicks">
+            <input className={inputClass} min={1} max={1000} type="number" value={node.settings.challengeCount ?? 10} onChange={(event) => onSettingsChange({ challengeCount: Math.max(1, Number.parseInt(event.target.value || '10', 10)) })} />
+          </SettingField> : connectedNote('Clicks')}
+        </div>
+      );
+    case 'ChallengeConfirm':
+    case 'ChallengeReason':
+      return (
+        <div className="mt-3">
+          {!isConnected('text') ? <SettingField help={node.type === 'ChallengeReason' ? 'Prompt shown above the reason text area.' : 'Text shown above the confirmation button.'} label={node.type === 'ChallengeReason' ? 'Prompt' : 'Message'}>
+            <textarea className={`${inputClass} min-h-14`} value={settingText(node.settings.challengeText ?? (node.type === 'ChallengeReason' ? 'Why do you want to continue?' : 'Confirm that you want to continue.'))} onChange={(event) => onSettingsChange({ challengeText: event.target.value })} />
+          </SettingField> : connectedNote('Text')}
+        </div>
+      );
+    case 'ChallengeComplete':
+      return (
+        <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] leading-5 text-slate-600">
+          The challenge page becomes passable when all challenge task blocks complete.
+        </p>
       );
     case 'ConditionOut':
       return (
@@ -1626,6 +1710,7 @@ function applyConnectionQuickFix(workspace: WorkspaceFileV2, fix: ConnectionQuic
 
 interface WorkspaceFlowProps {
   advancedModeEnabled: boolean;
+  availableBlocks?: BlockDefinition[];
   workspace: WorkspaceFileV2;
   resourceAssets: AssetRef[];
   onUploadResource: (file: File) => Promise<AssetRef>;
@@ -1635,7 +1720,7 @@ interface WorkspaceFlowProps {
   heightClassName?: string;
 }
 
-function WorkspaceFlow({ advancedModeEnabled, workspace, resourceAssets, onUploadResource, onWorkspaceChange, invalidEdgeIds, focusRequest, heightClassName = 'h-[720px]' }: WorkspaceFlowProps) {
+function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITIONS, workspace, resourceAssets, onUploadResource, onWorkspaceChange, invalidEdgeIds, focusRequest, heightClassName = 'h-[720px]' }: WorkspaceFlowProps) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const pendingSelectionRef = useRef<Set<string> | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; flowX: number; flowY: number } | null>(null);
@@ -2190,7 +2275,7 @@ function WorkspaceFlow({ advancedModeEnabled, workspace, resourceAssets, onUploa
           className="absolute z-20 grid max-h-96 w-64 gap-1 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 shadow-[0_20px_60px_rgba(31,41,55,0.22)]"
           style={{ left: contextMenu.x - 24, top: contextMenu.y - 128 }}
         >
-          {BLOCK_DEFINITIONS.map((definition) => (
+          {availableBlocks.map((definition) => (
             <button
               key={definition.kind}
               className="rounded-lg px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-teal-50"
@@ -2241,17 +2326,18 @@ function WorkspaceFlow({ advancedModeEnabled, workspace, resourceAssets, onUploa
   );
 }
 
-function BlockPicker({ onAddBlock }: { onAddBlock: (kind: BlockKind) => void }) {
+function BlockPicker({ definitions = BLOCK_DEFINITIONS, onAddBlock, quickBlockKinds = DEFAULT_QUICK_BLOCK_KINDS }: { definitions?: BlockDefinition[]; onAddBlock: (kind: BlockKind) => void; quickBlockKinds?: BlockKind[] }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState<BlockDefinition['category'] | 'all'>('all');
+  const availableKinds = useMemo(() => new Set(definitions.map((definition) => definition.kind)), [definitions]);
   const categories = useMemo(
-    () => Array.from(new Set(BLOCK_DEFINITIONS.map((definition) => definition.category))).sort(),
-    [],
+    () => Array.from(new Set(definitions.map((definition) => definition.category))).sort(),
+    [definitions],
   );
   const matchingBlocks = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    return BLOCK_DEFINITIONS.filter((definition) => {
+    return definitions.filter((definition) => {
       if (category !== 'all' && definition.category !== category) {
         return false;
       }
@@ -2267,7 +2353,13 @@ function BlockPicker({ onAddBlock }: { onAddBlock: (kind: BlockKind) => void }) 
         (BLOCK_SEARCH_TERMS[definition.kind]?.includes(normalizedQuery) ?? false)
       );
     });
-  }, [category, query]);
+  }, [category, definitions, query]);
+  const quickDefinitions = useMemo(
+    () => quickBlockKinds
+      .filter((kind) => availableKinds.has(kind))
+      .map((kind) => getBlockDefinition(kind)),
+    [availableKinds, quickBlockKinds],
+  );
 
   return (
     <div className="relative z-20">
@@ -2276,19 +2368,16 @@ function BlockPicker({ onAddBlock }: { onAddBlock: (kind: BlockKind) => void }) 
           Add Block
         </button>
         <div className="flex flex-wrap gap-1.5">
-          {['TextTransform', 'UrlQuery', 'Substitution', 'Logical', 'ConditionOut', 'SaveStringToLog', 'Abort', 'SharedState', 'OverlayControl', 'OverlayDraw'].map((kind) => {
-            const definition = getBlockDefinition(kind as BlockKind);
-            return (
-              <button
-                key={kind}
-                className="ghost-button px-3 py-1.5 text-xs"
-                type="button"
-                onClick={() => onAddBlock(definition.kind)}
-              >
-                {definition.label}
-              </button>
-            );
-          })}
+          {quickDefinitions.map((definition) => (
+            <button
+              key={definition.kind}
+              className="ghost-button px-3 py-1.5 text-xs"
+              type="button"
+              onClick={() => onAddBlock(definition.kind)}
+            >
+              {definition.label}
+            </button>
+          ))}
         </div>
       </div>
       {open ? (
@@ -2347,6 +2436,73 @@ function BlockPicker({ onAddBlock }: { onAddBlock: (kind: BlockKind) => void }) 
   );
 }
 
+function workspaceTypeLabel(workspaceType: WorkspaceType): string {
+  return workspaceType === 'content-blocker' ? 'Content Blocker' : 'Data Modifier';
+}
+
+function contentBlockerSurfaceFor(workspace: WorkspaceFileV2, surfaceId: ContentBlockerSurfaceId): WorkspaceGraphSurface {
+  const surface = workspace.surfaces?.find((candidate) => candidate.id === surfaceId);
+  if (surface) {
+    return surface;
+  }
+
+  const fallback = createDefaultContentBlockerWorkspace().surfaces?.find((candidate) => candidate.id === surfaceId);
+  if (fallback) {
+    return fallback;
+  }
+
+  return {
+    id: surfaceId,
+    label: CONTENT_BLOCKER_SURFACE_META.find((candidate) => candidate.id === surfaceId)?.label ?? surfaceId,
+    nodes: [],
+    edges: [],
+    viewport: { x: 0, y: 0, zoom: 1 },
+  };
+}
+
+function surfaceWorkspace(workspace: WorkspaceFileV2, surface: WorkspaceGraphSurface): WorkspaceFileV2 {
+  return {
+    ...workspace,
+    metadata: {
+      ...workspace.metadata,
+      id: `${workspace.metadata.id}:${surface.id}`,
+      name: `${workspace.metadata.name} - ${surface.label}`,
+    },
+    nodes: surface.nodes,
+    edges: surface.edges,
+    viewport: surface.viewport,
+  };
+}
+
+function updateContentBlockerSurface(workspace: WorkspaceFileV2, surfaceId: ContentBlockerSurfaceId, nextSurface: WorkspaceGraphSurface): WorkspaceFileV2 {
+  const existingSurfaces = CONTENT_BLOCKER_SURFACE_META.map((meta) => contentBlockerSurfaceFor(workspace, meta.id));
+  return {
+    ...workspace,
+    metadata: {
+      ...workspace.metadata,
+      updated_at: Date.now(),
+    },
+    surfaces: existingSurfaces.map((surface) => surface.id === surfaceId ? {
+      ...surface,
+      label: nextSurface.label,
+      nodes: nextSurface.nodes,
+      edges: nextSurface.edges,
+      viewport: nextSurface.viewport,
+    } : surface),
+  };
+}
+
+function contentBlockerDefinitions(surfaceId: ContentBlockerSurfaceId): BlockDefinition[] {
+  const kinds = surfaceId === 'challenge' ? CONTENT_BLOCKER_CHALLENGE_BLOCK_KINDS : CONTENT_BLOCKER_DECISION_BLOCK_KINDS;
+  return kinds.map((kind) => getBlockDefinition(kind));
+}
+
+function contentBlockerQuickKinds(surfaceId: ContentBlockerSurfaceId): BlockKind[] {
+  return surfaceId === 'challenge'
+    ? ['ChallengeTimer', 'ChallengeTyper', 'ChallengeClicker', 'ChallengeConfirm', 'ChallengeReason', 'ChallengeComplete']
+    : ['ContentDataIn', 'Constant', 'Logical', 'RegExpression', 'DecisionOut', 'SaveStringToLog'];
+}
+
 export function WorkspaceEditor({
   advancedModeEnabled,
   allWorkspaces,
@@ -2364,6 +2520,7 @@ export function WorkspaceEditor({
 }: WorkspaceEditorProps) {
   const [metadataCollapsed, setMetadataCollapsed] = useState(false);
   const [isPopout, setIsPopout] = useState(false);
+  const [selectedContentSurface, setSelectedContentSurface] = useState<ContentBlockerSurfaceId>('page-load');
   const [debugUrl, setDebugUrl] = useState('https://example.com/path?utm_source=newsletter&id=123');
   const [debugSelectedText, setDebugSelectedText] = useState('example selection');
   const [debugPageTitle, setDebugPageTitle] = useState('Example Page Title');
@@ -2394,8 +2551,16 @@ export function WorkspaceEditor({
     [invalidEdgeIds, workspace],
   );
   const riskReasonGroups = useMemo(() => groupedRiskReasons(compileResult.validation.risk.reasons), [compileResult.validation.risk.reasons]);
+  const isContentBlocker = workspace.workspaceType === 'content-blocker';
+  const typeLabel = workspaceTypeLabel(workspace.workspaceType);
   const hotkeyError = workspace.trigger.type === 'HOTKEY' ? getHotkeyValidationError(workspace.trigger.hotkey, []) : null;
   const urlFilter = workspace.trigger.sourceFilters?.find((filter) => filter.source === 'url')?.pattern ?? '';
+  const contentBlockerConfig = workspace.contentBlocker ?? createDefaultContentBlockerWorkspace().contentBlocker!;
+  const activeContentSurface = contentBlockerSurfaceFor(workspace, selectedContentSurface);
+  const activeContentSurfaceMeta = CONTENT_BLOCKER_SURFACE_META.find((surface) => surface.id === selectedContentSurface) ?? CONTENT_BLOCKER_SURFACE_META[0];
+  const activeContentSurfaceWorkspace = surfaceWorkspace(workspace, activeContentSurface);
+  const activeContentDefinitions = contentBlockerDefinitions(selectedContentSurface);
+  const activeContentQuickKinds = contentBlockerQuickKinds(selectedContentSurface);
 
   function updateWorkspace(updates: Partial<WorkspaceFileV2>): void {
     onWorkspaceChange({
@@ -2410,10 +2575,29 @@ export function WorkspaceEditor({
   }
 
   function addToolbarBlock(kind: BlockKind): void {
+    if (isContentBlocker) {
+      const surface = contentBlockerSurfaceFor(workspace, selectedContentSurface);
+      const nextNode = createWorkspaceNode(kind, { x: 320 + surface.nodes.length * 24, y: 260 + surface.nodes.length * 18 });
+      onWorkspaceChange(updateContentBlockerSurface(workspace, selectedContentSurface, {
+        ...surface,
+        nodes: [...surface.nodes, nextNode],
+      }));
+      return;
+    }
+
     onWorkspaceChange({
       ...workspace,
       metadata: { ...workspace.metadata, updated_at: Date.now() },
       nodes: [...workspace.nodes, createWorkspaceNode(kind, { x: 320 + workspace.nodes.length * 24, y: 260 + workspace.nodes.length * 18 })],
+    });
+  }
+
+  function updateContentBlockerConfig(updates: Partial<NonNullable<WorkspaceFileV2['contentBlocker']>>): void {
+    updateWorkspace({
+      contentBlocker: {
+        ...contentBlockerConfig,
+        ...updates,
+      },
     });
   }
 
@@ -2522,39 +2706,107 @@ export function WorkspaceEditor({
     };
   }, [isPopout]);
 
-  const surface = (heightClassName?: string, expanded = false) => (
-    <div className={expanded ? 'flex h-full min-h-0 flex-col gap-3' : 'grid gap-4'}>
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold text-slate-900">Workspace surface</p>
-          <p className="text-xs text-slate-500">{workspace.nodes.length} blocks, {workspace.edges.length} links.</p>
+  function renderDataModifierSurface(heightClassName?: string, expanded = false): ReactNode {
+    return (
+      <div className={expanded ? 'flex h-full min-h-0 flex-col gap-3' : 'grid gap-4'}>
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-slate-900">Workspace surface</p>
+            <p className="text-xs text-slate-500">{workspace.nodes.length} blocks, {workspace.edges.length} links.</p>
+          </div>
+          {!expanded ? (
+            <button className="ghost-button" title="Expand workspace surface" type="button" onClick={() => setIsPopout(true)}>
+              <svg aria-hidden="true" className="mr-2 inline-block h-4 w-4 align-[-2px]" fill="none" viewBox="0 0 24 24">
+                <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M21 16v5h-5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+              </svg>
+              Pop Out
+            </button>
+          ) : null}
         </div>
-        {!expanded ? (
-          <button className="ghost-button" title="Expand workspace surface" type="button" onClick={() => setIsPopout(true)}>
-            <svg aria-hidden="true" className="mr-2 inline-block h-4 w-4 align-[-2px]" fill="none" viewBox="0 0 24 24">
-              <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M21 16v5h-5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
-            </svg>
-            Pop Out
-          </button>
-        ) : null}
+        <div className="shrink-0">
+          <BlockPicker onAddBlock={addToolbarBlock} />
+        </div>
+        <ReactFlowProvider>
+          <WorkspaceFlow
+            advancedModeEnabled={advancedModeEnabled}
+            focusRequest={focusRequest}
+            heightClassName={heightClassName}
+            invalidEdgeIds={invalidEdgeIds}
+            resourceAssets={resourceAssets}
+            workspace={workspace}
+            onUploadResource={onUploadResource}
+            onWorkspaceChange={onWorkspaceChange}
+          />
+        </ReactFlowProvider>
       </div>
-      <div className="shrink-0">
-        <BlockPicker onAddBlock={addToolbarBlock} />
+    );
+  }
+
+  function renderContentBlockerSurface(heightClassName?: string, expanded = false): ReactNode {
+    const updateSurfaceWorkspace = (nextSurfaceWorkspace: WorkspaceFileV2, options: WorkspaceChangeOptions = {}): void => {
+      onWorkspaceChange(updateContentBlockerSurface(workspace, selectedContentSurface, {
+        ...activeContentSurface,
+        nodes: nextSurfaceWorkspace.nodes,
+        edges: nextSurfaceWorkspace.edges,
+        viewport: nextSurfaceWorkspace.viewport,
+      }), options);
+    };
+
+    return (
+      <div className={expanded ? 'flex h-full min-h-0 flex-col gap-3' : 'grid gap-4'}>
+        <div className="flex shrink-0 flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-slate-900">{activeContentSurfaceMeta.label}</p>
+            <p className="mt-1 max-w-3xl text-xs text-slate-500">{activeContentSurfaceMeta.description}</p>
+            <p className="mt-1 text-xs text-slate-500">{activeContentSurface.nodes.length} blocks, {activeContentSurface.edges.length} links.</p>
+          </div>
+          {!expanded ? (
+            <button className="ghost-button" title="Expand workspace surface" type="button" onClick={() => setIsPopout(true)}>
+              <svg aria-hidden="true" className="mr-2 inline-block h-4 w-4 align-[-2px]" fill="none" viewBox="0 0 24 24">
+                <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M21 16v5h-5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+              </svg>
+              Pop Out
+            </button>
+          ) : null}
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          {CONTENT_BLOCKER_SURFACE_META.map((surface) => (
+            <button
+              key={surface.id}
+              className={`rounded-md border px-3 py-2 text-sm font-semibold ${selectedContentSurface === surface.id ? 'border-teal-300 bg-teal-50 text-teal-800' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
+              type="button"
+              onClick={() => setSelectedContentSurface(surface.id)}
+            >
+              {surface.label}
+            </button>
+          ))}
+        </div>
+        <div className="shrink-0">
+          <BlockPicker definitions={activeContentDefinitions} quickBlockKinds={activeContentQuickKinds} onAddBlock={addToolbarBlock} />
+        </div>
+        <ReactFlowProvider>
+          <WorkspaceFlow
+            key={activeContentSurface.id}
+            advancedModeEnabled={advancedModeEnabled}
+            availableBlocks={activeContentDefinitions}
+            focusRequest={focusRequest}
+            heightClassName={heightClassName}
+            invalidEdgeIds={invalidEdgeIds}
+            resourceAssets={resourceAssets}
+            workspace={activeContentSurfaceWorkspace}
+            onUploadResource={onUploadResource}
+            onWorkspaceChange={updateSurfaceWorkspace}
+          />
+        </ReactFlowProvider>
       </div>
-      <ReactFlowProvider>
-        <WorkspaceFlow
-          advancedModeEnabled={advancedModeEnabled}
-          focusRequest={focusRequest}
-          heightClassName={heightClassName}
-          invalidEdgeIds={invalidEdgeIds}
-          resourceAssets={resourceAssets}
-          workspace={workspace}
-          onUploadResource={onUploadResource}
-          onWorkspaceChange={onWorkspaceChange}
-        />
-      </ReactFlowProvider>
-    </div>
-  );
+    );
+  }
+
+  function renderSurface(heightClassName?: string, expanded = false): ReactNode {
+    return isContentBlocker
+      ? renderContentBlockerSurface(heightClassName, expanded)
+      : renderDataModifierSurface(heightClassName, expanded);
+  }
 
   return (
     <section className="panel-shell reveal-panel">
@@ -2563,15 +2815,20 @@ export function WorkspaceEditor({
           <p className="eyebrow">Workspace Editor</p>
           <h2 className="mt-2 text-2xl font-semibold text-slate-900">Node action builder</h2>
           <p className="mt-2 max-w-3xl text-sm text-slate-600">
-            Workspaces can be saved while otherwise invalid. Building a distributable Action Pack is blocked until the graph has at least one terminal effect and every required connection and type check passes.
+            Workspaces can be saved while otherwise invalid. Building an Action Pack is blocked until the graph passes its required connections and type checks.
           </p>
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <select
               className="field-select min-w-72"
               value={allWorkspaces.some((candidate) => candidate.metadata.id === workspace.metadata.id) ? workspace.metadata.id : '__current__'}
               onChange={(event) => {
-                if (event.target.value === '__new__') {
-                  onNewWorkspace();
+                if (event.target.value === '__new_data_modifier__') {
+                  onNewWorkspace('data-modifier');
+                  return;
+                }
+
+                if (event.target.value === '__new_content_blocker__') {
+                  onNewWorkspace('content-blocker');
                   return;
                 }
 
@@ -2581,13 +2838,15 @@ export function WorkspaceEditor({
               }}
             >
               <option value="__current__">{workspace.metadata.name} (current draft)</option>
-              <option value="__new__">New Workspace</option>
+              <option value="__new_data_modifier__">New Data Modifier Workspace</option>
+              <option value="__new_content_blocker__">New Content Blocker Workspace</option>
               {allWorkspaces.map((savedWorkspace) => (
                 <option key={savedWorkspace.metadata.id} value={savedWorkspace.metadata.id}>
-                  {savedWorkspace.metadata.name}
+                  {savedWorkspace.metadata.name} ({workspaceTypeLabel(savedWorkspace.workspaceType)})
                 </option>
               ))}
             </select>
+            <span className="risk-badge risk-badge-soft">{typeLabel}</span>
             {isDirty ? <span className="risk-badge risk-badge-warn">Unsaved changes</span> : <span className="risk-badge risk-badge-soft">Saved</span>}
           </div>
         </div>
@@ -2602,15 +2861,21 @@ export function WorkspaceEditor({
             Export Workspace
           </button>
           <button className="secondary-button" disabled={!compileResult.ok} type="button" onClick={onBuildActionPack}>
-            Build Action Pack
+            {isContentBlocker ? 'Compile & Install' : 'Build Action Pack'}
           </button>
-          <button className="primary-button" disabled={!compileResult.ok} type="button" onClick={onExportActionPack}>
-            Export .actionpack
-          </button>
+          {!isContentBlocker ? (
+            <button className="primary-button" disabled={!compileResult.ok} type="button" onClick={onExportActionPack}>
+              Export .actionpack
+            </button>
+          ) : null}
         </div>
       </div>
 
       {!metadataCollapsed ? <div className="mt-6 grid gap-4 lg:grid-cols-4">
+        <label className="field-shell">
+          <span className="field-label">Workspace Type</span>
+          <input className="field-input" readOnly value={typeLabel} />
+        </label>
         <label className="field-shell">
           <span className="field-label">Workspace Name</span>
           <input className="field-input" value={workspace.metadata.name} onChange={(event) => updateWorkspace({ metadata: { ...workspace.metadata, name: event.target.value } })} />
@@ -2623,17 +2888,19 @@ export function WorkspaceEditor({
           <span className="field-label">Author</span>
           <input className="field-input" value={workspace.metadata.author ?? ''} onChange={(event) => updateWorkspace({ metadata: { ...workspace.metadata, author: event.target.value } })} />
         </label>
-        <label className="field-shell">
-          <span className="field-label">Run</span>
-          <select className="field-select" value={workspace.trigger.type} onChange={(event) => updateWorkspace({ trigger: { ...workspace.trigger, type: event.target.value as WorkspaceFileV2['trigger']['type'] } })}>
-            <option value="INPUT_DATA">Run on input data</option>
-            <option value="HOTKEY">Hotkey</option>
-            <option value="CONTEXT_MENU">Context Menu</option>
-            <option value="INTERVAL">Recurring interval</option>
-            <option value="CONDITIONAL">Conditional</option>
-            <option value="NEVER">Never</option>
-          </select>
-        </label>
+        {!isContentBlocker ? (
+          <>
+            <label className="field-shell">
+              <span className="field-label">Run</span>
+              <select className="field-select" value={workspace.trigger.type} onChange={(event) => updateWorkspace({ trigger: { ...workspace.trigger, type: event.target.value as WorkspaceFileV2['trigger']['type'] } })}>
+                <option value="INPUT_DATA">Run on input data</option>
+                <option value="HOTKEY">Hotkey</option>
+                <option value="CONTEXT_MENU">Context Menu</option>
+                <option value="INTERVAL">Recurring interval</option>
+                <option value="CONDITIONAL">Conditional</option>
+                <option value="NEVER">Never</option>
+              </select>
+            </label>
         <label className="field-shell lg:col-span-2">
           <span className="field-label">URL Input Filter</span>
           <input className="field-input" placeholder="Optional regex for URL inputs" value={urlFilter} onChange={(event) => updateUrlFilter(event.target.value)} />
@@ -2679,12 +2946,53 @@ export function WorkspaceEditor({
             />
           </div>
         ) : null}
+          </>
+        ) : (
+          <>
+            <label className="field-shell">
+              <span className="field-label">Lock</span>
+              <select className="field-select" value={contentBlockerConfig.lockLevel} onChange={(event) => updateContentBlockerConfig({ lockLevel: Number.parseInt(event.target.value, 10) as NonNullable<WorkspaceFileV2['contentBlocker']>['lockLevel'] })}>
+                <option value={0}>0 - Off</option>
+                <option value={1}>1 - Challenge</option>
+                <option value={2}>2 - Password</option>
+                <option value={3}>3 - No in-app overwrite</option>
+              </select>
+            </label>
+            <label className="field-shell">
+              <span className="field-label">Recurring Seconds</span>
+              <input className="field-input" min={5} type="number" value={contentBlockerConfig.recurringIntervalSeconds} onChange={(event) => updateContentBlockerConfig({ recurringIntervalSeconds: Math.max(5, Number.parseInt(event.target.value || '30', 10)) })} />
+            </label>
+            <label className="field-shell">
+              <span className="field-label">Allow Lock Increase</span>
+              <select className="field-select" value={contentBlockerConfig.allowLockIncrease ? 'yes' : 'no'} onChange={(event) => updateContentBlockerConfig({ allowLockIncrease: event.target.value === 'yes' })}>
+                <option value="no">No</option>
+                <option value="yes">Yes</option>
+              </select>
+            </label>
+            <label className="field-shell lg:col-span-2">
+              <span className="field-label">Block Page Title</span>
+              <input className="field-input" value={contentBlockerConfig.blockPageTitle} onChange={(event) => updateContentBlockerConfig({ blockPageTitle: event.target.value })} />
+            </label>
+            <label className="field-shell lg:col-span-2">
+              <span className="field-label">Block Page Message</span>
+              <input className="field-input" value={contentBlockerConfig.blockPageMessage} onChange={(event) => updateContentBlockerConfig({ blockPageMessage: event.target.value })} />
+            </label>
+            <label className="field-shell lg:col-span-2">
+              <span className="field-label">Challenge Page Title</span>
+              <input className="field-input" value={contentBlockerConfig.challengePageTitle} onChange={(event) => updateContentBlockerConfig({ challengePageTitle: event.target.value })} />
+            </label>
+            <label className="field-shell lg:col-span-2">
+              <span className="field-label">Challenge Page Message</span>
+              <input className="field-input" value={contentBlockerConfig.challengePageMessage} onChange={(event) => updateContentBlockerConfig({ challengePageMessage: event.target.value })} />
+            </label>
+          </>
+        )}
       </div> : (
         <div className="mt-5 rounded-lg border border-slate-200 bg-white/70 px-5 py-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm font-semibold text-slate-900">{workspace.metadata.name}</p>
             <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
-              v{workspace.metadata.version} · {formatRunType(workspace.trigger.type)}
+              v{workspace.metadata.version} · {isContentBlocker ? typeLabel : formatRunType(workspace.trigger.type)}
             </p>
           </div>
         </div>
@@ -2695,10 +3003,10 @@ export function WorkspaceEditor({
           <div className="rounded-lg border border-slate-200 bg-white/70 px-5 py-6 text-sm text-slate-500">
             Workspace surface is open in the expanded editor.
           </div>
-        ) : surface()}
+        ) : renderSurface()}
       </div>
 
-      <div className="mt-5 rounded-lg border border-slate-200 bg-white/75 px-5 py-4">
+      {!isContentBlocker ? <div className="mt-5 rounded-lg border border-slate-200 bg-white/75 px-5 py-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-slate-900">Workspace debug run</p>
@@ -2763,7 +3071,7 @@ export function WorkspaceEditor({
             </div>
           </div>
         ) : null}
-      </div>
+      </div> : null}
 
       <div className="mt-5 grid gap-4 lg:grid-cols-2">
         <div className={`rounded-lg border px-5 py-4 ${compileResult.validation.valid ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-800'}`}>
@@ -2854,7 +3162,7 @@ export function WorkspaceEditor({
                 Exit
               </button>
             </div>
-            <div className="flex min-h-0 flex-1 flex-col">{surface('min-h-0 flex-1', true)}</div>
+            <div className="flex min-h-0 flex-1 flex-col">{renderSurface('min-h-0 flex-1', true)}</div>
           </div>
         </div>,
         document.body,

@@ -314,6 +314,7 @@ function baseWorkspace(example: BundledActionPackExample, nodes: WorkspaceNodeV2
   return {
     kind: 'workspace.v2',
     schemaVersion: WORKSPACE_SCHEMA_VERSION,
+    workspaceType: 'data-modifier',
     metadata: {
       id: example.id,
       name: example.name,

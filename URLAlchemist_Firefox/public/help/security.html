@@ -27,9 +27,10 @@
 <p>Page text, raw HTML, and page-link reads are capped before leaving the content script so unusually large pages cannot create unbounded runtime payloads.</p>
 <p class="warning">Clipboard, raw page, remote request, and page mutation behavior should be reviewed carefully before installing a pack.</p>
 <p class="warning">Keyboard or mouse capture and real-time overlay events are allowed only through overlay blocks that URL Alchemist owns. Review these packs carefully and close the visible overlay to stop capture and event routing.</p>
-<h2>Focus Guard Locks</h2>
-<p>Focus Guard installs content-blocker rules as normal Action Packs with extra local metadata. Locked packs cannot be disabled, deleted, exported, overwritten by rebuild/import, or removed through backup restore or full reset until unlocked.</p>
-<p>Level 1 locks require challenge text, repeated confirmation, and a delay. Level 2 locks verify a password with salted PBKDF2 through WebCrypto. Level 3 locks have no in-app unlock path.</p>
+<h2>Content Blocker Locks</h2>
+<p>Content Blocker workspaces compile into local Action Packs with extra install metadata. Locked packs cannot be disabled, deleted, exported, overwritten by rebuild/import, or removed through backup restore or full reset until the lock policy allows it.</p>
+<p>Level 0 is off. Level 1 requires challenge text, repeated confirmation, and a delay. Level 2 verifies a password with salted PBKDF2 through WebCrypto. Level 3 has no in-app overwrite or unlock path.</p>
+<p>If the installed metadata allows lock increases, the installed Action Pack can move from level 0, 1, or 2 to a higher level without recompiling. Decreasing or removing a lock requires authorization and a local rebuild from workspace source.</p>
 <p class="warning">Locks are enforced inside the extension and browser APIs. They cannot prevent extension removal or direct browser profile tampering.</p>
 <h2>File Audit</h2>
 <p>The Security tab can inspect an uninstalled workspace or Action Pack and report validation, permissions, risk reasons, Run plan, and plain-language steps without saving it.</p>

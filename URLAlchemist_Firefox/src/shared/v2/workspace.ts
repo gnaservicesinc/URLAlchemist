@@ -7,10 +7,12 @@ import type {
   BlockKind,
   WorkspaceEdgeV2,
   WorkspaceFileV2,
+  WorkspaceGraphSurface,
   WorkspaceInputSource,
   WorkspaceMetadata,
   WorkspaceNodeV2,
   WorkspaceTrigger,
+  WorkspaceType,
   WorkspaceViewport,
 } from './types';
 import { BLOCK_TYPE_IDS, SUPPORTED_WORKSPACE_SCHEMA_VERSIONS, WORKSPACE_SCHEMA_VERSION } from './types';
@@ -34,6 +36,7 @@ const WORKSPACE_INPUT_SOURCES: readonly WorkspaceInputSource[] = [
   'selectedText',
   'pageTitle',
   'pageMetadata',
+  'secondsOnPage',
   'clipboard',
   'pageText',
   'rawHtml',
@@ -44,6 +47,8 @@ const WORKSPACE_INPUT_SOURCES: readonly WorkspaceInputSource[] = [
 ];
 const WORKSPACE_COMPATIBILITY_TARGETS = ['chrome', 'firefox', 'firefoxAndroid'] as const;
 const WORKSPACE_COMPATIBILITY_STATUSES = ['supported', 'source-only', 'pending-v2-runtime', 'unsupported'] as const;
+const WORKSPACE_TYPES = ['data-modifier', 'content-blocker'] as const;
+const CONTENT_BLOCKER_SURFACE_IDS = ['page-load', 'recurring', 'challenge'] as const;
 
 function createNodeId(kind: BlockKind): string {
   return `${BLOCK_TYPE_IDS[kind]}-${crypto.randomUUID()}`;
@@ -76,6 +81,7 @@ export function createDefaultWorkspace(): WorkspaceFileV2 {
   return {
     kind: 'workspace.v2',
     schemaVersion: WORKSPACE_SCHEMA_VERSION,
+    workspaceType: 'data-modifier',
     metadata: {
       id: crypto.randomUUID(),
       name: 'Untitled Workspace',
@@ -93,6 +99,79 @@ export function createDefaultWorkspace(): WorkspaceFileV2 {
     },
     nodes: [input, output],
     edges: [],
+    viewport: {
+      x: 0,
+      y: 0,
+      zoom: 1,
+    },
+  };
+}
+
+export function createDefaultContentBlockerWorkspace(): WorkspaceFileV2 {
+  const now = Date.now();
+  const pageInput = createWorkspaceNode('ContentDataIn', { x: 0, y: 120 });
+  const allow = createWorkspaceNode('Constant', { x: 360, y: 120 }, {
+    literalDataType: 'number',
+    literalValue: '0',
+    label: 'Allow',
+  });
+  const pageDecision = createWorkspaceNode('DecisionOut', { x: 720, y: 120 });
+  const challengeTimer = createWorkspaceNode('ChallengeTimer', { x: 0, y: 120 });
+  const challengeComplete = createWorkspaceNode('ChallengeComplete', { x: 360, y: 120 });
+
+  return {
+    kind: 'workspace.v2',
+    schemaVersion: WORKSPACE_SCHEMA_VERSION,
+    workspaceType: 'content-blocker',
+    metadata: {
+      id: crypto.randomUUID(),
+      name: 'Untitled Content Blocker',
+      version: 1,
+      author: '',
+      description: '',
+      created_at: now,
+      updated_at: now,
+    },
+    trigger: {
+      type: 'INPUT_DATA',
+      hotkey: getDefaultHotkey(),
+      inputSources: ['url', 'pageTitle', 'pageMetadata'],
+      sourceFilters: [],
+    },
+    nodes: [],
+    edges: [],
+    surfaces: [
+      {
+        id: 'page-load',
+        label: 'Page Load Decision',
+        nodes: [pageInput, allow, pageDecision],
+        edges: [createEdge(allow.id, 'value', pageDecision.id, 'decision')],
+        viewport: { x: 0, y: 0, zoom: 1 },
+      },
+      {
+        id: 'recurring',
+        label: 'Recurring Check',
+        nodes: [],
+        edges: [],
+        viewport: { x: 0, y: 0, zoom: 1 },
+      },
+      {
+        id: 'challenge',
+        label: 'Challenge Page',
+        nodes: [challengeTimer, challengeComplete],
+        edges: [createEdge(challengeTimer.id, 'result', challengeComplete.id, 'complete')],
+        viewport: { x: 0, y: 0, zoom: 1 },
+      },
+    ],
+    contentBlocker: {
+      lockLevel: 0,
+      allowLockIncrease: false,
+      recurringIntervalSeconds: 30,
+      blockPageTitle: 'Page blocked',
+      blockPageMessage: 'This page is blocked by URL Alchemist.',
+      challengePageTitle: 'Challenge required',
+      challengePageMessage: 'Complete the challenge to continue to the page.',
+    },
     viewport: {
       x: 0,
       y: 0,
@@ -220,6 +299,13 @@ function validateWorkspaceMetadata(value: unknown, errors: string[]): void {
   validateCompatibilityMetadata((value as { compatibility?: unknown }).compatibility, errors);
 }
 
+function workspaceTypeForCandidate(candidate: Partial<WorkspaceFileV2>): WorkspaceType {
+  if (candidate.workspaceType === 'content-blocker' || candidate.metadata?.profile === 'content-blocker') {
+    return 'content-blocker';
+  }
+  return 'data-modifier';
+}
+
 function validateWorkspaceTrigger(value: unknown, errors: string[]): void {
   if (!isRecord(value) || !hasNoDangerousKeys(value)) {
     errors.push('Workspace trigger is required');
@@ -305,6 +391,113 @@ function validateViewport(value: unknown, errors: string[]): void {
   }
 }
 
+function validateContentBlockerConfig(value: unknown, errors: string[]): void {
+  if (value === undefined) return;
+  if (!isRecord(value) || !hasNoDangerousKeys(value)) {
+    errors.push('Content Blocker settings have an invalid shape');
+    return;
+  }
+  if (![0, 1, 2, 3].includes(Number(value.lockLevel))) {
+    errors.push('Content Blocker lock level is invalid');
+  }
+  if (value.allowLockIncrease !== undefined && typeof value.allowLockIncrease !== 'boolean') {
+    errors.push('Content Blocker lock increase setting must be boolean');
+  }
+  if (value.recurringIntervalSeconds !== undefined && (!isFiniteNumber(value.recurringIntervalSeconds) || value.recurringIntervalSeconds < 5)) {
+    errors.push('Content Blocker recurring interval must be at least 5 seconds');
+  }
+  if (!isOptionalStringWithin(value.blockPageTitle, 200)) {
+    errors.push('Content Blocker block page title is too large');
+  }
+  if (!isOptionalStringWithin(value.blockPageMessage, MAX_WORKSPACE_TEXT_BYTES)) {
+    errors.push('Content Blocker block page message is too large');
+  }
+  if (!isOptionalStringWithin(value.challengePageTitle, 200)) {
+    errors.push('Content Blocker challenge page title is too large');
+  }
+  if (!isOptionalStringWithin(value.challengePageMessage, MAX_WORKSPACE_TEXT_BYTES)) {
+    errors.push('Content Blocker challenge page message is too large');
+  }
+}
+
+function validateWorkspaceSurface(value: unknown, errors: string[], index: number): void {
+  if (!isRecord(value) || !hasNoDangerousKeys(value)) {
+    errors.push(`Workspace surface ${index + 1} has an invalid shape`);
+    return;
+  }
+  if (typeof value.id !== 'string' || !(CONTENT_BLOCKER_SURFACE_IDS as readonly string[]).includes(value.id)) {
+    errors.push(`Workspace surface ${index + 1} has an unsupported id`);
+  }
+  if (!isStringWithin(value.label, 80)) {
+    errors.push(`Workspace surface ${index + 1} is missing a valid label`);
+  }
+  if (!Array.isArray(value.nodes)) {
+    errors.push(`Workspace surface ${index + 1} nodes must be an array`);
+  } else if (value.nodes.length > MAX_WORKSPACE_NODES) {
+    errors.push(`Workspace surface ${index + 1} has too many nodes`);
+  } else {
+    const nodeIds = new Set<string>();
+    value.nodes.forEach((node, nodeIndex) => {
+      if (!isWorkspaceNode(node)) {
+        errors.push(`Workspace surface ${index + 1} node ${nodeIndex + 1} is invalid`);
+        return;
+      }
+      const candidate = node as WorkspaceNodeV2;
+      if (nodeIds.has(candidate.id)) {
+        errors.push(`Workspace surface ${index + 1} node ${nodeIndex + 1} has a duplicate id`);
+      }
+      nodeIds.add(candidate.id);
+    });
+  }
+  if (!Array.isArray(value.edges)) {
+    errors.push(`Workspace surface ${index + 1} edges must be an array`);
+  } else if (value.edges.length > MAX_WORKSPACE_EDGES) {
+    errors.push(`Workspace surface ${index + 1} has too many edges`);
+  } else {
+    const edgeIds = new Set<string>();
+    value.edges.forEach((edge, edgeIndex) => {
+      if (!isWorkspaceEdge(edge)) {
+        errors.push(`Workspace surface ${index + 1} edge ${edgeIndex + 1} is invalid`);
+        return;
+      }
+      const candidate = edge as WorkspaceEdgeV2;
+      if (edgeIds.has(candidate.id)) {
+        errors.push(`Workspace surface ${index + 1} edge ${edgeIndex + 1} has a duplicate id`);
+      }
+      edgeIds.add(candidate.id);
+    });
+  }
+  validateViewport(value.viewport, errors);
+}
+
+function validateWorkspaceSurfaces(value: unknown, workspaceType: WorkspaceType, errors: string[]): void {
+  if (workspaceType !== 'content-blocker') {
+    return;
+  }
+  if (value === undefined) {
+    return;
+  }
+  if (!Array.isArray(value)) {
+    errors.push('Content Blocker workspaces require graph surfaces');
+    return;
+  }
+  const seen = new Set<string>();
+  value.forEach((surface, index) => {
+    validateWorkspaceSurface(surface, errors, index);
+    if (isRecord(surface) && typeof surface.id === 'string') {
+      if (seen.has(surface.id)) {
+        errors.push(`Content Blocker surface ${surface.id} is duplicated`);
+      }
+      seen.add(surface.id);
+    }
+  });
+  CONTENT_BLOCKER_SURFACE_IDS.forEach((id) => {
+    if (!seen.has(id)) {
+      errors.push(`Content Blocker workspace is missing the ${id} surface`);
+    }
+  });
+}
+
 function omitUndefined<T extends Record<string, unknown>>(value: T): T {
   return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as T;
 }
@@ -320,12 +513,6 @@ function normalizeCompatibilityMetadata(value: WorkspaceMetadata['compatibility'
 }
 
 function normalizeWorkspaceMetadata(value: WorkspaceMetadata): WorkspaceMetadata {
-  const profile: WorkspaceMetadata['profile'] = value.profile === 'content-blocker'
-    ? 'content-blocker'
-    : value.profile === 'standard'
-      ? 'standard'
-      : undefined;
-
   return omitUndefined({
     id: value.id,
     name: value.name,
@@ -333,7 +520,6 @@ function normalizeWorkspaceMetadata(value: WorkspaceMetadata): WorkspaceMetadata
     author: value.author,
     description: value.description,
     compatibility: normalizeCompatibilityMetadata(value.compatibility),
-    profile,
     created_at: value.created_at,
     updated_at: value.updated_at,
   });
@@ -368,6 +554,81 @@ function normalizeWorkspaceViewport(viewport: WorkspaceViewport): WorkspaceViewp
     y: viewport.y,
     zoom: viewport.zoom,
   };
+}
+
+function defaultContentBlockerConfig(): NonNullable<WorkspaceFileV2['contentBlocker']> {
+  return {
+    lockLevel: 0,
+    allowLockIncrease: false,
+    recurringIntervalSeconds: 30,
+    blockPageTitle: 'Page blocked',
+    blockPageMessage: 'This page is blocked by URL Alchemist.',
+    challengePageTitle: 'Challenge required',
+    challengePageMessage: 'Complete the challenge to continue to the page.',
+  };
+}
+
+function normalizeContentBlockerConfig(value: WorkspaceFileV2['contentBlocker']): NonNullable<WorkspaceFileV2['contentBlocker']> {
+  const defaults = defaultContentBlockerConfig();
+  return {
+    lockLevel: [0, 1, 2, 3].includes(Number(value?.lockLevel)) ? value!.lockLevel : defaults.lockLevel,
+    allowLockIncrease: value?.allowLockIncrease ?? defaults.allowLockIncrease,
+    recurringIntervalSeconds: Math.max(5, Math.trunc(value?.recurringIntervalSeconds ?? defaults.recurringIntervalSeconds)),
+    blockPageTitle: value?.blockPageTitle || defaults.blockPageTitle,
+    blockPageMessage: value?.blockPageMessage || defaults.blockPageMessage,
+    challengePageTitle: value?.challengePageTitle || defaults.challengePageTitle,
+    challengePageMessage: value?.challengePageMessage || defaults.challengePageMessage,
+  };
+}
+
+function normalizeWorkspaceSurface(surface: WorkspaceGraphSurface): WorkspaceGraphSurface {
+  return {
+    id: surface.id,
+    label: surface.label,
+    nodes: surface.nodes.map(normalizeWorkspaceNode),
+    edges: surface.edges.map(normalizeWorkspaceEdge),
+    viewport: normalizeWorkspaceViewport(surface.viewport),
+  };
+}
+
+function legacyContentBlockerSurfaces(value: WorkspaceFileV2): WorkspaceGraphSurface[] {
+  const defaultChallenge = createDefaultContentBlockerWorkspace().surfaces?.find((surface) => surface.id === 'challenge');
+  return [
+    {
+      id: 'page-load',
+      label: 'Page Load Decision',
+      nodes: value.nodes.map(normalizeWorkspaceNode),
+      edges: value.edges.map(normalizeWorkspaceEdge),
+      viewport: normalizeWorkspaceViewport(value.viewport),
+    },
+    {
+      id: 'recurring',
+      label: 'Recurring Check',
+      nodes: [],
+      edges: [],
+      viewport: { x: 0, y: 0, zoom: 1 },
+    },
+    {
+      id: 'challenge',
+      label: 'Challenge Page',
+      nodes: defaultChallenge?.nodes ?? [],
+      edges: defaultChallenge?.edges ?? [],
+      viewport: { x: 0, y: 0, zoom: 1 },
+    },
+  ];
+}
+
+function normalizeContentBlockerSurfaces(value: WorkspaceFileV2): WorkspaceGraphSurface[] {
+  const defaults = createDefaultContentBlockerWorkspace().surfaces ?? [];
+  const source = Array.isArray(value.surfaces) && value.surfaces.length > 0
+    ? value.surfaces
+    : legacyContentBlockerSurfaces(value);
+
+  return CONTENT_BLOCKER_SURFACE_IDS.map((id) => {
+    const existing = source.find((surface) => surface.id === id);
+    const fallback = defaults.find((surface) => surface.id === id)!;
+    return normalizeWorkspaceSurface(existing ?? fallback);
+  });
 }
 
 export function isWorkspaceNode(value: unknown): value is WorkspaceNodeV2 {
@@ -436,13 +697,17 @@ function normalizeWorkspaceTrigger(trigger: unknown): WorkspaceTrigger {
 }
 
 export function migrateWorkspaceFile(value: WorkspaceFileV2): WorkspaceFileV2 {
+  const workspaceType = workspaceTypeForCandidate(value);
   return {
     kind: 'workspace.v2',
     schemaVersion: WORKSPACE_SCHEMA_VERSION,
+    workspaceType,
     metadata: normalizeWorkspaceMetadata(value.metadata),
     trigger: normalizeWorkspaceTrigger(value.trigger),
-    nodes: value.nodes.map(normalizeWorkspaceNode),
-    edges: value.edges.map(normalizeWorkspaceEdge),
+    nodes: workspaceType === 'content-blocker' ? [] : value.nodes.map(normalizeWorkspaceNode),
+    edges: workspaceType === 'content-blocker' ? [] : value.edges.map(normalizeWorkspaceEdge),
+    surfaces: workspaceType === 'content-blocker' ? normalizeContentBlockerSurfaces(value) : undefined,
+    contentBlocker: workspaceType === 'content-blocker' ? normalizeContentBlockerConfig(value.contentBlocker) : undefined,
     assets: Array.isArray(value.assets) ? value.assets : undefined,
     viewport: normalizeWorkspaceViewport(value.viewport),
   };
@@ -471,13 +736,19 @@ export function validateWorkspaceFile(value: unknown): { ok: true; value: Worksp
     errors.push(`Unsupported workspace schema version: ${String(candidate.schemaVersion)}`);
   }
 
+  const workspaceType = workspaceTypeForCandidate(candidate);
+  if (candidate.workspaceType !== undefined && !(WORKSPACE_TYPES as readonly string[]).includes(candidate.workspaceType)) {
+    errors.push('Workspace type is unsupported');
+  }
   validateWorkspaceMetadata(candidate.metadata, errors);
   validateWorkspaceTrigger(candidate.trigger, errors);
   validateViewport(candidate.viewport, errors);
+  validateContentBlockerConfig(candidate.contentBlocker, errors);
+  validateWorkspaceSurfaces(candidate.surfaces, workspaceType, errors);
 
   if (!Array.isArray(candidate.nodes)) {
     errors.push('Workspace nodes must be an array');
-  } else if (candidate.nodes.length === 0 || candidate.nodes.length > MAX_WORKSPACE_NODES) {
+  } else if ((workspaceType !== 'content-blocker' && candidate.nodes.length === 0) || candidate.nodes.length > MAX_WORKSPACE_NODES) {
     errors.push('Workspace node count is invalid');
   } else {
     const nodeIds = new Set<string>();
@@ -563,6 +834,7 @@ export function workspaceFromLegacyPack(pack: ActionPack): WorkspaceFileV2 {
   return {
     kind: 'workspace.v2',
     schemaVersion: WORKSPACE_SCHEMA_VERSION,
+    workspaceType: 'data-modifier',
     metadata: {
       id: crypto.randomUUID(),
       name: `${pack.name} Workspace`,

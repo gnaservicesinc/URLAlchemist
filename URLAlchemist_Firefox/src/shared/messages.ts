@@ -1,6 +1,11 @@
+import type { RegexJobRequest, RegexJobResponse } from './types';
 import type { GraphValue, OverlayRuntimeEvent } from './v2/types';
 import type { DisplayRequest, OverlayControlRequest, OverlayDrawRequest, UserInteractionRequest } from './v2/vm';
 
+export const OFFSCREEN_REGEX_MESSAGE = 'URL_ALCHEMIST_OFFSCREEN_REGEX';
+export const OFFSCREEN_CLIPBOARD_MESSAGE = 'URL_ALCHEMIST_OFFSCREEN_CLIPBOARD';
+export const OFFSCREEN_CLIPBOARD_WRITE_MESSAGE = 'URL_ALCHEMIST_OFFSCREEN_CLIPBOARD_WRITE';
+export const OFFSCREEN_CLIPBOARD_BINARY_WRITE_MESSAGE = 'URL_ALCHEMIST_OFFSCREEN_CLIPBOARD_BINARY_WRITE';
 export const HOTKEY_TRIGGER_MESSAGE = 'URL_ALCHEMIST_HOTKEY_TRIGGER';
 export const CONTENT_INTERACTION_MESSAGE = 'URL_ALCHEMIST_CONTENT_INTERACTION';
 export const CONTENT_DISPLAY_MESSAGE = 'URL_ALCHEMIST_CONTENT_DISPLAY';
@@ -8,12 +13,36 @@ export const CONTENT_MUTATE_TEXT_MESSAGE = 'URL_ALCHEMIST_CONTENT_MUTATE_TEXT';
 export const CONTENT_READ_SOURCE_MESSAGE = 'URL_ALCHEMIST_CONTENT_READ_SOURCE';
 export const CONTENT_OVERLAY_CONTROL_MESSAGE = 'URL_ALCHEMIST_CONTENT_OVERLAY_CONTROL';
 export const CONTENT_OVERLAY_DRAW_MESSAGE = 'URL_ALCHEMIST_CONTENT_OVERLAY_DRAW';
+export const CONTENT_BLOCKER_START_RECURRING_MESSAGE = 'URL_ALCHEMIST_CONTENT_BLOCKER_START_RECURRING';
+export const CONTENT_BLOCKER_RECURRING_CHECK_MESSAGE = 'URL_ALCHEMIST_CONTENT_BLOCKER_RECURRING_CHECK';
+export const CONTENT_BLOCKER_CHALLENGE_COMPLETE_MESSAGE = 'URL_ALCHEMIST_CONTENT_BLOCKER_CHALLENGE_COMPLETE';
 export const OVERLAY_APP_EVENT_MESSAGE = 'URL_ALCHEMIST_OVERLAY_APP_EVENT';
+
+export interface OffscreenRegexMessage {
+  type: typeof OFFSCREEN_REGEX_MESSAGE;
+  request: RegexJobRequest;
+}
+
+export interface OffscreenClipboardMessage {
+  type: typeof OFFSCREEN_CLIPBOARD_MESSAGE;
+}
+
+export interface OffscreenClipboardWriteMessage {
+  type: typeof OFFSCREEN_CLIPBOARD_WRITE_MESSAGE;
+  text: string;
+}
+
+export interface OffscreenClipboardBinaryWriteMessage {
+  type: typeof OFFSCREEN_CLIPBOARD_BINARY_WRITE_MESSAGE;
+  mimeType: string;
+  dataBase64: string;
+}
 
 export interface RuntimeSourceContext {
   linkUrl?: string;
   pageTitle?: string;
   selectedText?: string;
+  secondsOnPage?: number;
   tabId?: number;
 }
 
@@ -22,6 +51,8 @@ export interface HotkeyTriggerMessage extends RuntimeSourceContext {
   hotkey: string;
   url: string;
 }
+
+export type OffscreenMessage = OffscreenRegexMessage | OffscreenClipboardMessage | OffscreenClipboardWriteMessage | OffscreenClipboardBinaryWriteMessage;
 
 export interface ContentInteractionMessage {
   type: typeof CONTENT_INTERACTION_MESSAGE;
@@ -61,13 +92,34 @@ export interface ContentReadSourceMessage {
   source: string;
 }
 
+export interface ContentBlockerStartRecurringMessage {
+  type: typeof CONTENT_BLOCKER_START_RECURRING_MESSAGE;
+  requestId: string;
+  packId: string;
+  intervalSeconds: number;
+}
+
 export type ContentRuntimeMessage =
   | ContentInteractionMessage
   | ContentDisplayMessage
   | ContentOverlayControlMessage
   | ContentOverlayDrawMessage
+  | ContentBlockerStartRecurringMessage
   | ContentMutateTextMessage
   | ContentReadSourceMessage;
+
+export interface ContentBlockerRecurringCheckMessage {
+  type: typeof CONTENT_BLOCKER_RECURRING_CHECK_MESSAGE;
+  packId: string;
+  url: string;
+  secondsOnPage: number;
+}
+
+export interface ContentBlockerChallengeCompleteMessage {
+  type: typeof CONTENT_BLOCKER_CHALLENGE_COMPLETE_MESSAGE;
+  packId: string;
+  sourceUrl: string;
+}
 
 export interface OverlayAppEventMessage extends RuntimeSourceContext {
   type: typeof OVERLAY_APP_EVENT_MESSAGE;
@@ -88,6 +140,11 @@ export interface RuntimeFailure {
 
 export type RuntimeResponse<T> = RuntimeSuccess<T> | RuntimeFailure;
 
+export interface ClipboardResponse {
+  text: string;
+}
+
+export type RegexResponse = RuntimeResponse<RegexJobResponse>;
 export type ContentGraphResponse = RuntimeResponse<GraphValue>;
 
 const MAX_RUNTIME_ID_BYTES = 256;
@@ -133,6 +190,7 @@ function hasValidRuntimeContext(value: Record<string, unknown>): boolean {
     isOptionalStringWithin(value.selectedText, MAX_RUNTIME_CONTEXT_BYTES) &&
     isOptionalStringWithin(value.linkUrl, MAX_RUNTIME_URL_BYTES) &&
     isOptionalStringWithin(value.pageTitle, MAX_RUNTIME_CONTEXT_BYTES) &&
+    (value.secondsOnPage === undefined || (isFiniteNumber(value.secondsOnPage) && value.secondsOnPage >= 0)) &&
     isOptionalRuntimeTabId(value.tabId)
   );
 }
@@ -198,9 +256,30 @@ export function isContentRuntimeMessage(message: unknown): message is ContentRun
       (message as { type?: unknown }).type === CONTENT_DISPLAY_MESSAGE ||
       (message as { type?: unknown }).type === CONTENT_OVERLAY_CONTROL_MESSAGE ||
       (message as { type?: unknown }).type === CONTENT_OVERLAY_DRAW_MESSAGE ||
+      (message as { type?: unknown }).type === CONTENT_BLOCKER_START_RECURRING_MESSAGE ||
       (message as { type?: unknown }).type === CONTENT_MUTATE_TEXT_MESSAGE ||
       (message as { type?: unknown }).type === CONTENT_READ_SOURCE_MESSAGE
     )
+  );
+}
+
+export function isContentBlockerRecurringCheckMessage(message: unknown): message is ContentBlockerRecurringCheckMessage {
+  return (
+    isRecord(message) &&
+    message.type === CONTENT_BLOCKER_RECURRING_CHECK_MESSAGE &&
+    isStringWithin(message.packId, MAX_RUNTIME_ID_BYTES) &&
+    isStringWithin(message.url, MAX_RUNTIME_URL_BYTES) &&
+    isFiniteNumber(message.secondsOnPage) &&
+    message.secondsOnPage >= 0
+  );
+}
+
+export function isContentBlockerChallengeCompleteMessage(message: unknown): message is ContentBlockerChallengeCompleteMessage {
+  return (
+    isRecord(message) &&
+    message.type === CONTENT_BLOCKER_CHALLENGE_COMPLETE_MESSAGE &&
+    isStringWithin(message.packId, MAX_RUNTIME_ID_BYTES) &&
+    isStringWithin(message.sourceUrl, MAX_RUNTIME_URL_BYTES)
   );
 }
 

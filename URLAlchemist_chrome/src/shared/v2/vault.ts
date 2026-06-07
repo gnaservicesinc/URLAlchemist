@@ -11,7 +11,7 @@ import {
   WORKSPACE_SCHEMA_VERSION,
 } from './types';
 import { migrateCompiledActionPackV2Candidate, validateCompiledActionPackV2 } from './actionPackValidator';
-import { stripLocalInstallMetadata } from './installMetadata';
+import { isContentBlockerActionPack, stripLocalInstallMetadata } from './installMetadata';
 import { getResource, putResourceBytes, resourceToBytes } from './resources';
 import { validateWorkspaceFile } from './workspace';
 
@@ -115,6 +115,9 @@ export async function exportWorkspaceBinary(workspace: WorkspaceFileV2): Promise
 }
 
 export async function exportCompiledActionPackV2Binary(pack: CompiledActionPackV2): Promise<Uint8Array> {
+  if (isContentBlockerActionPack(pack)) {
+    throw new Error('Content Blocker Action Packs are local installs. Export the workspace source and compile it locally instead.');
+  }
   const payload = stripLocalInstallMetadata(pack);
   return exportWithHeader(await bundleResources(payload, collectResourceIds(payload)), ACTION_PACK_MAGIC_BYTES, ACTION_PACK_SCHEMA_VERSION);
 }
@@ -150,6 +153,9 @@ export async function importCompiledActionPackV2Binary(bytes: Uint8Array): Promi
     throw new Error(validation.errors.join('; '));
   }
   const pack = stripLocalInstallMetadata(validation.pack);
+  if (isContentBlockerActionPack(validation.pack) || pack.manifest.metadata.workspaceType === 'content-blocker') {
+    throw new Error('Compiled Content Blocker Action Packs cannot be imported. Import the workspace source and compile it locally instead.');
+  }
 
   return {
     pack: {
@@ -267,7 +273,10 @@ export async function importAnyArtifact(bytes: Uint8Array): Promise<ImportedV2Ar
   try {
     const pack = await importCompiledActionPackV2Binary(bytes);
     return { kind: 'action-pack', ...pack };
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('Content Blocker')) {
+      throw error;
+    }
     // Try legacy v1 URL pack import before rejecting.
   }
 

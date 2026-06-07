@@ -8,6 +8,7 @@ export interface InstallMetadataDefaults {
   bundledHashVerified?: boolean;
   loggingEnabled?: boolean;
   focusGuard?: ActionPackInstallMetadata['focusGuard'];
+  contentBlocker?: ActionPackInstallMetadata['contentBlocker'];
   lockState?: ActionPackInstallMetadata['lockState'];
 }
 
@@ -15,8 +16,18 @@ export function isActionPackLocked(pack: CompiledActionPackV2): boolean {
   return Boolean(pack.install?.lockState?.locked && pack.install.lockState.level > 0);
 }
 
+export function isContentBlockerActionPack(pack: CompiledActionPackV2): boolean {
+  return Boolean(
+    pack.manifest.metadata.workspaceType === 'content-blocker' ||
+    pack.install?.contentBlocker ||
+    pack.install?.source === 'content-blocker' ||
+    pack.install?.source === 'focus-guard' ||
+    pack.install?.focusGuard,
+  );
+}
+
 export function defaultTrustForSource(source: ActionPackSource): TrustStatus {
-  if (source === 'user-created' || source === 'bundled' || source === 'focus-guard') {
+  if (source === 'user-created' || source === 'bundled' || source === 'content-blocker' || source === 'focus-guard') {
     return 'trusted';
   }
 
@@ -45,6 +56,7 @@ export function withInstallMetadata(
       userReview: existing?.userReview,
       lockState: defaults.lockState ?? existing?.lockState,
       focusGuard: defaults.focusGuard ?? existing?.focusGuard,
+      contentBlocker: defaults.contentBlocker ?? existing?.contentBlocker,
     },
   };
 }

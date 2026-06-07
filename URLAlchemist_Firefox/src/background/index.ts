@@ -14,7 +14,10 @@ import {
   CONTENT_OVERLAY_CONTROL_MESSAGE,
   CONTENT_OVERLAY_DRAW_MESSAGE,
   CONTENT_READ_SOURCE_MESSAGE,
+  CONTENT_BLOCKER_START_RECURRING_MESSAGE,
   isHotkeyTriggerMessage,
+  isContentBlockerChallengeCompleteMessage,
+  isContentBlockerRecurringCheckMessage,
   isOverlayAppEventMessage,
   type ContentGraphResponse,
   type RuntimeSourceContext,
@@ -22,11 +25,11 @@ import {
 import { appendActionPackLogEntry, appendTraceEntry, loadStoredState, updateActionPackV2Install } from '../shared/storage';
 import type { ActionPack, EngineIssue, GlobalSettings, TriggerType, WorkspaceTriggerType } from '../shared/types';
 import { createPageRegexExecutor } from '../shared/regex/pageRunner';
-import { isActionPackLocked } from '../shared/v2/installMetadata';
+import { isActionPackLocked, isContentBlockerActionPack } from '../shared/v2/installMetadata';
 import { base64FromBytes, readLimitedResponseBytes } from '../shared/v2/remoteBytes';
 import { validateRemoteUrl } from '../shared/v2/remoteUrl';
 import { resolveResourceAsset } from '../shared/v2/resources';
-import type { AssetRef, CompiledActionPackV2, GraphEventHandler, GraphValue, OverlayRuntimeEvent, WorkspaceInputSource } from '../shared/v2/types';
+import type { AssetRef, CompiledActionPackV2, ContentBlockerChallengeTask, GraphEventHandler, GraphValue, OverlayRuntimeEvent, WorkspaceInputSource } from '../shared/v2/types';
 import { evaluateCompiledActionPackCondition, executeCompiledActionPackV2, type AssetRequest, type DisplayRequest, type GraphRuntime, type OverlayControlRequest, type OverlayDrawRequest, type UserInteractionRequest } from '../shared/v2/vm';
 
 const redirectTrail = new Map<string, { url: string; depth: number; expiresAt: number }>();
@@ -37,15 +40,18 @@ const remoteAssetCache = new Map<string, AssetRef>();
 const fallbackOverlaySessions = new Map<string, { active: boolean; url: string; updatedAt: number }>();
 const fallbackSharedState = new Map<string, GraphValue>();
 const fallbackConditionStates = new Map<string, boolean>();
-const FOCUS_GUARD_BLOCK_PAGE = 'focus-guard-block.html';
-const MAX_FOCUS_GUARD_MEDIA_BYTES = 1024 * 1024;
+const CONTENT_BLOCKER_PAGE = 'content-blocker.html';
+const CONTENT_BLOCKER_ALLOW_TTL_MS = 10 * 60 * 1000;
 
-interface FocusGuardBlockPayload {
+interface ContentBlockerPagePayload {
+  mode: 'challenge' | 'block' | 'error';
   title: string;
   message: string;
+  reason?: string;
+  packId: string;
   packName: string;
   sourceUrl: string;
-  mediaDataUrl?: string;
+  tasks: ContentBlockerChallengeTask[];
 }
 
 function fallbackWriteText(text: string): void {
@@ -493,6 +499,10 @@ function createRunRuntime(context: RuntimeSourceContext = {}, settings?: GlobalS
         return { type: 'string', value: context.pageTitle ?? '' };
       }
 
+      if (source === 'secondsOnPage') {
+        return { type: 'number', value: Math.max(0, Math.floor(context.secondsOnPage ?? 0)) };
+      }
+
       if (['pageText', 'rawHtml', 'pageLinks', 'pageMetadata'].includes(source)) {
         return sendContentGraphMessage(context.tabId, {
           type: CONTENT_READ_SOURCE_MESSAGE,
@@ -629,113 +639,222 @@ async function recordTriggerOrSkip(pack: CompiledActionPackV2): Promise<boolean>
   return true;
 }
 
-function focusGuardBlockPageUrl(): string {
-  return chrome.runtime.getURL(FOCUS_GUARD_BLOCK_PAGE);
+function contentBlockerPageUrl(): string {
+  return chrome.runtime.getURL(CONTENT_BLOCKER_PAGE);
 }
 
-function isFocusGuardBlockPage(url: string): boolean {
-  return url.startsWith(focusGuardBlockPageUrl());
+function isContentBlockerPage(url: string): boolean {
+  return url.startsWith(contentBlockerPageUrl());
 }
 
-function globLikeMatches(pattern: string, value: string): boolean {
-  const normalizedPattern = pattern.trim().toLowerCase();
-  const normalizedValue = value.toLowerCase();
-  if (!normalizedPattern) {
+function contentBlockerAllowanceKey(tabId: number, packId: string, sourceUrl: string): string {
+  return `url-alchemist-content-blocker-allow:${tabId}:${packId}:${sourceUrl}`;
+}
+
+async function grantContentBlockerAllowance(tabId: number, packId: string, sourceUrl: string): Promise<void> {
+  const key = contentBlockerAllowanceKey(tabId, packId, sourceUrl);
+  if (chrome.storage?.session) {
+    await chrome.storage.session.set({ [key]: Date.now() + CONTENT_BLOCKER_ALLOW_TTL_MS });
+  }
+}
+
+async function hasContentBlockerAllowance(tabId: number, packId: string, sourceUrl: string): Promise<boolean> {
+  const key = contentBlockerAllowanceKey(tabId, packId, sourceUrl);
+  if (!chrome.storage?.session) {
     return false;
   }
-  if (!normalizedPattern.includes('*')) {
-    return normalizedValue.includes(normalizedPattern);
-  }
 
-  let cursor = 0;
-  for (const part of normalizedPattern.split('*').filter(Boolean)) {
-    const found = normalizedValue.indexOf(part, cursor);
-    if (found < 0) {
-      return false;
-    }
-    cursor = found + part.length;
+  const stored = await chrome.storage.session.get(key);
+  const expiresAt = stored[key];
+  if (typeof expiresAt !== 'number' || expiresAt < Date.now()) {
+    await chrome.storage.session.remove(key);
+    return false;
   }
   return true;
 }
 
-function focusGuardPatternMatches(pattern: string, url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    return globLikeMatches(pattern, url) || globLikeMatches(pattern, parsed.hostname);
-  } catch {
-    return globLikeMatches(pattern, url);
+function numericGraphValue(value: GraphValue | undefined): number | null {
+  if (!value) {
+    return null;
   }
+  if (typeof value.value === 'number') {
+    return value.value;
+  }
+  if (typeof value.value === 'string') {
+    const parsed = Number.parseInt(value.value, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
 }
 
-function focusGuardMatches(pack: CompiledActionPackV2, url: string): boolean {
-  const config = pack.install?.focusGuard;
-  if (!config || !/^https?:\/\//i.test(url) || isFocusGuardBlockPage(url)) {
-    return false;
-  }
-  if (config.allowPatterns.some((pattern) => focusGuardPatternMatches(pattern, url))) {
-    return false;
-  }
-  return config.blockedPatterns.some((pattern) => focusGuardPatternMatches(pattern, url));
-}
-
-async function createFocusGuardBlockUrl(pack: CompiledActionPackV2, sourceUrl: string): Promise<string> {
-  const config = pack.install?.focusGuard;
-  const payload: FocusGuardBlockPayload = {
-    title: config?.pageTitle || 'Focus Guard',
-    message: config?.pageMessage || 'This page is blocked by URL Alchemist.',
+async function createContentBlockerPageUrl(
+  pack: CompiledActionPackV2,
+  sourceUrl: string,
+  mode: ContentBlockerPagePayload['mode'],
+  reason?: string,
+): Promise<string> {
+  const config = pack.install?.contentBlocker;
+  const payload: ContentBlockerPagePayload = {
+    mode,
+    title: mode === 'block'
+      ? config?.blockTitle || 'Page blocked'
+      : config?.challengeTitle || 'Challenge required',
+    message: mode === 'block'
+      ? config?.blockMessage || 'This page is blocked by URL Alchemist.'
+      : config?.challengeMessage || 'Complete the challenge to continue to the page.',
+    reason,
+    packId: pack.manifest.id,
     packName: pack.manifest.name,
     sourceUrl,
+    tasks: mode === 'challenge' ? config?.challengeTasks ?? [] : [],
   };
-  const resourceId = config?.resourceIds?.[0];
-  if (resourceId) {
-    try {
-      const asset = await resolveResourceAsset({
-        source: 'resource',
-        kind: 'image',
-        mimeType: 'image/*',
-        resourceId,
-        sha256: resourceId,
-      });
-      if (asset.dataBase64 && (asset.sizeBytes ?? 0) <= MAX_FOCUS_GUARD_MEDIA_BYTES) {
-        payload.mediaDataUrl = `data:${asset.mimeType};base64,${asset.dataBase64}`;
-      }
-    } catch (error) {
-      console.warn('[URL Alchemist] Focus Guard media resource was unavailable', error);
-    }
-  }
 
-  const id = `url-alchemist-focus-guard:${crypto.randomUUID()}`;
+  const id = `url-alchemist-content-blocker:${crypto.randomUUID()}`;
   if (chrome.storage?.session) {
     await chrome.storage.session.set({ [id]: payload });
-    return `${focusGuardBlockPageUrl()}?id=${encodeURIComponent(id)}`;
+    return `${contentBlockerPageUrl()}?id=${encodeURIComponent(id)}`;
   }
 
   const params = new URLSearchParams({
+    mode: payload.mode,
     title: payload.title,
     message: payload.message,
+    packId: payload.packId,
     packName: payload.packName,
     sourceUrl: payload.sourceUrl,
   });
-  return `${focusGuardBlockPageUrl()}?${params.toString()}`;
+  if (reason) {
+    params.set('reason', reason);
+  }
+  return `${contentBlockerPageUrl()}?${params.toString()}`;
 }
 
-async function applyFocusGuardPacks(state: Awaited<ReturnType<typeof loadStoredState>>, tabId: number, inputUrl: string): Promise<boolean> {
+async function startContentBlockerRecurringCheck(tabId: number, pack: CompiledActionPackV2): Promise<void> {
+  const config = pack.install?.contentBlocker;
+  if (!config?.recurring) {
+    return;
+  }
+
+  try {
+    await sendContentGraphMessage(tabId, {
+      type: CONTENT_BLOCKER_START_RECURRING_MESSAGE,
+      requestId: crypto.randomUUID(),
+      packId: pack.manifest.id,
+      intervalSeconds: Math.max(5, Math.trunc(config.recurringIntervalSeconds)),
+    });
+  } catch (error) {
+    console.warn('[URL Alchemist] Content Blocker recurring check could not start', error);
+  }
+}
+
+async function evaluateContentBlockerDecision(
+  pack: CompiledActionPackV2,
+  program: NonNullable<NonNullable<CompiledActionPackV2['install']>['contentBlocker']>['pageLoad'],
+  tabId: number,
+  inputUrl: string,
+  settings: GlobalSettings,
+  context: RuntimeSourceContext = {},
+): Promise<{ decision: 0 | 1 | 2; result: Awaited<ReturnType<typeof executeCompiledActionPackV2>> }> {
+  const runtime = createRunRuntime({ ...context, tabId }, settings, pack.manifest.id, inputUrl, pack.manifest.name, pack.install?.loggingEnabled !== false);
+  const decisionPack: CompiledActionPackV2 = {
+    ...pack,
+    vm: program.vm,
+  };
+  const result = await executeCompiledActionPackV2(inputUrl, decisionPack, runtime, settings, {
+    handler: 'trigger',
+    event: {
+      kind: 'trigger',
+      url: inputUrl,
+    },
+  });
+  const value = result.outputs.contentBlockerDecision ?? result.outputs[program.output];
+  const numeric = numericGraphValue(value);
+  if (numeric === null) {
+    throw new Error('Content Blocker decision did not produce a numeric result.');
+  }
+  const decision = Math.max(0, Math.min(2, Math.trunc(numeric))) as 0 | 1 | 2;
+  return { decision, result };
+}
+
+async function redirectToContentBlockerPage(
+  pack: CompiledActionPackV2,
+  tabId: number,
+  inputUrl: string,
+  mode: ContentBlockerPagePayload['mode'],
+  reason?: string,
+): Promise<void> {
+  const contentBlocker = pack.install?.contentBlocker;
+  if (contentBlocker) {
+    await updateActionPackV2Install(pack.manifest.id, {
+      contentBlocker: {
+        ...contentBlocker,
+        blockCount: mode === 'block' ? (contentBlocker.blockCount ?? 0) + 1 : contentBlocker.blockCount,
+        challengeCount: mode !== 'block' ? (contentBlocker.challengeCount ?? 0) + 1 : contentBlocker.challengeCount,
+        lastBlockedAt: mode === 'block' ? Date.now() : contentBlocker.lastBlockedAt,
+        lastChallengedAt: mode !== 'block' ? Date.now() : contentBlocker.lastChallengedAt,
+      },
+    });
+  }
+  await chrome.tabs.update(tabId, { url: await createContentBlockerPageUrl(pack, inputUrl, mode, reason) });
+}
+
+async function applyContentBlockerPacks(
+  state: Awaited<ReturnType<typeof loadStoredState>>,
+  tabId: number,
+  inputUrl: string,
+  context: RuntimeSourceContext,
+  recurringPackId?: string,
+): Promise<boolean> {
+  if (!/^https?:\/\//i.test(inputUrl) || isContentBlockerPage(inputUrl)) {
+    return false;
+  }
+
   for (const pack of state.actionPacksV2) {
-    if (!pack.install?.focusGuard || (!pack.manifest.enabled && !isActionPackLocked(pack))) {
+    const config = pack.install?.contentBlocker;
+    if (!config || (!pack.manifest.enabled && !isActionPackLocked(pack))) {
       continue;
     }
-    if (!focusGuardMatches(pack, inputUrl)) {
+    if (recurringPackId && pack.manifest.id !== recurringPackId) {
+      continue;
+    }
+    if (!recurringPackId && await hasContentBlockerAllowance(tabId, pack.manifest.id, inputUrl)) {
+      await startContentBlockerRecurringCheck(tabId, pack);
       continue;
     }
 
-    const focusGuard = {
-      ...pack.install.focusGuard,
-      blockCount: (pack.install.focusGuard.blockCount ?? 0) + 1,
-      lastBlockedAt: Date.now(),
-    };
-    await updateActionPackV2Install(pack.manifest.id, { focusGuard });
-    await chrome.tabs.update(tabId, { url: await createFocusGuardBlockUrl(pack, inputUrl) });
-    return true;
+    const program = recurringPackId ? config.recurring : config.pageLoad;
+    if (!program) {
+      continue;
+    }
+
+    try {
+      const { decision, result } = await evaluateContentBlockerDecision(pack, program, tabId, inputUrl, state.settings, context);
+      logV2Issues(pack, result.issues);
+      await appendV2RunLog(pack, result, recurringPackId ? 'INTERVAL' : 'INPUT_DATA', inputUrl);
+      if (decision === 0) {
+        if (!recurringPackId) {
+          await startContentBlockerRecurringCheck(tabId, pack);
+        }
+        continue;
+      }
+      await redirectToContentBlockerPage(pack, tabId, inputUrl, decision === 1 ? 'challenge' : 'block');
+      return true;
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'Content Blocker decision failed.';
+      await appendActionPackLogEntry({
+        id: crypto.randomUUID(),
+        packId: pack.manifest.id,
+        packName: pack.manifest.name,
+        timestamp: Date.now(),
+        kind: 'run',
+        severity: 'error',
+        message: reason,
+        inputUrl,
+        issueCount: 1,
+      });
+      await redirectToContentBlockerPage(pack, tabId, inputUrl, 'challenge', reason);
+      return true;
+    }
   }
 
   return false;
@@ -930,7 +1049,7 @@ async function applyPacksToTab(
   }
 
   if (!onlyPackId && trigger === 'INPUT_DATA' && inputSources.includes('url')) {
-    const blocked = await applyFocusGuardPacks(state, tabId, inputUrl);
+    const blocked = await applyContentBlockerPacks(state, tabId, inputUrl, { ...context, tabId });
     if (blocked) {
       return;
     }
@@ -981,6 +1100,9 @@ async function applyPacksToTab(
 
   for (const pack of state.actionPacksV2) {
     const packRuntime = createRunRuntime({ ...context, tabId }, state.settings, pack.manifest.id, currentUrl, pack.manifest.name, pack.install?.loggingEnabled !== false);
+    if (isContentBlockerActionPack(pack)) {
+      continue;
+    }
     if (onlyPackId && pack.manifest.id !== onlyPackId) {
       continue;
     }
@@ -1157,6 +1279,47 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (isContentBlockerChallengeCompleteMessage(message)) {
+    const tabId = sender.tab?.id;
+    if (tabId === undefined) {
+      sendResponse({ handled: false });
+      return;
+    }
+
+    void grantContentBlockerAllowance(tabId, message.packId, message.sourceUrl)
+      .then(() => {
+        sendResponse({ handled: true });
+      })
+      .catch((error) => {
+        console.warn('[URL Alchemist] Content Blocker challenge completion failed', error instanceof Error ? error.message : error);
+        sendResponse({ handled: false });
+      });
+    return true;
+  }
+
+  if (isContentBlockerRecurringCheckMessage(message)) {
+    const tabId = sender.tab?.id;
+    if (tabId === undefined) {
+      sendResponse({ handled: false });
+      return;
+    }
+
+    void loadStoredState()
+      .then((state) => applyContentBlockerPacks(state, tabId, message.url, {
+        tabId,
+        pageTitle: sender.tab?.title,
+        secondsOnPage: message.secondsOnPage,
+      }, message.packId))
+      .then((handled) => {
+        sendResponse({ handled });
+      })
+      .catch((error) => {
+        console.warn('[URL Alchemist] Content Blocker recurring check failed', error instanceof Error ? error.message : error);
+        sendResponse({ handled: false });
+      });
+    return true;
+  }
+
   if (isOverlayAppEventMessage(message)) {
     const tabId = sender.tab?.id;
     const url = sender.tab?.url;

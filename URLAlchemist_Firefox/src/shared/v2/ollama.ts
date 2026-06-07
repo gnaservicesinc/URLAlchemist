@@ -33,6 +33,14 @@ export interface OllamaWorkspaceDraft {
   trigger?: WorkspaceTriggerType;
 }
 
+export interface OllamaModelSummary {
+  name: string;
+  model?: string;
+  modifiedAt?: string;
+  size?: number;
+  digest?: string;
+}
+
 export function workspaceFromOllamaDraft(draft: OllamaWorkspaceDraft, base: WorkspaceFileV2 = createDefaultWorkspace()): WorkspaceFileV2 {
   const now = Date.now();
   return {
@@ -50,6 +58,69 @@ export function workspaceFromOllamaDraft(draft: OllamaWorkspaceDraft, base: Work
         : base.trigger.type,
     },
   };
+}
+
+function validateOllamaModelsResponse(value: unknown): OllamaModelSummary[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Ollama returned an invalid model list.');
+  }
+
+  const models = (value as { models?: unknown }).models;
+  if (!Array.isArray(models)) {
+    throw new Error('Ollama returned an invalid model list.');
+  }
+
+  const summaries: OllamaModelSummary[] = [];
+  models.forEach((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      return;
+    }
+
+    const record = entry as Record<string, unknown>;
+    const name = typeof record.name === 'string' && record.name.trim()
+      ? record.name.trim()
+      : typeof record.model === 'string' && record.model.trim()
+        ? record.model.trim()
+        : '';
+    if (!name) {
+      return;
+    }
+
+    summaries.push({
+      name,
+      model: typeof record.model === 'string' ? record.model : undefined,
+      modifiedAt: typeof record.modified_at === 'string' ? record.modified_at : undefined,
+      size: typeof record.size === 'number' && Number.isFinite(record.size) ? record.size : undefined,
+      digest: typeof record.digest === 'string' ? record.digest : undefined,
+    });
+  });
+  return summaries;
+}
+
+export async function listOllamaModels(
+  settings: Pick<GlobalSettings, 'ollamaEndpoint' | 'ollamaTimeoutMs'>,
+): Promise<OllamaModelSummary[]> {
+  const endpoint = `${validateOllamaEndpoint(settings.ollamaEndpoint)}/api/tags`;
+  const controller = new AbortController();
+  const timeout = globalThis.setTimeout(() => controller.abort(), Math.max(1_000, Math.min(120_000, settings.ollamaTimeoutMs)));
+  try {
+    const response = await fetch(endpoint, {
+      method: 'GET',
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`Ollama model list failed with HTTP ${response.status}. Confirm the local Ollama server is running.`);
+    }
+
+    return validateOllamaModelsResponse(await response.json());
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error('Ollama model list timed out. Confirm the local Ollama server is running.');
+    }
+    throw error;
+  } finally {
+    globalThis.clearTimeout(timeout);
+  }
 }
 
 function validateOllamaDraft(value: unknown): OllamaWorkspaceDraft {

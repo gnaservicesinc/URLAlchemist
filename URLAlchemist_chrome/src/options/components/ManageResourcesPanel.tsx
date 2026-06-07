@@ -7,7 +7,7 @@ import {
   formatActionPackLogText,
 } from '../../shared/logs';
 import type { ActionPack, StoredActionPackLogEntry } from '../../shared/types';
-import { isActionPackLocked } from '../../shared/v2/installMetadata';
+import { isActionPackLocked, isContentBlockerActionPack } from '../../shared/v2/installMetadata';
 import { compileWorkspace } from '../../shared/v2/compiler';
 import { formatRunType } from '../../shared/v2/labels';
 import type { CompiledActionPackV2, WorkspaceFileV2, WorkspaceMetadata } from '../../shared/v2/types';
@@ -19,6 +19,7 @@ interface ManageResourcesPanelProps {
   workspaces: WorkspaceFileV2[];
   onClearActionPackLog: (pack: CompiledActionPackV2) => void;
   onCompileExportWorkspace: (workspace: WorkspaceFileV2) => void;
+  onCompileInstallWorkspace: (workspace: WorkspaceFileV2) => void;
   onDeleteActionPack: (packId: string) => void;
   onDeleteLegacyPack: (packId: string) => void;
   onDeleteWorkspace: (workspaceId: string) => void;
@@ -28,6 +29,7 @@ interface ManageResourcesPanelProps {
   onExportActionPackLog: (pack: CompiledActionPackV2) => void;
   onExportLegacyPack: (pack: ActionPack) => void;
   onExportWorkspace: (workspace: WorkspaceFileV2) => void;
+  onIncreaseContentBlockerLock: (pack: CompiledActionPackV2) => void;
   onOpenWorkspace: (workspace: WorkspaceFileV2) => void;
   onPreviewLegacyPack: (pack: ActionPack) => void;
   onToggleActionPack: (pack: CompiledActionPackV2) => void;
@@ -61,15 +63,17 @@ function WorkspaceCard({
   conditionWorkspaces,
   workspace,
   onCompileExportWorkspace,
+  onCompileInstallWorkspace,
   onDeleteWorkspace,
   onExportWorkspace,
   onOpenWorkspace,
   onUpdateWorkspaceMetadata,
 }: Pick<
   ManageResourcesPanelProps,
-  'onCompileExportWorkspace' | 'onDeleteWorkspace' | 'onExportWorkspace' | 'onOpenWorkspace' | 'onUpdateWorkspaceMetadata'
+  'onCompileExportWorkspace' | 'onCompileInstallWorkspace' | 'onDeleteWorkspace' | 'onExportWorkspace' | 'onOpenWorkspace' | 'onUpdateWorkspaceMetadata'
 > & { conditionWorkspaces: WorkspaceFileV2[]; workspace: WorkspaceFileV2 }) {
   const compileResult = useMemo(() => compileWorkspace(workspace, { conditionWorkspaces }), [conditionWorkspaces, workspace]);
+  const isContentBlocker = workspace.workspaceType === 'content-blocker';
 
   return (
     <article className="rounded-lg border border-slate-200 bg-white/85 p-5 shadow-[0_12px_28px_rgba(31,41,55,0.07)]">
@@ -78,7 +82,7 @@ function WorkspaceCard({
           <p className="eyebrow">Workspace</p>
           <h3 className="mt-1 text-lg font-semibold text-slate-900">{workspace.metadata.name}</h3>
           <p className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-500">
-            {workspace.nodes.length} blocks · {workspace.edges.length} connections · Updated {formatTimestamp(workspace.metadata.updated_at)}
+            {isContentBlocker ? 'Content Blocker' : 'Data Modifier'} · {isContentBlocker ? workspace.surfaces?.reduce((count, surface) => count + surface.nodes.length, 0) ?? 0 : workspace.nodes.length} blocks · Updated {formatTimestamp(workspace.metadata.updated_at)}
           </p>
         </div>
         <span className={`risk-badge ${compileResult.ok ? 'risk-badge-soft' : 'risk-badge-danger'}`}>
@@ -118,8 +122,8 @@ function WorkspaceCard({
           />
         </label>
         <label className="field-shell">
-          <span className="field-label">Run</span>
-          <input className="field-input" readOnly value={formatRunType(workspace.trigger.type)} />
+          <span className="field-label">Type</span>
+          <input className="field-input" readOnly value={isContentBlocker ? 'Content Blocker' : 'Data Modifier'} />
         </label>
         <label className="field-shell md:col-span-2">
           <span className="field-label">Description</span>
@@ -146,8 +150,8 @@ function WorkspaceCard({
         <button className="ghost-button" type="button" onClick={() => onExportWorkspace(workspace)}>
           Export .workspace
         </button>
-        <button className="secondary-button" disabled={!compileResult.ok} type="button" onClick={() => onCompileExportWorkspace(workspace)}>
-          Compile & Export
+        <button className="secondary-button" disabled={!compileResult.ok} type="button" onClick={() => isContentBlocker ? onCompileInstallWorkspace(workspace) : onCompileExportWorkspace(workspace)}>
+          {isContentBlocker ? 'Compile & Install' : 'Compile & Export'}
         </button>
         <button className="ghost-button" type="button" onClick={() => onDeleteWorkspace(workspace.metadata.id)}>
           Delete
@@ -170,6 +174,7 @@ function ActionPackCard({
   onToggleActionPack,
   onToggleActionPackLogging,
   onUnlockActionPack,
+  onIncreaseContentBlockerLock,
   onMarkActionPackReviewed,
 }: Pick<
   ManageResourcesPanelProps,
@@ -182,10 +187,13 @@ function ActionPackCard({
   | 'onToggleActionPack'
   | 'onToggleActionPackLogging'
   | 'onUnlockActionPack'
+  | 'onIncreaseContentBlockerLock'
   | 'onMarkActionPackReviewed'
 > & { pack: CompiledActionPackV2; logCount: number; onViewActionPackLog: (pack: CompiledActionPackV2) => void }) {
   const traceActive = isTraceActive(pack);
   const locked = isActionPackLocked(pack);
+  const contentBlocker = isContentBlockerActionPack(pack);
+  const canIncreaseLock = contentBlocker && Boolean(pack.install?.contentBlocker?.allowLockIncrease) && (!pack.install?.lockState?.locked || pack.install.lockState.level < 3);
   const trust = pack.install?.userReview?.trustStatus ?? pack.install?.trustStatus ?? 'review';
 
   return (
@@ -210,6 +218,7 @@ function ActionPackCard({
             Logs {pack.install?.loggingEnabled ? 'on' : 'off'}
           </span>
           {locked ? <span className="risk-badge risk-badge-danger">Lock L{pack.install?.lockState?.level}</span> : null}
+          {contentBlocker ? <span className="risk-badge risk-badge-soft">Content Blocker</span> : null}
           {traceActive ? <span className="risk-badge risk-badge-warn">Trace active</span> : null}
         </div>
       </div>
@@ -244,10 +253,15 @@ function ActionPackCard({
             Unlock
           </button>
         ) : null}
+        {canIncreaseLock ? (
+          <button className="ghost-button" type="button" onClick={() => onIncreaseContentBlockerLock(pack)}>
+            Increase Lock
+          </button>
+        ) : null}
         <button className="ghost-button" type="button" onClick={() => (traceActive ? onDisableTrace(pack) : onEnableTrace(pack))}>
           {traceActive ? 'Disable Trace' : 'Enable Trace'}
         </button>
-        <button className="ghost-button" disabled={locked} type="button" onClick={() => onExportActionPack(pack)}>
+        <button className="ghost-button" disabled={locked || contentBlocker} title={contentBlocker ? 'Compiled Content Blocker Action Packs are local installs. Export the workspace source instead.' : undefined} type="button" onClick={() => onExportActionPack(pack)}>
           Export
         </button>
         <button className="ghost-button" type="button" onClick={() => onViewActionPackLog(pack)}>
@@ -320,6 +334,7 @@ export function ManageResourcesPanel(props: ManageResourcesPanelProps) {
                 conditionWorkspaces={props.workspaces}
                 workspace={workspace}
                 onCompileExportWorkspace={props.onCompileExportWorkspace}
+                onCompileInstallWorkspace={props.onCompileInstallWorkspace}
                 onDeleteWorkspace={props.onDeleteWorkspace}
                 onExportWorkspace={props.onExportWorkspace}
                 onOpenWorkspace={props.onOpenWorkspace}
@@ -341,6 +356,7 @@ export function ManageResourcesPanel(props: ManageResourcesPanelProps) {
                       onClearActionPackLog={props.onClearActionPackLog}
                       onExportActionPack={props.onExportActionPack}
                       onExportActionPackLog={props.onExportActionPackLog}
+                      onIncreaseContentBlockerLock={props.onIncreaseContentBlockerLock}
                       onMarkActionPackReviewed={props.onMarkActionPackReviewed}
                       onToggleActionPackLogging={props.onToggleActionPackLogging}
                       onToggleActionPack={props.onToggleActionPack}
@@ -373,6 +389,7 @@ export function ManageResourcesPanel(props: ManageResourcesPanelProps) {
                   onClearActionPackLog={props.onClearActionPackLog}
                   onExportActionPack={props.onExportActionPack}
                   onExportActionPackLog={props.onExportActionPackLog}
+                  onIncreaseContentBlockerLock={props.onIncreaseContentBlockerLock}
                   onMarkActionPackReviewed={props.onMarkActionPackReviewed}
                   onToggleActionPackLogging={props.onToggleActionPackLogging}
                   onToggleActionPack={props.onToggleActionPack}

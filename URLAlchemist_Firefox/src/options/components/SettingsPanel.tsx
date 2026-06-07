@@ -3,6 +3,7 @@ import { useEffect, useState, type ChangeEvent, type RefObject } from 'react';
 import { UI_SCALE_MAX, UI_SCALE_MIN, UI_SCALE_STEP } from '../../shared/constants';
 import { normalizeUiScale } from '../../shared/hardening';
 import type { GlobalSettings } from '../../shared/types';
+import type { OllamaModelSummary } from '../../shared/v2/ollama';
 import { HelpTooltip } from './HelpTooltip';
 
 interface SettingsPanelProps {
@@ -11,6 +12,9 @@ interface SettingsPanelProps {
   builderUuidInput: string;
   builderUuidMessage: string | null;
   clipboardGranted: boolean;
+  ollamaModels: OllamaModelSummary[];
+  ollamaModelsBusy: boolean;
+  ollamaModelsMessage: string | null;
   settings: GlobalSettings;
   onAdvancedModeToggle: () => void;
   onBackupFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
@@ -22,6 +26,7 @@ interface SettingsPanelProps {
   onGlobalEnabledToggle: () => void;
   onLocalFilesToggle: () => void;
   onOllamaSettingsChange: (settings: Partial<Pick<GlobalSettings, 'ollamaEnabled' | 'ollamaEndpoint' | 'ollamaModel' | 'ollamaTimeoutMs'>>) => void;
+  onRefreshOllamaModels: () => void;
   onRequestClipboardPermission: () => void;
   onRestoreBuilderUuid: () => void;
   onSyncEnabledToggle: () => void;
@@ -53,6 +58,9 @@ export function SettingsPanel({
   builderUuidInput,
   builderUuidMessage,
   clipboardGranted,
+  ollamaModels,
+  ollamaModelsBusy,
+  ollamaModelsMessage,
   settings,
   onAdvancedModeToggle,
   onBackupFileChange,
@@ -64,6 +72,7 @@ export function SettingsPanel({
   onGlobalEnabledToggle,
   onLocalFilesToggle,
   onOllamaSettingsChange,
+  onRefreshOllamaModels,
   onRequestClipboardPermission,
   onRestoreBuilderUuid,
   onSyncEnabledToggle,
@@ -72,6 +81,8 @@ export function SettingsPanel({
   const [pendingUiScale, setPendingUiScale] = useState(() => normalizeUiScale(settings.uiScale));
   const activeUiScale = normalizeUiScale(settings.uiScale);
   const hasPendingUiScale = pendingUiScale !== activeUiScale;
+  const ollamaModelNames = ollamaModels.map((model) => model.name);
+  const selectedOllamaModelAvailable = ollamaModelNames.includes(settings.ollamaModel);
 
   useEffect(() => {
     setPendingUiScale(activeUiScale);
@@ -198,20 +209,37 @@ export function SettingsPanel({
             </div>
             <ToggleSwitch checked={settings.ollamaEnabled} label="Local Ollama Builder" onToggle={() => onOllamaSettingsChange({ ollamaEnabled: !settings.ollamaEnabled })} />
           </div>
-          <div className="mt-4 grid gap-3 md:grid-cols-[1fr_180px_140px]">
+          <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto_220px_140px]">
             <label className="field-shell">
               <span className="field-label">Endpoint</span>
               <input className="field-input" value={settings.ollamaEndpoint} onChange={(event) => onOllamaSettingsChange({ ollamaEndpoint: event.target.value })} />
             </label>
+            <div className="flex items-end">
+              <button className="secondary-button" disabled={ollamaModelsBusy} type="button" onClick={onRefreshOllamaModels}>
+                {ollamaModelsBusy ? 'Refreshing...' : 'Refresh Models'}
+              </button>
+            </div>
             <label className="field-shell">
               <span className="field-label">Model</span>
-              <input className="field-input" value={settings.ollamaModel} onChange={(event) => onOllamaSettingsChange({ ollamaModel: event.target.value })} />
+              <select className="field-select" value={settings.ollamaModel} onChange={(event) => onOllamaSettingsChange({ ollamaModel: event.target.value })}>
+                {!selectedOllamaModelAvailable ? (
+                  <option value={settings.ollamaModel}>{settings.ollamaModel} (saved fallback)</option>
+                ) : null}
+                {ollamaModels.map((model) => (
+                  <option key={model.name} value={model.name}>
+                    {model.name}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="field-shell">
               <span className="field-label">Timeout ms</span>
               <input className="field-input" min={1000} max={120000} type="number" value={settings.ollamaTimeoutMs} onChange={(event) => onOllamaSettingsChange({ ollamaTimeoutMs: Number.parseInt(event.target.value || '30000', 10) })} />
             </label>
           </div>
+          {ollamaModelsMessage ? (
+            <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">{ollamaModelsMessage}</p>
+          ) : null}
         </div>
 
         <div className="rounded-lg border border-slate-200 bg-white/80 px-4 py-4 lg:col-span-2">

@@ -85,6 +85,7 @@ const WORKSPACE_INPUT_SOURCES = [
   'selectedText',
   'pageTitle',
   'pageMetadata',
+  'secondsOnPage',
   'clipboard',
   'pageText',
   'rawHtml',
@@ -116,6 +117,7 @@ type DestinationPort = SourcePort;
 const SOURCE_PORTS: ReadonlyMap<string, SourcePort> = new Map(
   [
     BLOCK_REGISTRY.DataFlowIn,
+    BLOCK_REGISTRY.ContentDataIn,
     BLOCK_REGISTRY.ExtendedDataIn,
     BLOCK_REGISTRY.OnTriggerEvent,
     BLOCK_REGISTRY.KeyboardIn,
@@ -1222,6 +1224,16 @@ function validateInstruction(
       assertReference(errors, symbolTable, instruction.output, `${prefix}.output`, true);
       return instruction as GraphVmInstruction;
     }
+    case 'DECISION_OUT': {
+      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output'], ['decision'])) {
+        addError(errors, prefix, 'DECISION_OUT instruction has invalid keys');
+        return null;
+      }
+
+      assertReference(errors, symbolTable, instruction.decision, `${prefix}.decision`);
+      assertReference(errors, symbolTable, instruction.output, `${prefix}.output`, true);
+      return instruction as GraphVmInstruction;
+    }
     case 'LOG': {
       if (!hasExactKeys(instruction, ['op', 'nodeId', 'severity', 'fallbackMessage'], ['message', 'output'])) {
         addError(errors, prefix, 'LOG instruction has invalid keys');
@@ -1364,7 +1376,7 @@ function validateManifest(value: unknown, errors: string[]): CompiledActionPackV
     errors.push('manifest.enabled must be a boolean');
   }
 
-  if (!isRecord(value.metadata) || !hasExactKeys(value.metadata, ['created_at'], ['author', 'description'])) {
+  if (!isRecord(value.metadata) || !hasExactKeys(value.metadata, ['created_at'], ['author', 'description', 'workspaceType'])) {
     errors.push('manifest.metadata must be exact');
   } else {
     const metadata = value.metadata;
@@ -1373,6 +1385,10 @@ function validateManifest(value: unknown, errors: string[]): CompiledActionPackV
         errors.push(`manifest.metadata.${key} must be a string when provided`);
       }
     });
+
+    if (metadata.workspaceType !== undefined && metadata.workspaceType !== 'data-modifier' && metadata.workspaceType !== 'content-blocker') {
+      errors.push('manifest.metadata.workspaceType is invalid');
+    }
 
     if (!isNonNegativeInteger(metadata.created_at)) {
       errors.push('manifest.metadata.created_at must be a non-negative integer');
@@ -1865,12 +1881,90 @@ export function migrateCompiledActionPackV2Candidate(candidate: unknown): unknow
   };
 }
 
-function validateInstallMetadata(value: unknown): CompiledActionPackV2['install'] | undefined {
+function validateContentBlockerDecisionProgram(
+  value: unknown,
+  expectedSurfaceId: 'page-load' | 'recurring',
+  errors: string[],
+): NonNullable<NonNullable<CompiledActionPackV2['install']>['contentBlocker']>['pageLoad'] | undefined {
+  if (!isRecord(value)) {
+    errors.push(`install.contentBlocker.${expectedSurfaceId} must be an object`);
+    return undefined;
+  }
+  if (value.surfaceId !== expectedSurfaceId) {
+    errors.push(`install.contentBlocker.${expectedSurfaceId}.surfaceId is invalid`);
+  }
+  if (!isString(value.output) || !value.output.trim()) {
+    errors.push(`install.contentBlocker.${expectedSurfaceId}.output must be a non-empty string`);
+  }
+  const vmValidation = validateVm(value.vm, errors);
+  if (!vmValidation) {
+    return undefined;
+  }
+  if (!Object.prototype.hasOwnProperty.call(vmValidation.vm.symbolTable, value.output as string)) {
+    errors.push(`install.contentBlocker.${expectedSurfaceId}.output is not in the VM symbol table`);
+  }
+  return {
+    surfaceId: expectedSurfaceId,
+    vm: vmValidation.vm,
+    output: value.output as string,
+  };
+}
+
+function validateContentBlockerTasks(value: unknown): NonNullable<NonNullable<CompiledActionPackV2['install']>['contentBlocker']>['challengeTasks'] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter(isRecord)
+    .map((task) => ({
+      id: isString(task.id) ? task.id : crypto.randomUUID(),
+      kind: task.kind === 'timer' || task.kind === 'typer' || task.kind === 'clicker' || task.kind === 'confirm' || task.kind === 'reason'
+        ? task.kind
+        : 'confirm',
+      label: isString(task.label) ? task.label : 'Challenge',
+      seconds: isNonNegativeInteger(task.seconds) ? task.seconds : undefined,
+      text: isString(task.text) ? task.text : undefined,
+      count: isNonNegativeInteger(task.count) ? task.count : undefined,
+    }));
+}
+
+function validateContentBlockerInstallMetadata(
+  value: unknown,
+  errors: string[],
+): NonNullable<CompiledActionPackV2['install']>['contentBlocker'] {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const pageLoad = validateContentBlockerDecisionProgram(value.pageLoad, 'page-load', errors);
+  const recurring = value.recurring === undefined
+    ? undefined
+    : validateContentBlockerDecisionProgram(value.recurring, 'recurring', errors);
+  if (!pageLoad) {
+    return undefined;
+  }
+  return {
+    pageLoad,
+    recurring,
+    recurringIntervalSeconds: Math.max(5, Math.trunc(isFiniteNumber(value.recurringIntervalSeconds) ? value.recurringIntervalSeconds : 30)),
+    challengeTitle: isString(value.challengeTitle) ? value.challengeTitle : 'Challenge required',
+    challengeMessage: isString(value.challengeMessage) ? value.challengeMessage : 'Complete the challenge to continue to the page.',
+    blockTitle: isString(value.blockTitle) ? value.blockTitle : 'Page blocked',
+    blockMessage: isString(value.blockMessage) ? value.blockMessage : 'This page is blocked by URL Alchemist.',
+    challengeTasks: validateContentBlockerTasks(value.challengeTasks),
+    allowLockIncrease: Boolean(value.allowLockIncrease),
+    blockCount: isNonNegativeInteger(value.blockCount) ? value.blockCount : undefined,
+    challengeCount: isNonNegativeInteger(value.challengeCount) ? value.challengeCount : undefined,
+    lastBlockedAt: isNonNegativeInteger(value.lastBlockedAt) ? value.lastBlockedAt : undefined,
+    lastChallengedAt: isNonNegativeInteger(value.lastChallengedAt) ? value.lastChallengedAt : undefined,
+  };
+}
+
+function validateInstallMetadata(value: unknown, errors: string[]): CompiledActionPackV2['install'] | undefined {
   if (!isRecord(value)) {
     return undefined;
   }
 
-  const source = isEnumValue(['user-created', 'bundled', 'imported', 'legacy-converted', 'focus-guard'] as const, value.source)
+  const source = isEnumValue(['user-created', 'bundled', 'imported', 'legacy-converted', 'content-blocker', 'focus-guard'] as const, value.source)
     ? value.source
     : 'imported';
   const trustStatus = isEnumValue(['trusted', 'review', 'modified', 'blocked', 'user-reviewed'] as const, value.trustStatus)
@@ -1892,13 +1986,14 @@ function validateInstallMetadata(value: unknown): CompiledActionPackV2['install'
     ? {
         blockedPatterns: Array.isArray(value.focusGuard.blockedPatterns) ? value.focusGuard.blockedPatterns.filter(isString) : [],
         allowPatterns: Array.isArray(value.focusGuard.allowPatterns) ? value.focusGuard.allowPatterns.filter(isString) : [],
-        pageTitle: isString(value.focusGuard.pageTitle) ? value.focusGuard.pageTitle : 'Focus Guard',
+        pageTitle: isString(value.focusGuard.pageTitle) ? value.focusGuard.pageTitle : 'Content Blocker',
         pageMessage: isString(value.focusGuard.pageMessage) ? value.focusGuard.pageMessage : 'This page is blocked by URL Alchemist.',
         resourceIds: Array.isArray(value.focusGuard.resourceIds) ? value.focusGuard.resourceIds.filter(isString) : undefined,
         blockCount: isNonNegativeInteger(value.focusGuard.blockCount) ? value.focusGuard.blockCount : undefined,
         lastBlockedAt: isNonNegativeInteger(value.focusGuard.lastBlockedAt) ? value.focusGuard.lastBlockedAt : undefined,
       }
     : undefined;
+  const contentBlocker = validateContentBlockerInstallMetadata(value.contentBlocker, errors);
 
   return {
     source,
@@ -1918,7 +2013,32 @@ function validateInstallMetadata(value: unknown): CompiledActionPackV2['install'
       : undefined,
     lockState,
     focusGuard,
+    contentBlocker,
   };
+}
+
+function contentBlockerInstructions(install: CompiledActionPackV2['install']): GraphVmInstruction[] {
+  const contentBlocker = install?.contentBlocker;
+  return [
+    ...(contentBlocker?.pageLoad.vm.instructions ?? []),
+    ...(contentBlocker?.recurring?.vm.instructions ?? []),
+  ];
+}
+
+function addInstructionRisk(instruction: GraphVmInstruction, risk: CompiledRiskSummary): void {
+  if ('risk' in instruction && getRiskRank(instruction.risk) > 0) {
+    const label = instruction.op === 'SOURCE' ? instruction.source : instruction.op;
+    addRisk(risk, instruction.risk, `${label} is ${instruction.risk} risk.`, 'input');
+  }
+  if (instruction.op === 'SAVELOAD' || instruction.op === 'SHARED_STATE') {
+    addRisk(risk, 'extended', 'Session state access is extended risk.', 'output');
+  }
+  if (instruction.op === 'LOG') {
+    addRisk(risk, 'extended', 'Action Pack logging stores local run data.', 'output');
+  }
+  if (instruction.op === 'FETCH_GET' || instruction.op === 'HTTP_REQUEST') {
+    addRisk(risk, 'high', 'Remote data access is high risk.', 'input');
+  }
 }
 
 export function validateCompiledActionPackV2(candidate: unknown): ValidationResult {
@@ -1945,13 +2065,16 @@ export function validateCompiledActionPackV2(candidate: unknown): ValidationResu
   const builder = validateBuilder(candidate.builder, errors);
   const triggerPlanValidation = validateTriggerPlan(candidate.triggerPlan, errors);
   const vmValidation = validateVm(candidate.vm, errors);
+  const install = validateInstallMetadata(candidate.install, errors);
 
   if (vmValidation) {
-    const allInstructions = [...vmValidation.allInstructions, ...(triggerPlanValidation?.allInstructions ?? [])];
+    const localContentBlockerInstructions = contentBlockerInstructions(install);
+    const allInstructions = [...vmValidation.allInstructions, ...(triggerPlanValidation?.allInstructions ?? []), ...localContentBlockerInstructions];
     const derivedRisk = { ...vmValidation.risk };
     if (triggerPlanValidation) {
       mergeRisk(derivedRisk, triggerPlanValidation.risk);
     }
+    localContentBlockerInstructions.forEach((instruction) => addInstructionRisk(instruction, derivedRisk));
     const requiredPermissions = deriveRequiredPermissions(allInstructions);
     validateRiskSummary(candidate.risk, derivedRisk, errors);
     validateRequiredPermissions(candidate.requiredPermissions, requiredPermissions, errors);
@@ -1970,7 +2093,7 @@ export function validateCompiledActionPackV2(candidate: unknown): ValidationResu
           requiredPermissions,
           vm: vmValidation.vm,
           traceEnabledUntil: isNonNegativeInteger(candidate.traceEnabledUntil) ? candidate.traceEnabledUntil : undefined,
-          install: validateInstallMetadata(candidate.install),
+          install,
         },
       };
     }

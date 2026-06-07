@@ -82,12 +82,12 @@ This Firefox MV3 build uses a background script/page rather than a Chrome servic
 
 - Action Packs are binary files decoded and validated by the extension before installation.
 - Imported Action Packs open in a staging review flow and are not saved automatically.
-- Version 2.5 uses workspace/action-pack schema 7. Legacy V1 `.urlpack` import/conversion remains available, and older V2 schemas are migrated before validation.
+- Version 2.5 uses workspace/action-pack schema 8. Legacy V1 `.urlpack` import/conversion remains available, and older V2 schemas are migrated before validation.
 - Version-file update metadata/export support was removed; old version-file metadata is stripped during migration and export.
 - Large local media resources are stored in IndexedDB by SHA-256 and referenced from workspaces/installed Action Packs. They are excluded from browser sync and bundled into exported artifacts only.
-- Installed Action Packs keep local-only install metadata for trust status, logging, locks, review overrides, install time, and Focus Guard statistics. That metadata is stripped from exported `.actionpack` files.
+- Installed Action Packs keep local-only install metadata for trust status, logging, locks, review overrides, install time, and Content Blocker statistics. That metadata is stripped from exported `.actionpack` files.
 - New Action Pack installs default logging off unless the user changes the setting; migrated existing packs retain logging on.
-- Focus Guard content-blocker packs are normal compiled Action Packs plus local install metadata. Locked Focus Guard packs cannot be disabled, deleted, exported, overwritten by rebuild/import, or removed by backup restore/reset until unlocked.
+- Content Blocker workspaces compile into local Action Packs plus local install metadata. Locked Content Blocker packs cannot be disabled, deleted, exported, overwritten by rebuild/import, or removed by backup restore/reset until unlocked.
 - Level 1 locks use challenge text, repeated confirmation, and a delay. Level 2 locks use salted PBKDF2 through WebCrypto. Level 3 has no in-app unlock path. Extension removal or browser profile tampering remains outside what an extension can prevent.
 - The Local Ollama Builder is disabled by default, allows only loopback HTTP endpoints, previews strict JSON recipes, and never adds runtime AI instructions.
 - The extension does not use `eval`, `new Function`, imported scripts, or downloaded code to execute Action Pack logic.
@@ -95,7 +95,7 @@ This Firefox MV3 build uses a background script/page rather than a Chrome servic
 ## Useful review entry points
 
 - `public/manifest.json` declares the Firefox MV3 extension permissions and entry points.
-- `src/background/index.ts` owns navigation, hotkey, context-menu, interval, overlay-event, clipboard, Focus Guard, and content-message routing.
+- `src/background/index.ts` owns navigation, hotkey, context-menu, interval, overlay-event, clipboard, Content Blocker, and content-message routing.
 - `src/content/index.ts` owns page overlays, hotkey capture, page reads, page mutation, and display UI.
 - `src/shared/v2/actionPackValidator.ts` validates imported compiled Action Packs.
 - `src/shared/v2/compiler.ts` compiles workspaces into Action Packs.

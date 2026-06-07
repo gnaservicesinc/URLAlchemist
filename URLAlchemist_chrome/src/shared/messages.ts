@@ -13,6 +13,9 @@ export const CONTENT_MUTATE_TEXT_MESSAGE = 'URL_ALCHEMIST_CONTENT_MUTATE_TEXT';
 export const CONTENT_READ_SOURCE_MESSAGE = 'URL_ALCHEMIST_CONTENT_READ_SOURCE';
 export const CONTENT_OVERLAY_CONTROL_MESSAGE = 'URL_ALCHEMIST_CONTENT_OVERLAY_CONTROL';
 export const CONTENT_OVERLAY_DRAW_MESSAGE = 'URL_ALCHEMIST_CONTENT_OVERLAY_DRAW';
+export const CONTENT_BLOCKER_START_RECURRING_MESSAGE = 'URL_ALCHEMIST_CONTENT_BLOCKER_START_RECURRING';
+export const CONTENT_BLOCKER_RECURRING_CHECK_MESSAGE = 'URL_ALCHEMIST_CONTENT_BLOCKER_RECURRING_CHECK';
+export const CONTENT_BLOCKER_CHALLENGE_COMPLETE_MESSAGE = 'URL_ALCHEMIST_CONTENT_BLOCKER_CHALLENGE_COMPLETE';
 export const OVERLAY_APP_EVENT_MESSAGE = 'URL_ALCHEMIST_OVERLAY_APP_EVENT';
 
 export interface OffscreenRegexMessage {
@@ -39,6 +42,7 @@ export interface RuntimeSourceContext {
   linkUrl?: string;
   pageTitle?: string;
   selectedText?: string;
+  secondsOnPage?: number;
   tabId?: number;
 }
 
@@ -88,13 +92,34 @@ export interface ContentReadSourceMessage {
   source: string;
 }
 
+export interface ContentBlockerStartRecurringMessage {
+  type: typeof CONTENT_BLOCKER_START_RECURRING_MESSAGE;
+  requestId: string;
+  packId: string;
+  intervalSeconds: number;
+}
+
 export type ContentRuntimeMessage =
   | ContentInteractionMessage
   | ContentDisplayMessage
   | ContentOverlayControlMessage
   | ContentOverlayDrawMessage
+  | ContentBlockerStartRecurringMessage
   | ContentMutateTextMessage
   | ContentReadSourceMessage;
+
+export interface ContentBlockerRecurringCheckMessage {
+  type: typeof CONTENT_BLOCKER_RECURRING_CHECK_MESSAGE;
+  packId: string;
+  url: string;
+  secondsOnPage: number;
+}
+
+export interface ContentBlockerChallengeCompleteMessage {
+  type: typeof CONTENT_BLOCKER_CHALLENGE_COMPLETE_MESSAGE;
+  packId: string;
+  sourceUrl: string;
+}
 
 export interface OverlayAppEventMessage extends RuntimeSourceContext {
   type: typeof OVERLAY_APP_EVENT_MESSAGE;
@@ -165,6 +190,7 @@ function hasValidRuntimeContext(value: Record<string, unknown>): boolean {
     isOptionalStringWithin(value.selectedText, MAX_RUNTIME_CONTEXT_BYTES) &&
     isOptionalStringWithin(value.linkUrl, MAX_RUNTIME_URL_BYTES) &&
     isOptionalStringWithin(value.pageTitle, MAX_RUNTIME_CONTEXT_BYTES) &&
+    (value.secondsOnPage === undefined || (isFiniteNumber(value.secondsOnPage) && value.secondsOnPage >= 0)) &&
     isOptionalRuntimeTabId(value.tabId)
   );
 }
@@ -230,9 +256,30 @@ export function isContentRuntimeMessage(message: unknown): message is ContentRun
       (message as { type?: unknown }).type === CONTENT_DISPLAY_MESSAGE ||
       (message as { type?: unknown }).type === CONTENT_OVERLAY_CONTROL_MESSAGE ||
       (message as { type?: unknown }).type === CONTENT_OVERLAY_DRAW_MESSAGE ||
+      (message as { type?: unknown }).type === CONTENT_BLOCKER_START_RECURRING_MESSAGE ||
       (message as { type?: unknown }).type === CONTENT_MUTATE_TEXT_MESSAGE ||
       (message as { type?: unknown }).type === CONTENT_READ_SOURCE_MESSAGE
     )
+  );
+}
+
+export function isContentBlockerRecurringCheckMessage(message: unknown): message is ContentBlockerRecurringCheckMessage {
+  return (
+    isRecord(message) &&
+    message.type === CONTENT_BLOCKER_RECURRING_CHECK_MESSAGE &&
+    isStringWithin(message.packId, MAX_RUNTIME_ID_BYTES) &&
+    isStringWithin(message.url, MAX_RUNTIME_URL_BYTES) &&
+    isFiniteNumber(message.secondsOnPage) &&
+    message.secondsOnPage >= 0
+  );
+}
+
+export function isContentBlockerChallengeCompleteMessage(message: unknown): message is ContentBlockerChallengeCompleteMessage {
+  return (
+    isRecord(message) &&
+    message.type === CONTENT_BLOCKER_CHALLENGE_COMPLETE_MESSAGE &&
+    isStringWithin(message.packId, MAX_RUNTIME_ID_BYTES) &&
+    isStringWithin(message.sourceUrl, MAX_RUNTIME_URL_BYTES)
   );
 }
 

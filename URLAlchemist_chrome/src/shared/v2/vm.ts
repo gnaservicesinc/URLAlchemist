@@ -94,6 +94,7 @@ export interface GraphExecutionResult {
   appliedPackIds: string[];
   issues: EngineIssue[];
   trace: GraphTraceEntry[];
+  outputs: Record<string, GraphValue>;
   exitCode: number;
   aborted: boolean;
 }
@@ -659,6 +660,8 @@ function defaultSourceValue(source: string, inputUrl: string, event?: OverlayRun
     case 'mediaData':
     case 'jsMetadata':
       return { type: 'dict', value: {} };
+    case 'secondsOnPage':
+      return { type: 'number', value: 0 };
     case 'pageLinks':
     case 'consoleOutput':
       return { type: 'data', value: [] };
@@ -1459,6 +1462,15 @@ async function executeInstruction(
       trace(state, instruction, 'Evaluated condition', value);
       break;
     }
+    case 'DECISION_OUT': {
+      const numeric = numericValues(getValue(state, instruction.decision))[0] ?? 0;
+      const decision = Math.max(0, Math.min(2, Math.trunc(numeric)));
+      const value: GraphValue = { type: 'number', value: decision };
+      setValue(state, instruction.output, value, program.valueByteLimit);
+      state.outputs.set('contentBlockerDecision', value);
+      trace(state, instruction, 'Evaluated content blocker decision', value);
+      break;
+    }
     case 'LOG': {
       const message = capLogMessage(instruction.message ? asString(getValue(state, instruction.message)) : resolveFallbackText(state, instruction.fallbackMessage));
       await runtime.writeLog?.({
@@ -1576,6 +1588,7 @@ export async function executeCompiledActionPackV2(
       appliedPackIds: [],
       issues: [issue('Local file URLs are blocked by global settings')],
       trace: [],
+      outputs: {},
       exitCode: 1,
       aborted: false,
     };
@@ -1611,6 +1624,7 @@ export async function executeCompiledActionPackV2(
     appliedPackIds: finalUrl !== inputUrl ? [pack.manifest.id] : [],
     issues: state.issues,
     trace: state.trace,
+    outputs: Object.fromEntries(state.outputs),
     exitCode: state.exitCode,
     aborted: state.aborted,
   };

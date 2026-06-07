@@ -19,12 +19,12 @@ import { compileWorkspace } from './compiler';
 import { explainRiskReason } from './explain';
 import { stripLocalInstallMetadata } from './installMetadata';
 import { createChallengeLockState, createPasswordLockState, verifyPasswordLock } from './locks';
-import { validateOllamaEndpoint } from './ollama';
+import { listOllamaModels, validateOllamaEndpoint } from './ollama';
 import { createSandboxGraphRuntime } from './sandboxRuntime';
 import { ACTION_PACK_SCHEMA_VERSION, LEGACY_ACTION_PACK_SCHEMA_VERSION, type CompiledActionPackV2, type GraphValue } from './types';
 import { extractVariableReferences, resolveVariableText } from './variables';
 import { evaluateCompiledActionPackCondition, executeCompiledActionPackV2, type GraphRuntime } from './vm';
-import { createEdge, createDefaultWorkspace, createWorkspaceNode, validateWorkspaceFile, workspaceFromLegacyPack } from './workspace';
+import { createDefaultContentBlockerWorkspace, createEdge, createDefaultWorkspace, createWorkspaceNode, validateWorkspaceFile, workspaceFromLegacyPack } from './workspace';
 import { createWorkspaceBlockClipboard, pasteWorkspaceBlockClipboard } from './workspaceClipboard';
 import {
   exportCompiledActionPackV2Binary,
@@ -108,6 +108,33 @@ function createBasicCompiledPack() {
   }
 
   return compiled.pack;
+}
+
+async function encodeActionPackForImportTest(pack: CompiledActionPackV2): Promise<Uint8Array> {
+  const payload = encode(omitUndefinedForTest(pack));
+  const checksumHex = await sha256Hex(payload);
+  const magicBytes = new TextEncoder().encode(ACTION_PACK_MAGIC);
+  const checksumBytes = hexToBytes(checksumHex);
+  const output = new Uint8Array(magicBytes.length + 1 + checksumBytes.length + payload.length);
+  output.set(magicBytes, 0);
+  output[magicBytes.length] = ACTION_PACK_SCHEMA_VERSION;
+  output.set(checksumBytes, magicBytes.length + 1);
+  output.set(payload, magicBytes.length + 1 + checksumBytes.length);
+  return output;
+}
+
+function omitUndefinedForTest(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(omitUndefinedForTest);
+  }
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, entry]) => entry !== undefined)
+      .map(([key, entry]) => [key, omitUndefinedForTest(entry)]),
+  );
 }
 
 function createConditionalWorkspace(conditionValue = '1') {
@@ -315,19 +342,12 @@ describe('v2 workspace compiler and VM', () => {
       checksumHex: 'local-checksum',
       traceEnabledUntil: Date.now() + 60_000,
       install: {
-        source: 'focus-guard',
+        source: 'imported',
         trustStatus: 'trusted',
         loggingEnabled: false,
         installedAt: Date.now(),
         artifactChecksumHex: 'artifact-checksum',
         lockState: createChallengeLockState(pack.manifest.name, 1),
-        focusGuard: {
-          blockedPatterns: ['example.com'],
-          allowPatterns: [],
-          pageTitle: 'Focus Guard',
-          pageMessage: 'Blocked',
-          blockCount: 3,
-        },
       },
     };
 
@@ -337,6 +357,59 @@ describe('v2 workspace compiler and VM', () => {
     expect(imported.pack.traceEnabledUntil).toBeUndefined();
   });
 
+  it('compiles Content Blocker workspaces as local installs and rejects compiled import/export', async () => {
+    const workspace = createDefaultContentBlockerWorkspace();
+    const result = compileWorkspace(workspace);
+
+    expect(result.ok).toBe(true);
+    expect(result.pack?.manifest.metadata.workspaceType).toBe('content-blocker');
+    expect(result.pack?.install?.contentBlocker?.pageLoad.surfaceId).toBe('page-load');
+    expect(result.pack?.install?.contentBlocker?.recurring).toBeUndefined();
+    expect(result.pack?.install?.contentBlocker?.challengeTasks.length).toBeGreaterThan(0);
+
+    await expect(exportCompiledActionPackV2Binary(result.pack!)).rejects.toThrow('Content Blocker Action Packs are local installs');
+    await expect(importCompiledActionPackV2Binary(await encodeActionPackForImportTest(result.pack!))).rejects.toThrow('Compiled Content Blocker Action Packs cannot be imported');
+    await expect(importAnyArtifact(await encodeActionPackForImportTest(result.pack!))).rejects.toThrow('Compiled Content Blocker Action Packs cannot be imported');
+  });
+
+  it('enforces Decision Out on Content Blocker decision surfaces', () => {
+    const workspace = createDefaultContentBlockerWorkspace();
+    const pageLoad = workspace.surfaces!.find((surface) => surface.id === 'page-load')!;
+    const decisionOut = pageLoad.nodes.find((node) => node.type === 'DecisionOut')!;
+    const result = compileWorkspace({
+      ...workspace,
+      surfaces: workspace.surfaces!.map((surface) => surface.id === 'page-load'
+        ? {
+            ...surface,
+            edges: surface.edges.filter((edge) => edge.target !== decisionOut.id),
+          }
+        : surface),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.validation.errors.join('\n')).toContain('Page Load Decision requires exactly one connected Decision Out block.');
+  });
+
+  it('migrates legacy content-blocker profile workspaces into typed Content Blockers', () => {
+    const legacy = {
+      ...createDefaultWorkspace(),
+      schemaVersion: 7,
+      workspaceType: undefined,
+      metadata: {
+        ...createDefaultWorkspace().metadata,
+        profile: 'content-blocker',
+      },
+    };
+
+    const result = validateWorkspaceFile(legacy);
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error(result.errors.join('; '));
+    }
+    expect(result.value.workspaceType).toBe('content-blocker');
+    expect(result.value.surfaces?.map((surface) => surface.id)).toEqual(['page-load', 'recurring', 'challenge']);
+  });
+
   it('verifies password locks and rejects non-local Ollama endpoints', async () => {
     const lock = await createPasswordLockState('correct horse battery staple');
     expect(await verifyPasswordLock(lock, 'correct horse battery staple')).toBe(true);
@@ -344,6 +417,49 @@ describe('v2 workspace compiler and VM', () => {
     expect(validateOllamaEndpoint('http://127.0.0.1:11434/api/generate')).toBe('http://127.0.0.1:11434');
     expect(() => validateOllamaEndpoint('https://127.0.0.1:11434')).toThrow('Ollama endpoint must be local');
     expect(() => validateOllamaEndpoint('http://192.168.0.10:11434')).toThrow('Ollama endpoint must be local');
+  });
+
+  it('lists installed Ollama models from the local tags endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        models: [
+          { name: 'llama3.2:latest', model: 'llama3.2:latest', modified_at: '2026-06-01T00:00:00Z', size: 1234, digest: 'abc' },
+          { model: 'mistral:latest' },
+        ],
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const models = await listOllamaModels({
+      ollamaEndpoint: 'http://127.0.0.1:11434',
+      ollamaTimeoutMs: 5_000,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:11434/api/tags', expect.objectContaining({ method: 'GET' }));
+    expect(models.map((model) => model.name)).toEqual(['llama3.2:latest', 'mistral:latest']);
+    vi.unstubAllGlobals();
+  });
+
+  it('handles empty and failed Ollama model lists', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ models: [] }),
+    }));
+    await expect(listOllamaModels({
+      ollamaEndpoint: 'http://localhost:11434',
+      ollamaTimeoutMs: 5_000,
+    })).resolves.toEqual([]);
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+    }));
+    await expect(listOllamaModels({
+      ollamaEndpoint: 'http://localhost:11434',
+      ollamaTimeoutMs: 5_000,
+    })).rejects.toThrow('Ollama model list failed with HTTP 500');
+    vi.unstubAllGlobals();
   });
 
   it('validates runtime overlay and hotkey messages strictly', () => {

@@ -8,12 +8,15 @@ const CONTENT_MUTATE_TEXT_MESSAGE = 'URL_ALCHEMIST_CONTENT_MUTATE_TEXT';
 const CONTENT_READ_SOURCE_MESSAGE = 'URL_ALCHEMIST_CONTENT_READ_SOURCE';
 const CONTENT_OVERLAY_CONTROL_MESSAGE = 'URL_ALCHEMIST_CONTENT_OVERLAY_CONTROL';
 const CONTENT_OVERLAY_DRAW_MESSAGE = 'URL_ALCHEMIST_CONTENT_OVERLAY_DRAW';
+const CONTENT_BLOCKER_START_RECURRING_MESSAGE = 'URL_ALCHEMIST_CONTENT_BLOCKER_START_RECURRING';
+const CONTENT_BLOCKER_RECURRING_CHECK_MESSAGE = 'URL_ALCHEMIST_CONTENT_BLOCKER_RECURRING_CHECK';
 const OVERLAY_APP_EVENT_MESSAGE = 'URL_ALCHEMIST_OVERLAY_APP_EVENT';
 const CONTENT_RUNTIME_MESSAGE_TYPES = new Set<string>([
   CONTENT_INTERACTION_MESSAGE,
   CONTENT_DISPLAY_MESSAGE,
   CONTENT_OVERLAY_CONTROL_MESSAGE,
   CONTENT_OVERLAY_DRAW_MESSAGE,
+  CONTENT_BLOCKER_START_RECURRING_MESSAGE,
   CONTENT_MUTATE_TEXT_MESSAGE,
   CONTENT_READ_SOURCE_MESSAGE,
 ]);
@@ -22,6 +25,8 @@ const MAX_PAGE_LINKS = 1000;
 const MAX_PAGE_LINK_HREF_BYTES = 8192;
 const MAX_PAGE_LINK_TEXT_BYTES = 2048;
 const textEncoder = new TextEncoder();
+const contentBlockerRecurringTimers = new Map<string, number>();
+const pageLoadedAt = Date.now();
 
 function utf8ByteLength(value: string): number {
   return textEncoder.encode(value).byteLength;
@@ -62,6 +67,36 @@ function isContentRuntimeMessage(message: unknown): message is ContentRuntimeMes
     typeof (message as { requestId?: unknown }).requestId === 'string' &&
     CONTENT_RUNTIME_MESSAGE_TYPES.has(String((message as { type?: unknown }).type))
   );
+}
+
+function startContentBlockerRecurringCheck(message: Extract<ContentRuntimeMessage, { type: typeof CONTENT_BLOCKER_START_RECURRING_MESSAGE }>): GraphValue {
+  const existing = contentBlockerRecurringTimers.get(message.packId);
+  if (existing !== undefined) {
+    window.clearInterval(existing);
+  }
+
+  const intervalSeconds = Math.max(5, Math.trunc(message.intervalSeconds));
+  const timer = window.setInterval(() => {
+    if (!isContextValid()) {
+      window.clearInterval(timer);
+      contentBlockerRecurringTimers.delete(message.packId);
+      return;
+    }
+    void chrome.runtime.sendMessage({
+      type: CONTENT_BLOCKER_RECURRING_CHECK_MESSAGE,
+      packId: message.packId,
+      url: window.location.href,
+      secondsOnPage: Math.max(0, Math.floor((Date.now() - pageLoadedAt) / 1000)),
+    });
+  }, intervalSeconds * 1000);
+  contentBlockerRecurringTimers.set(message.packId, timer);
+  return {
+    type: 'dict',
+    value: {
+      ok: { type: 'bool', value: 1 },
+      intervalSeconds: { type: 'number', value: intervalSeconds },
+    },
+  };
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -1041,6 +1076,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       }
       if (message.type === CONTENT_OVERLAY_DRAW_MESSAGE) {
         return { ok: true, data: handleOverlayDraw(message) };
+      }
+      if (message.type === CONTENT_BLOCKER_START_RECURRING_MESSAGE) {
+        return { ok: true, data: startContentBlockerRecurringCheck(message) };
       }
       if (message.type === CONTENT_MUTATE_TEXT_MESSAGE) {
         return { ok: true, data: mutateText(message.value) };

@@ -7,7 +7,6 @@ import { simulateActionPack } from '../shared/engine/engine';
 import type { EngineRuntime } from '../shared/engine/runtime';
 import { formatActionPackLogText } from '../shared/logs';
 import { effectiveRegexTimeoutMs, normalizeUiScale } from '../shared/hardening';
-import { getDefaultHotkey } from '../shared/hotkeys';
 import {
   clearActionPackLog,
   clearOpenWorkspaceDraft,
@@ -30,14 +29,14 @@ import { exportActionPackBinary } from '../shared/vault';
 import { createPageRegexExecutor } from '../shared/regex/pageRunner';
 import { BUNDLED_ACTION_PACK_EXAMPLES, type BundledActionPackExample } from '../shared/v2/bundledExamples';
 import { compileWorkspace } from '../shared/v2/compiler';
-import { isActionPackLocked, withInstallMetadata } from '../shared/v2/installMetadata';
+import { isActionPackLocked, isContentBlockerActionPack, withInstallMetadata } from '../shared/v2/installMetadata';
 import { createChallengeLockState, createPasswordLockState, unlockedLockState, verifyPasswordLock } from '../shared/v2/locks';
-import { requestOllamaWorkspaceDraft, validateOllamaEndpoint, workspaceFromOllamaDraft, type OllamaWorkspaceDraft } from '../shared/v2/ollama';
+import { listOllamaModels, requestOllamaWorkspaceDraft, validateOllamaEndpoint, workspaceFromOllamaDraft, type OllamaModelSummary, type OllamaWorkspaceDraft } from '../shared/v2/ollama';
 import { inferAssetKind, listResources, putResourceBytes, resourceToAssetRef } from '../shared/v2/resources';
 import { executeCompiledActionPackV2, type GraphRuntime } from '../shared/v2/vm';
 import { createSandboxGraphRuntime } from '../shared/v2/sandboxRuntime';
-import type { AssetRef, CompiledActionPackV2, WorkspaceFileV2, WorkspaceMetadata } from '../shared/v2/types';
-import { createDefaultWorkspace, workspaceFromLegacyPack } from '../shared/v2/workspace';
+import type { ActionPackLockLevel, ActionPackLockState, AssetRef, CompiledActionPackV2, WorkspaceFileV2, WorkspaceMetadata, WorkspaceType } from '../shared/v2/types';
+import { createDefaultContentBlockerWorkspace, createDefaultWorkspace, workspaceFromLegacyPack } from '../shared/v2/workspace';
 import { URL_ALCHEMIST_VERSION } from '../shared/v2/buildInfo';
 import {
   importCompiledActionPackV2Binary,
@@ -48,7 +47,6 @@ import {
 } from '../shared/v2/vault';
 import { AboutPanel } from './components/AboutPanel';
 import { BundledExamplesPanel } from './components/BundledExamplesPanel';
-import { FocusGuardPanel, type FocusGuardDraft } from './components/FocusGuardPanel';
 import { HelpPanel } from './components/HelpPanel';
 import ImportPanel from './components/ImportPanel';
 import { ManageResourcesPanel } from './components/ManageResourcesPanel';
@@ -75,7 +73,7 @@ type BrowserChromeApi = {
   };
 };
 
-type OptionsTab = 'bundled' | 'examples' | 'manage-resources' | 'import' | 'workspace-editor' | 'focus-guard' | 'security' | 'settings' | 'help' | 'about';
+type OptionsTab = 'bundled' | 'examples' | 'manage-resources' | 'import' | 'workspace-editor' | 'security' | 'settings' | 'help' | 'about';
 
 const OPTIONS_TABS: Array<{ id: OptionsTab; label: string }> = [
   { id: 'bundled', label: 'Bundled' },
@@ -83,7 +81,6 @@ const OPTIONS_TABS: Array<{ id: OptionsTab; label: string }> = [
   { id: 'manage-resources', label: 'Manage Resources' },
   { id: 'import', label: 'Import' },
   { id: 'workspace-editor', label: 'Workspace Editor' },
-  { id: 'focus-guard', label: 'Focus Guard' },
   { id: 'security', label: 'Security' },
   { id: 'settings', label: 'Settings' },
   { id: 'help', label: 'Help' },
@@ -337,6 +334,9 @@ function App() {
   const [ollamaPrompt, setOllamaPrompt] = useState('');
   const [ollamaBusy, setOllamaBusy] = useState(false);
   const [ollamaMessage, setOllamaMessage] = useState<string | null>(null);
+  const [ollamaModels, setOllamaModels] = useState<OllamaModelSummary[]>([]);
+  const [ollamaModelsBusy, setOllamaModelsBusy] = useState(false);
+  const [ollamaModelsMessage, setOllamaModelsMessage] = useState<string | null>(null);
   const [pendingOllamaDraft, setPendingOllamaDraft] = useState<OllamaWorkspaceDraft | null>(null);
   const builderUuidFileInputRef = useRef<HTMLInputElement | null>(null);
   const backupFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -384,6 +384,14 @@ function App() {
   useEffect(() => {
     runtimesRef.current = createOptionsRuntimes(state.settings);
   }, [state.settings]);
+
+  useEffect(() => {
+    if (!state.settings.ollamaEnabled) {
+      return;
+    }
+
+    void refreshOllamaModels();
+  }, [state.settings.ollamaEnabled, state.settings.ollamaEndpoint]);
 
   useEffect(() => {
     const chromeApi = getChromeApi();
@@ -558,14 +566,15 @@ function App() {
     void clearOpenWorkspaceDraft();
   }
 
-  function newWorkspace(): void {
+  function newWorkspace(type: WorkspaceType = 'data-modifier'): void {
     if (!confirmDiscardDirtyChanges()) {
       return;
     }
 
-    setWorkspace(createDefaultWorkspace());
+    const nextWorkspace = type === 'content-blocker' ? createDefaultContentBlockerWorkspace() : createDefaultWorkspace();
+    setWorkspace(nextWorkspace);
     setWorkspaceDirty(false);
-    setWorkspaceMessage('Started a new workspace.');
+    setWorkspaceMessage(`Started a new ${type === 'content-blocker' ? 'Content Blocker' : 'Data Modifier'} workspace.`);
     void clearOpenWorkspaceDraft();
   }
 
@@ -617,92 +626,107 @@ function App() {
     return asset;
   }
 
-  async function buildActionPack(): Promise<void> {
-    const result = compileWithConditions(workspace);
+  async function authorizeLockedActionPack(pack: CompiledActionPackV2, actionLabel: string): Promise<boolean> {
+    const lockState = pack.install?.lockState;
+    if (!lockState?.locked || lockState.level === 0) {
+      return true;
+    }
+
+    if (lockState.level === 3) {
+      window.alert(`Level 3 locks have no in-app ${actionLabel} path. Browser extension removal or browser profile tampering remains the practical bypass.`);
+      return false;
+    }
+
+    if (lockState.level === 1) {
+      const challenge = lockState.challengeText ?? `UNLOCK ${pack.manifest.name}`;
+      if (window.prompt(`Type this challenge exactly: ${challenge}`) !== challenge) {
+        setWorkspaceMessage('Level 1 challenge did not match.');
+        return false;
+      }
+      for (let index = 0; index < 3; index += 1) {
+        if (!window.confirm(`Confirm ${actionLabel} ${index + 1} of 3 for "${pack.manifest.name}".`)) {
+          setWorkspaceMessage(`Level 1 ${actionLabel} cancelled.`);
+          return false;
+        }
+      }
+      setWorkspaceMessage(`Level 1 ${actionLabel} delay started. Keep this page active.`);
+      await new Promise((resolve) => window.setTimeout(resolve, 10_000));
+      if (document.hidden) {
+        setWorkspaceMessage(`Level 1 ${actionLabel} reset because the page was left during the delay.`);
+        return false;
+      }
+      return true;
+    }
+
+    const password = window.prompt(`Enter password for "${pack.manifest.name}".`);
+    if (!password || !(await verifyPasswordLock(lockState, password))) {
+      setWorkspaceMessage('Level 2 password verification failed.');
+      return false;
+    }
+    return true;
+  }
+
+  async function lockStateFromLevel(packName: string, level: ActionPackLockLevel): Promise<ActionPackLockState | undefined> {
+    const note = 'Extension-local lock. Extension removal or browser profile tampering can bypass it.';
+    if (level === 0) {
+      return undefined;
+    }
+    if (level === 2) {
+      const password = window.prompt(`Create a password for "${packName}". Level 2 passwords must be at least 8 characters.`);
+      if (!password) {
+        throw new Error('Level 2 lock installation requires a password.');
+      }
+      return await createPasswordLockState(password, note);
+    }
+    return createChallengeLockState(packName, level, note);
+  }
+
+  async function buildActionPackFromWorkspace(targetWorkspace: WorkspaceFileV2): Promise<void> {
+    const result = compileWithConditions(targetWorkspace);
     if (!result.ok || !result.pack) {
       setWorkspaceMessage('Fix workspace validation before building an Action Pack.');
       return;
     }
 
     try {
-      await applyState(upsertWorkspaceV2(result.workspace));
-      await applyState(upsertActionPackV2(withInstallMetadata(result.pack, state.settings, {
-        source: workspace.metadata.profile === 'content-blocker' ? 'focus-guard' : 'user-created',
+      const isContentBlocker = result.workspace.workspaceType === 'content-blocker' || isContentBlockerActionPack(result.pack);
+      const existingPack = state.actionPacksV2.find((candidate) => candidate.manifest.id === result.pack!.manifest.id);
+      let allowLockedOverwrite = false;
+      if (isContentBlocker && existingPack && isActionPackLocked(existingPack)) {
+        allowLockedOverwrite = await authorizeLockedActionPack(existingPack, 'overwrite');
+        if (!allowLockedOverwrite) {
+          return;
+        }
+      }
+
+      const lockState = isContentBlocker
+        ? await lockStateFromLevel(result.pack.manifest.name, result.workspace.contentBlocker?.lockLevel ?? 0)
+        : undefined;
+      const pack = withInstallMetadata(result.pack, state.settings, {
+        source: isContentBlocker ? 'content-blocker' : 'user-created',
         trustStatus: 'trusted',
-      })));
+        loggingEnabled: isContentBlocker ? true : state.settings.defaultActionPackLoggingEnabled,
+        lockState,
+        contentBlocker: result.pack.install?.contentBlocker,
+      });
+      await applyState(upsertWorkspaceV2(result.workspace));
+      await applyState(upsertActionPackV2(pack, { allowLockedOverwrite }));
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : 'Unable to build Action Pack.');
       return;
     }
 
-    setWorkspace(result.workspace);
-    setWorkspaceDirty(false);
-    await clearOpenWorkspaceDraft();
+    if (workspace.metadata.id === targetWorkspace.metadata.id) {
+      setWorkspace(result.workspace);
+      setWorkspaceDirty(false);
+      await clearOpenWorkspaceDraft();
+    }
     setWorkspaceMessage(`Built and installed "${result.pack.manifest.name}".`);
     setWorkspaceToast(`Built and installed "${result.pack.manifest.name}".`);
   }
 
-  async function createFocusGuard(draft: FocusGuardDraft): Promise<void> {
-    try {
-      const now = Date.now();
-      const focusWorkspace: WorkspaceFileV2 = {
-        ...createDefaultWorkspace(),
-        metadata: {
-          id: crypto.randomUUID(),
-          name: draft.name,
-          version: 1,
-          author: 'URL Alchemist',
-          description: draft.description,
-          profile: 'content-blocker',
-          created_at: now,
-          updated_at: now,
-        },
-        trigger: {
-          type: 'INPUT_DATA',
-          hotkey: getDefaultHotkey(),
-          inputSources: ['url'],
-          sourceFilters: [],
-        },
-        assets: draft.resourceId
-          ? resourceAssets.filter((asset) => (asset.resourceId ?? asset.sha256) === draft.resourceId)
-          : undefined,
-      };
-      const result = compileWithConditions(focusWorkspace);
-      if (!result.ok || !result.pack) {
-        setWorkspaceMessage(result.validation.errors[0] ?? 'Focus Guard workspace did not compile.');
-        return;
-      }
-
-      const lockState = draft.lockLevel === 0
-        ? undefined
-        : draft.lockLevel === 2
-          ? await createPasswordLockState(draft.password ?? '', 'Extension-local lock. Extension removal or browser profile tampering can bypass it.')
-          : createChallengeLockState(result.pack.manifest.name, draft.lockLevel, 'Extension-local lock. Extension removal or browser profile tampering can bypass it.');
-      const focusPack = withInstallMetadata(result.pack, state.settings, {
-        source: 'focus-guard',
-        trustStatus: 'trusted',
-        loggingEnabled: false,
-        lockState,
-        focusGuard: {
-          blockedPatterns: draft.blockedPatterns,
-          allowPatterns: draft.allowPatterns,
-          pageTitle: draft.pageTitle,
-          pageMessage: draft.pageMessage,
-          resourceIds: draft.resourceId ? [draft.resourceId] : [],
-          blockCount: 0,
-        },
-      });
-
-      await applyState(upsertWorkspaceV2(result.workspace));
-      await applyState(upsertActionPackV2(focusPack));
-      setWorkspace(result.workspace);
-      setWorkspaceDirty(false);
-      setActiveTab('manage-resources');
-      setWorkspaceMessage(`Created Focus Guard "${result.pack.manifest.name}".`);
-      setWorkspaceToast(`Created Focus Guard "${result.pack.manifest.name}".`);
-    } catch (error) {
-      setWorkspaceMessage(error instanceof Error ? error.message : 'Unable to create Focus Guard.');
-    }
+  async function buildActionPack(): Promise<void> {
+    await buildActionPackFromWorkspace(workspace);
   }
 
   async function runOllamaBuilder(): Promise<void> {
@@ -729,6 +753,21 @@ function App() {
     }
   }
 
+  async function refreshOllamaModels(): Promise<void> {
+    setOllamaModelsBusy(true);
+    setOllamaModelsMessage(null);
+    try {
+      const models = await listOllamaModels(state.settings);
+      setOllamaModels(models);
+      setOllamaModelsMessage(models.length > 0 ? `Found ${models.length} installed Ollama model${models.length === 1 ? '' : 's'}.` : 'No installed Ollama models were returned by the local server.');
+    } catch (error) {
+      setOllamaModels([]);
+      setOllamaModelsMessage(error instanceof Error ? error.message : 'Unable to reach the local Ollama server.');
+    } finally {
+      setOllamaModelsBusy(false);
+    }
+  }
+
   function applyOllamaDraft(): void {
     if (!pendingOllamaDraft) {
       return;
@@ -750,6 +789,11 @@ function App() {
   }
 
   async function exportActionPackFromWorkspace(targetWorkspace = workspace): Promise<void> {
+    if (targetWorkspace.workspaceType === 'content-blocker') {
+      setWorkspaceMessage('Content Blocker Action Packs install locally. Export the .workspace source and compile it locally instead.');
+      return;
+    }
+
     const result = compileWithConditions(targetWorkspace);
     if (!result.ok || !result.pack) {
       setWorkspaceMessage('Fix workspace validation before exporting an Action Pack.');
@@ -763,10 +807,14 @@ function App() {
   }
 
   async function exportInstalledActionPack(pack: CompiledActionPackV2): Promise<void> {
-    await downloadBytes(
-      await exportCompiledActionPackV2Binary(pack),
-      `action-packs/${slugify(pack.manifest.name) || 'action-pack'}.actionpack`,
-    );
+    try {
+      await downloadBytes(
+        await exportCompiledActionPackV2Binary(pack),
+        `action-packs/${slugify(pack.manifest.name) || 'action-pack'}.actionpack`,
+      );
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : 'Unable to export this Action Pack.');
+    }
   }
 
   async function exportInstalledActionPackLog(pack: CompiledActionPackV2): Promise<void> {
@@ -1128,6 +1176,34 @@ function App() {
     setWorkspaceMessage(`Unlocked "${pack.manifest.name}".`);
   }
 
+  async function increaseContentBlockerLock(pack: CompiledActionPackV2): Promise<void> {
+    if (!isContentBlockerActionPack(pack) || !pack.install?.contentBlocker?.allowLockIncrease) {
+      setWorkspaceMessage('This Action Pack does not allow lock increases.');
+      return;
+    }
+
+    const currentLevel = pack.install?.lockState?.locked ? pack.install.lockState.level : 0;
+    if (currentLevel >= 3) {
+      setWorkspaceMessage('This Action Pack already has the highest lock level.');
+      return;
+    }
+
+    const rawLevel = window.prompt(`Increase lock level for "${pack.manifest.name}" to 1, 2, or 3. Current level is ${currentLevel}.`);
+    const nextLevel = Number.parseInt(rawLevel ?? '', 10) as ActionPackLockLevel;
+    if (![1, 2, 3].includes(nextLevel) || nextLevel <= currentLevel) {
+      setWorkspaceMessage('Lock increase must choose a higher level: 1, 2, or 3.');
+      return;
+    }
+
+    const lockState = await lockStateFromLevel(pack.manifest.name, nextLevel);
+    if (!lockState) {
+      return;
+    }
+
+    await applyState(updateActionPackV2Install(pack.manifest.id, { lockState }));
+    setWorkspaceMessage(`Increased lock for "${pack.manifest.name}" to level ${nextLevel}.`);
+  }
+
   async function toggleGlobalEnabled(): Promise<void> {
     await applyState(updateSettings({ globalEnabled: !state.settings.globalEnabled }));
   }
@@ -1155,9 +1231,9 @@ function App() {
         next.ollamaEndpoint = validateOllamaEndpoint(settings.ollamaEndpoint);
       }
       await applyState(updateSettings(next));
-      setBuilderUuidMessage(null);
+      setOllamaModelsMessage(null);
     } catch (error) {
-      setBuilderUuidMessage(error instanceof Error ? error.message : 'Invalid Ollama settings.');
+      setOllamaModelsMessage(error instanceof Error ? error.message : 'Invalid Ollama settings.');
     }
   }
 
@@ -1309,6 +1385,7 @@ function App() {
           workspaces={state.workspacesV2}
           onClearActionPackLog={(pack) => void clearInstalledActionPackLog(pack)}
           onCompileExportWorkspace={(targetWorkspace) => void exportActionPackFromWorkspace(targetWorkspace)}
+          onCompileInstallWorkspace={(targetWorkspace) => void buildActionPackFromWorkspace(targetWorkspace)}
           onDeleteActionPack={(packId) => void deleteV2Pack(packId)}
           onDeleteLegacyPack={(packId) => void deleteLegacyPack(packId)}
           onDeleteWorkspace={(workspaceId) => void deleteWorkspace(workspaceId)}
@@ -1318,6 +1395,7 @@ function App() {
           onExportActionPackLog={(pack) => void exportInstalledActionPackLog(pack)}
           onExportLegacyPack={(pack) => void downloadLegacyPack(pack)}
           onExportWorkspace={(targetWorkspace) => void exportWorkspaceFile(targetWorkspace)}
+          onIncreaseContentBlockerLock={(pack) => void increaseContentBlockerLock(pack)}
           onMarkActionPackReviewed={(pack) => void markActionPackReviewed(pack)}
           onOpenWorkspace={(targetWorkspace) => {
             setWorkspace(targetWorkspace);
@@ -1398,14 +1476,6 @@ function App() {
         </>
       ) : null}
 
-      {activeTab === 'focus-guard' ? (
-        <FocusGuardPanel
-          resourceAssets={resourceAssets}
-          onCreateFocusGuard={(draft) => void createFocusGuard(draft)}
-          onUploadResource={(file) => storeLocalResource(file)}
-        />
-      ) : null}
-
       {activeTab === 'security' ? (
         <SecurityPanel
           actionPacks={state.actionPacksV2}
@@ -1425,6 +1495,9 @@ function App() {
           builderUuidInput={builderUuidInput}
           builderUuidMessage={builderUuidMessage}
           clipboardGranted={clipboardGranted}
+          ollamaModels={ollamaModels}
+          ollamaModelsBusy={ollamaModelsBusy}
+          ollamaModelsMessage={ollamaModelsMessage}
           settings={state.settings}
           onAdvancedModeToggle={() => void toggleAdvancedMode()}
           onBackupFileChange={(event) => void handleBackupFileChange(event)}
@@ -1439,6 +1512,7 @@ function App() {
           onGlobalEnabledToggle={() => void toggleGlobalEnabled()}
           onLocalFilesToggle={() => void toggleLocalFiles()}
           onOllamaSettingsChange={(settings) => void updateOllamaSettings(settings)}
+          onRefreshOllamaModels={() => void refreshOllamaModels()}
           onRequestClipboardPermission={() => void requestClipboardPermission()}
           onRestoreBuilderUuid={() => void restoreBuilderUuid(builderUuidInput)}
           onSyncEnabledToggle={() => void toggleSyncEnabled()}

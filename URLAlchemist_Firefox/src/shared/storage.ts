@@ -233,12 +233,12 @@ export async function upsertPack(pack: ActionPack): Promise<StoredState> {
   return nextState;
 }
 
-export async function upsertActionPackV2(pack: CompiledActionPackV2): Promise<StoredState> {
+export async function upsertActionPackV2(pack: CompiledActionPackV2, options: { allowLockedOverwrite?: boolean } = {}): Promise<StoredState> {
   const state = await loadStoredState();
   const index = state.actionPacksV2.findIndex((candidate) => candidate.manifest.id === pack.manifest.id);
   const actionPacksV2 = [...state.actionPacksV2];
   const existing = index >= 0 ? actionPacksV2[index] : undefined;
-  if (existing && isActionPackLocked(existing)) {
+  if (existing && isActionPackLocked(existing) && !options.allowLockedOverwrite) {
     throw new Error('Locked Action Packs cannot be overwritten. Unlock the Action Pack before rebuilding or importing over it.');
   }
 
@@ -250,6 +250,7 @@ export async function upsertActionPackV2(pack: CompiledActionPackV2): Promise<St
         loggingEnabled: existing?.install?.loggingEnabled,
         lockState: existing?.install?.lockState,
         focusGuard: existing?.install?.focusGuard,
+        contentBlocker: existing?.install?.contentBlocker,
       });
 
   if (index >= 0) {
@@ -371,6 +372,7 @@ export async function updateActionPackV2Install(
               userReview: install.userReview ?? pack.install?.userReview,
               lockState: install.lockState ?? pack.install?.lockState,
               focusGuard: install.focusGuard ?? pack.install?.focusGuard,
+              contentBlocker: install.contentBlocker ?? pack.install?.contentBlocker,
             },
           }
         : pack,
