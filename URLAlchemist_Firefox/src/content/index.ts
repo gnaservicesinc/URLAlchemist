@@ -261,6 +261,12 @@ function assetUrl(asset?: AssetRef): string {
   return asset.url ?? '';
 }
 
+function missingAssetMessage(asset?: AssetRef): string {
+  return asset?.source === 'resource'
+    ? `Resource not found: ${asset.name || asset.resourceId || 'media file'}`
+    : 'Media resource not found.';
+}
+
 function overlayShell(): { root: HTMLDivElement; panel: HTMLDivElement; close: HTMLButtonElement; cleanup: () => void } {
   const root = document.createElement('div');
   root.style.cssText = [
@@ -906,6 +912,14 @@ async function handleDisplay(message: Extract<ContentRuntimeMessage, { type: typ
 
     const url = assetUrl(request.asset);
     if (request.type === 'image') {
+      if (!url) {
+        const body = document.createElement('p');
+        body.textContent = missingAssetMessage(request.asset);
+        body.style.cssText = 'white-space:pre-wrap;margin:0;color:#64748b';
+        ui.close.addEventListener('click', () => finish('closed'));
+        ui.panel.append(body, ui.close);
+        return;
+      }
       const image = document.createElement('img');
       image.alt = request.message || 'URL Alchemist image';
       image.src = url;
@@ -924,6 +938,14 @@ async function handleDisplay(message: Extract<ContentRuntimeMessage, { type: typ
     }
 
     if (request.type === 'video' || request.type === 'sound') {
+      if (!url) {
+        const body = document.createElement('p');
+        body.textContent = missingAssetMessage(request.asset);
+        body.style.cssText = 'white-space:pre-wrap;margin:0;color:#64748b';
+        ui.close.addEventListener('click', () => finish('closed'));
+        ui.panel.append(body, ui.close);
+        return;
+      }
       const media = request.type === 'video' ? document.createElement('video') : document.createElement('audio');
       media.src = url;
       media.controls = true;

@@ -7,6 +7,7 @@ import {
   formatActionPackLogText,
 } from '../../shared/logs';
 import type { ActionPack, StoredActionPackLogEntry } from '../../shared/types';
+import { isActionPackLocked } from '../../shared/v2/installMetadata';
 import { compileWorkspace } from '../../shared/v2/compiler';
 import { formatRunType } from '../../shared/v2/labels';
 import type { CompiledActionPackV2, WorkspaceFileV2, WorkspaceMetadata } from '../../shared/v2/types';
@@ -25,12 +26,14 @@ interface ManageResourcesPanelProps {
   onDisableTrace: (pack: CompiledActionPackV2) => void;
   onExportActionPack: (pack: CompiledActionPackV2) => void;
   onExportActionPackLog: (pack: CompiledActionPackV2) => void;
-  onExportActionPackVersionFile: (pack: CompiledActionPackV2) => void;
   onExportLegacyPack: (pack: ActionPack) => void;
   onExportWorkspace: (workspace: WorkspaceFileV2) => void;
   onOpenWorkspace: (workspace: WorkspaceFileV2) => void;
   onPreviewLegacyPack: (pack: ActionPack) => void;
   onToggleActionPack: (pack: CompiledActionPackV2) => void;
+  onToggleActionPackLogging: (pack: CompiledActionPackV2) => void;
+  onUnlockActionPack: (pack: CompiledActionPackV2) => void;
+  onMarkActionPackReviewed: (pack: CompiledActionPackV2) => void;
   onUpdateWorkspaceMetadata: (workspaceId: string, metadata: Partial<WorkspaceMetadata>) => void;
 }
 
@@ -163,9 +166,11 @@ function ActionPackCard({
   onClearActionPackLog,
   onExportActionPack,
   onExportActionPackLog,
-  onExportActionPackVersionFile,
   onViewActionPackLog,
   onToggleActionPack,
+  onToggleActionPackLogging,
+  onUnlockActionPack,
+  onMarkActionPackReviewed,
 }: Pick<
   ManageResourcesPanelProps,
   | 'onDeleteActionPack'
@@ -174,10 +179,14 @@ function ActionPackCard({
   | 'onClearActionPackLog'
   | 'onExportActionPack'
   | 'onExportActionPackLog'
-  | 'onExportActionPackVersionFile'
   | 'onToggleActionPack'
+  | 'onToggleActionPackLogging'
+  | 'onUnlockActionPack'
+  | 'onMarkActionPackReviewed'
 > & { pack: CompiledActionPackV2; logCount: number; onViewActionPackLog: (pack: CompiledActionPackV2) => void }) {
   const traceActive = isTraceActive(pack);
+  const locked = isActionPackLocked(pack);
+  const trust = pack.install?.userReview?.trustStatus ?? pack.install?.trustStatus ?? 'review';
 
   return (
     <article className="rounded-lg border border-slate-200 bg-white/85 p-5 shadow-[0_12px_28px_rgba(31,41,55,0.07)]">
@@ -194,6 +203,13 @@ function ActionPackCard({
             {pack.manifest.enabled ? 'Enabled' : 'Disabled'}
           </span>
           <span className={`risk-badge ${riskBadgeClass(pack)}`}>{pack.risk.highest}</span>
+          <span className={`risk-badge ${trust === 'trusted' || trust === 'user-reviewed' ? 'risk-badge-soft' : trust === 'blocked' ? 'risk-badge-danger' : 'risk-badge-warn'}`}>
+            {trust === 'trusted' ? 'Trusted' : trust === 'user-reviewed' ? 'Reviewed' : trust === 'blocked' ? 'Needs review' : 'Review'}
+          </span>
+          <span className={`risk-badge ${pack.install?.loggingEnabled ? 'risk-badge-soft' : 'risk-badge-warn'}`}>
+            Logs {pack.install?.loggingEnabled ? 'on' : 'off'}
+          </span>
+          {locked ? <span className="risk-badge risk-badge-danger">Lock L{pack.install?.lockState?.level}</span> : null}
           {traceActive ? <span className="risk-badge risk-badge-warn">Trace active</span> : null}
         </div>
       </div>
@@ -214,12 +230,24 @@ function ActionPackCard({
       <div className="mt-5 flex flex-wrap items-center gap-3">
         <label className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">
           Enabled
-          <input checked={pack.manifest.enabled} className="h-4 w-4 accent-teal-700" type="checkbox" onChange={() => onToggleActionPack(pack)} />
+          <input checked={pack.manifest.enabled} className="h-4 w-4 accent-teal-700" disabled={locked} type="checkbox" onChange={() => onToggleActionPack(pack)} />
         </label>
+        <label className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">
+          Logging
+          <input checked={pack.install?.loggingEnabled !== false} className="h-4 w-4 accent-teal-700" type="checkbox" onChange={() => onToggleActionPackLogging(pack)} />
+        </label>
+        <button className="ghost-button" disabled={trust === 'trusted' || trust === 'user-reviewed'} type="button" onClick={() => onMarkActionPackReviewed(pack)}>
+          Mark Reviewed
+        </button>
+        {locked ? (
+          <button className="ghost-button" disabled={pack.install?.lockState?.level === 3} type="button" onClick={() => onUnlockActionPack(pack)}>
+            Unlock
+          </button>
+        ) : null}
         <button className="ghost-button" type="button" onClick={() => (traceActive ? onDisableTrace(pack) : onEnableTrace(pack))}>
           {traceActive ? 'Disable Trace' : 'Enable Trace'}
         </button>
-        <button className="ghost-button" type="button" onClick={() => onExportActionPack(pack)}>
+        <button className="ghost-button" disabled={locked} type="button" onClick={() => onExportActionPack(pack)}>
           Export
         </button>
         <button className="ghost-button" type="button" onClick={() => onViewActionPackLog(pack)}>
@@ -231,10 +259,7 @@ function ActionPackCard({
         <button className="ghost-button" disabled={logCount === 0} type="button" onClick={() => onClearActionPackLog(pack)}>
           Clear Log
         </button>
-        <button className="ghost-button" type="button" onClick={() => onExportActionPackVersionFile(pack)}>
-          Export Version File
-        </button>
-        <button className="ghost-button" type="button" onClick={() => onDeleteActionPack(pack.manifest.id)}>
+        <button className="ghost-button" disabled={locked} type="button" onClick={() => onDeleteActionPack(pack.manifest.id)}>
           Delete
         </button>
       </div>
@@ -316,8 +341,10 @@ export function ManageResourcesPanel(props: ManageResourcesPanelProps) {
                       onClearActionPackLog={props.onClearActionPackLog}
                       onExportActionPack={props.onExportActionPack}
                       onExportActionPackLog={props.onExportActionPackLog}
-                      onExportActionPackVersionFile={props.onExportActionPackVersionFile}
+                      onMarkActionPackReviewed={props.onMarkActionPackReviewed}
+                      onToggleActionPackLogging={props.onToggleActionPackLogging}
                       onToggleActionPack={props.onToggleActionPack}
+                      onUnlockActionPack={props.onUnlockActionPack}
                       onViewActionPackLog={(targetPack) => setLogPackId(targetPack.manifest.id)}
                     />
                   ))
@@ -346,8 +373,10 @@ export function ManageResourcesPanel(props: ManageResourcesPanelProps) {
                   onClearActionPackLog={props.onClearActionPackLog}
                   onExportActionPack={props.onExportActionPack}
                   onExportActionPackLog={props.onExportActionPackLog}
-                  onExportActionPackVersionFile={props.onExportActionPackVersionFile}
+                  onMarkActionPackReviewed={props.onMarkActionPackReviewed}
+                  onToggleActionPackLogging={props.onToggleActionPackLogging}
                   onToggleActionPack={props.onToggleActionPack}
+                  onUnlockActionPack={props.onUnlockActionPack}
                   onViewActionPackLog={(targetPack) => setLogPackId(targetPack.manifest.id)}
                 />
               ))}

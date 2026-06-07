@@ -3,7 +3,7 @@ import type { GlobalSettings } from './types';
 export const STORAGE_KEY = 'url-alchemist-state';
 export const VAULT_MAGIC = 'URLA1';
 export const VAULT_SCHEMA_VERSION = 1;
-export const MAX_ACTION_PACK_BINARY_BYTES = 1024 * 1024;
+export const MAX_ACTION_PACK_BINARY_BYTES = 128 * 1024 * 1024;
 export const CLIPBOARD_MAX_TEXT_BYTES = 1024 * 1024; // 1MB - rejects pathological clipboard sizes before they enter the message pipeline
 
 // Worst-case JSON serialization + IPC throughput on a severely constrained device
@@ -27,6 +27,11 @@ export const DEFAULT_SETTINGS: GlobalSettings = {
   allowLocalFiles: false,
   advancedModeEnabled: false,
   syncEnabled: false,
+  defaultActionPackLoggingEnabled: false,
+  ollamaEnabled: false,
+  ollamaEndpoint: 'http://127.0.0.1:11434',
+  ollamaModel: 'llama3.2',
+  ollamaTimeoutMs: 30_000,
   uiScale: 100,
   hardeningMaxInstructions: DEFAULT_VM_INSTRUCTION_LIMIT,
   hardeningMaxRecursion: MAX_REDIRECT_DEPTH,

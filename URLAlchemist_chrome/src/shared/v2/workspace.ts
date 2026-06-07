@@ -214,13 +214,8 @@ function validateWorkspaceMetadata(value: unknown, errors: string[]): void {
   if (!isOptionalStringWithin(value.description, MAX_WORKSPACE_TEXT_BYTES)) {
     errors.push('Workspace description is too large');
   }
-  if (
-    !isOptionalStringWithin(value.versionFileUrl, MAX_WORKSPACE_URL_BYTES) ||
-    !isOptionalStringWithin(value.versionFileSignatureUrl, MAX_WORKSPACE_URL_BYTES) ||
-    !isOptionalStringWithin(value.downloadUrl, MAX_WORKSPACE_URL_BYTES) ||
-    !isOptionalStringWithin(value.publicKeyLocateValue, MAX_WORKSPACE_TEXT_BYTES)
-  ) {
-    errors.push('Workspace metadata URL fields are too large');
+  if (value.profile !== undefined && value.profile !== 'standard' && value.profile !== 'content-blocker') {
+    errors.push('Workspace profile is unsupported');
   }
   validateCompatibilityMetadata((value as { compatibility?: unknown }).compatibility, errors);
 }
@@ -325,6 +320,12 @@ function normalizeCompatibilityMetadata(value: WorkspaceMetadata['compatibility'
 }
 
 function normalizeWorkspaceMetadata(value: WorkspaceMetadata): WorkspaceMetadata {
+  const profile: WorkspaceMetadata['profile'] = value.profile === 'content-blocker'
+    ? 'content-blocker'
+    : value.profile === 'standard'
+      ? 'standard'
+      : undefined;
+
   return omitUndefined({
     id: value.id,
     name: value.name,
@@ -332,10 +333,7 @@ function normalizeWorkspaceMetadata(value: WorkspaceMetadata): WorkspaceMetadata
     author: value.author,
     description: value.description,
     compatibility: normalizeCompatibilityMetadata(value.compatibility),
-    versionFileUrl: value.versionFileUrl,
-    versionFileSignatureUrl: value.versionFileSignatureUrl,
-    downloadUrl: value.downloadUrl,
-    publicKeyLocateValue: value.publicKeyLocateValue,
+    profile,
     created_at: value.created_at,
     updated_at: value.updated_at,
   });
@@ -445,6 +443,7 @@ export function migrateWorkspaceFile(value: WorkspaceFileV2): WorkspaceFileV2 {
     trigger: normalizeWorkspaceTrigger(value.trigger),
     nodes: value.nodes.map(normalizeWorkspaceNode),
     edges: value.edges.map(normalizeWorkspaceEdge),
+    assets: Array.isArray(value.assets) ? value.assets : undefined,
     viewport: normalizeWorkspaceViewport(value.viewport),
   };
 }

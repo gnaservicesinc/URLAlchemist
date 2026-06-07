@@ -14,10 +14,12 @@ import {
   type ContentGraphResponse,
   type RuntimeSourceContext,
 } from '../shared/messages';
-import { appendActionPackLogEntry, appendTraceEntry, loadStoredState } from '../shared/storage';
+import { appendActionPackLogEntry, appendTraceEntry, loadStoredState, updateActionPackV2Install } from '../shared/storage';
 import type { ActionPack, EngineIssue, GlobalSettings, TriggerType, WorkspaceTriggerType } from '../shared/types';
+import { isActionPackLocked } from '../shared/v2/installMetadata';
 import { base64FromBytes, readLimitedResponseBytes } from '../shared/v2/remoteBytes';
 import { validateRemoteUrl } from '../shared/v2/remoteUrl';
+import { resolveResourceAsset } from '../shared/v2/resources';
 import type { AssetRef, CompiledActionPackV2, GraphEventHandler, GraphValue, OverlayRuntimeEvent, WorkspaceInputSource } from '../shared/v2/types';
 import { evaluateCompiledActionPackCondition, executeCompiledActionPackV2, type AssetRequest, type DisplayRequest, type GraphRuntime, type OverlayControlRequest, type OverlayDrawRequest, type UserInteractionRequest } from '../shared/v2/vm';
 import { createOffscreenRegexExecutor, readClipboardFromOffscreen, writeClipboardBinaryFromOffscreen, writeClipboardFromOffscreen } from './offscreenBridge';
@@ -30,6 +32,16 @@ const remoteAssetCache = new Map<string, AssetRef>();
 const fallbackOverlaySessions = new Map<string, { active: boolean; url: string; updatedAt: number }>();
 const fallbackSharedState = new Map<string, GraphValue>();
 const fallbackConditionStates = new Map<string, boolean>();
+const FOCUS_GUARD_BLOCK_PAGE = 'focus-guard-block.html';
+const MAX_FOCUS_GUARD_MEDIA_BYTES = 1024 * 1024;
+
+interface FocusGuardBlockPayload {
+  title: string;
+  message: string;
+  packName: string;
+  sourceUrl: string;
+  mediaDataUrl?: string;
+}
 
 function sessionStorageArea(): chrome.storage.SessionStorageArea | undefined {
   return chrome.storage?.session;
@@ -318,7 +330,7 @@ async function drawOverlay(tabId: number | undefined, packId: string | undefined
   });
 }
 
-function createRunRuntime(context: RuntimeSourceContext = {}, settings?: GlobalSettings, packId?: string, inputUrl?: string, packName = ''): GraphRuntime {
+function createRunRuntime(context: RuntimeSourceContext = {}, settings?: GlobalSettings, packId?: string, inputUrl?: string, packName = '', loggingEnabled = true): GraphRuntime {
   return {
     ...baseRuntime,
     regex: createOffscreenRegexExecutor(settings ? effectiveRegexTimeoutMs(settings) : undefined),
@@ -372,6 +384,7 @@ function createRunRuntime(context: RuntimeSourceContext = {}, settings?: GlobalS
       }
     },
     resolveAsset: resolveRemoteAsset,
+    resolveStoredAsset: resolveResourceAsset,
     requestUserInteraction: async (request: UserInteractionRequest) => sendContentGraphMessage(context.tabId, {
       type: CONTENT_INTERACTION_MESSAGE,
       requestId: crypto.randomUUID(),
@@ -381,7 +394,7 @@ function createRunRuntime(context: RuntimeSourceContext = {}, settings?: GlobalS
     overlayControl: async (request: OverlayControlRequest) => controlOverlay(context.tabId, packId, inputUrl, request),
     overlayDraw: async (request: OverlayDrawRequest) => drawOverlay(context.tabId, packId, request),
     writeLog: async (entry) => {
-      if (!packId) {
+      if (!packId || !loggingEnabled) {
         return;
       }
 
@@ -488,6 +501,118 @@ async function recordTriggerOrSkip(pack: CompiledActionPackV2): Promise<boolean>
   return true;
 }
 
+function focusGuardBlockPageUrl(): string {
+  return chrome.runtime.getURL(FOCUS_GUARD_BLOCK_PAGE);
+}
+
+function isFocusGuardBlockPage(url: string): boolean {
+  return url.startsWith(focusGuardBlockPageUrl());
+}
+
+function globLikeMatches(pattern: string, value: string): boolean {
+  const normalizedPattern = pattern.trim().toLowerCase();
+  const normalizedValue = value.toLowerCase();
+  if (!normalizedPattern) {
+    return false;
+  }
+  if (!normalizedPattern.includes('*')) {
+    return normalizedValue.includes(normalizedPattern);
+  }
+
+  let cursor = 0;
+  for (const part of normalizedPattern.split('*').filter(Boolean)) {
+    const found = normalizedValue.indexOf(part, cursor);
+    if (found < 0) {
+      return false;
+    }
+    cursor = found + part.length;
+  }
+  return true;
+}
+
+function focusGuardPatternMatches(pattern: string, url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return globLikeMatches(pattern, url) || globLikeMatches(pattern, parsed.hostname);
+  } catch {
+    return globLikeMatches(pattern, url);
+  }
+}
+
+function focusGuardMatches(pack: CompiledActionPackV2, url: string): boolean {
+  const config = pack.install?.focusGuard;
+  if (!config || !/^https?:\/\//i.test(url) || isFocusGuardBlockPage(url)) {
+    return false;
+  }
+  if (config.allowPatterns.some((pattern) => focusGuardPatternMatches(pattern, url))) {
+    return false;
+  }
+  return config.blockedPatterns.some((pattern) => focusGuardPatternMatches(pattern, url));
+}
+
+async function createFocusGuardBlockUrl(pack: CompiledActionPackV2, sourceUrl: string): Promise<string> {
+  const config = pack.install?.focusGuard;
+  const payload: FocusGuardBlockPayload = {
+    title: config?.pageTitle || 'Focus Guard',
+    message: config?.pageMessage || 'This page is blocked by URL Alchemist.',
+    packName: pack.manifest.name,
+    sourceUrl,
+  };
+  const resourceId = config?.resourceIds?.[0];
+  if (resourceId) {
+    try {
+      const asset = await resolveResourceAsset({
+        source: 'resource',
+        kind: 'image',
+        mimeType: 'image/*',
+        resourceId,
+        sha256: resourceId,
+      });
+      if (asset.dataBase64 && (asset.sizeBytes ?? 0) <= MAX_FOCUS_GUARD_MEDIA_BYTES) {
+        payload.mediaDataUrl = `data:${asset.mimeType};base64,${asset.dataBase64}`;
+      }
+    } catch (error) {
+      console.warn('[URL Alchemist] Focus Guard media resource was unavailable', error);
+    }
+  }
+
+  const id = `url-alchemist-focus-guard:${crypto.randomUUID()}`;
+  if (chrome.storage?.session) {
+    await chrome.storage.session.set({ [id]: payload });
+    return `${focusGuardBlockPageUrl()}?id=${encodeURIComponent(id)}`;
+  }
+
+  const params = new URLSearchParams({
+    title: payload.title,
+    message: payload.message,
+    packName: payload.packName,
+    sourceUrl: payload.sourceUrl,
+  });
+  return `${focusGuardBlockPageUrl()}?${params.toString()}`;
+}
+
+async function applyFocusGuardPacks(state: Awaited<ReturnType<typeof loadStoredState>>, tabId: number, inputUrl: string): Promise<boolean> {
+  for (const pack of state.actionPacksV2) {
+    if (!pack.install?.focusGuard || (!pack.manifest.enabled && !isActionPackLocked(pack))) {
+      continue;
+    }
+    if (!focusGuardMatches(pack, inputUrl)) {
+      continue;
+    }
+
+    const focusGuard = {
+      ...pack.install.focusGuard,
+      blockCount: (pack.install.focusGuard.blockCount ?? 0) + 1,
+      lastBlockedAt: Date.now(),
+    };
+    await updateActionPackV2Install(pack.manifest.id, { focusGuard });
+    await chrome.tabs.update(tabId, { url: await createFocusGuardBlockUrl(pack, inputUrl) });
+    return true;
+  }
+
+  return false;
+}
+
 function logIssues(pack: ActionPack, issues: EngineIssue[]): void {
   if (issues.length === 0) {
     return;
@@ -514,6 +639,10 @@ async function appendV2RunLog(
   handler: GraphEventHandler | WorkspaceTriggerType,
   inputUrl: string,
 ): Promise<void> {
+  if (pack.install?.loggingEnabled === false) {
+    return;
+  }
+
   await appendActionPackLogEntry({
     id: crypto.randomUUID(),
     packId: pack.manifest.id,
@@ -672,6 +801,13 @@ async function applyPacksToTab(
     return;
   }
 
+  if (!onlyPackId && trigger === 'INPUT_DATA' && inputSources.includes('url')) {
+    const blocked = await applyFocusGuardPacks(state, tabId, inputUrl);
+    if (blocked) {
+      return;
+    }
+  }
+
   const runtime = createRunRuntime({ ...context, tabId }, state.settings);
   const redirectDepthLimit = effectiveRedirectDepthLimit(state.settings);
   let currentUrl = inputUrl;
@@ -716,7 +852,7 @@ async function applyPacksToTab(
   }
 
   for (const pack of state.actionPacksV2) {
-    const packRuntime = createRunRuntime({ ...context, tabId }, state.settings, pack.manifest.id, currentUrl, pack.manifest.name);
+    const packRuntime = createRunRuntime({ ...context, tabId }, state.settings, pack.manifest.id, currentUrl, pack.manifest.name, pack.install?.loggingEnabled !== false);
     if (onlyPackId && pack.manifest.id !== onlyPackId) {
       continue;
     }
@@ -832,7 +968,7 @@ async function runOverlayEvent(tabId: number, url: string, packId: string, event
     return;
   }
 
-  const runtime = createRunRuntime({ ...context, tabId }, state.settings, pack.manifest.id, url, pack.manifest.name);
+  const runtime = createRunRuntime({ ...context, tabId }, state.settings, pack.manifest.id, url, pack.manifest.name, pack.install?.loggingEnabled !== false);
   const result = await executeCompiledActionPackV2(url, pack, runtime, state.settings, { handler, event });
   logV2Issues(pack, result.issues);
   await appendV2RunLog(pack, result, handler, url);

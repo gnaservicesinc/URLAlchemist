@@ -11,6 +11,8 @@ import {
   WORKSPACE_SCHEMA_VERSION,
 } from './types';
 import { migrateCompiledActionPackV2Candidate, validateCompiledActionPackV2 } from './actionPackValidator';
+import { stripLocalInstallMetadata } from './installMetadata';
+import { getResource, putResourceBytes, resourceToBytes } from './resources';
 import { validateWorkspaceFile } from './workspace';
 
 export const WORKSPACE_MAGIC = 'WSPC2';
@@ -20,6 +22,21 @@ const encoder = new TextEncoder();
 const WORKSPACE_MAGIC_BYTES = encoder.encode(WORKSPACE_MAGIC);
 const ACTION_PACK_MAGIC_BYTES = encoder.encode(ACTION_PACK_MAGIC);
 const HEADER_CHECKSUM_BYTES = 32;
+const RESOURCE_BUNDLE_VERSION = 1;
+
+interface ResourceBundleEntry {
+  resourceId: string;
+  name: string;
+  mimeType: string;
+  kind: string;
+  bytes: Uint8Array;
+}
+
+interface ResourceBundleEnvelope {
+  __urlAlchemistResourceBundle: typeof RESOURCE_BUNDLE_VERSION;
+  artifact: unknown;
+  resources: ResourceBundleEntry[];
+}
 
 function headerLength(magicBytes: Uint8Array): number {
   return magicBytes.length + 1 + HEADER_CHECKSUM_BYTES;
@@ -48,7 +65,7 @@ async function exportWithHeader(value: unknown, magicBytes: Uint8Array, schemaVe
   const output = new Uint8Array(headerLength(magicBytes) + payload.length);
 
   if (output.byteLength > MAX_ACTION_PACK_BINARY_BYTES) {
-    throw new Error('Artifact export exceeds the 1MB Action Pack size limit');
+    throw new Error('Artifact export exceeds the 128 MB portable artifact size limit');
   }
 
   output.set(magicBytes, 0);
@@ -64,7 +81,7 @@ async function importWithHeader(bytes: Uint8Array, magic: string): Promise<{ dec
   const length = headerLength(magicBytes);
 
   if (bytes.byteLength > MAX_ACTION_PACK_BINARY_BYTES) {
-    throw new Error('Files larger than 1MB are rejected');
+    throw new Error('Files larger than 128 MB are rejected');
   }
 
   if (bytes.length <= length) {
@@ -94,12 +111,12 @@ async function importWithHeader(bytes: Uint8Array, magic: string): Promise<{ dec
 }
 
 export async function exportWorkspaceBinary(workspace: WorkspaceFileV2): Promise<Uint8Array> {
-  return exportWithHeader(workspace, WORKSPACE_MAGIC_BYTES, WORKSPACE_SCHEMA_VERSION);
+  return exportWithHeader(await bundleResources(workspace, collectResourceIds(workspace)), WORKSPACE_MAGIC_BYTES, WORKSPACE_SCHEMA_VERSION);
 }
 
 export async function exportCompiledActionPackV2Binary(pack: CompiledActionPackV2): Promise<Uint8Array> {
-  const { checksumHex: _checksumHex, traceEnabledUntil: _traceEnabledUntil, ...payload } = pack;
-  return exportWithHeader(payload, ACTION_PACK_MAGIC_BYTES, ACTION_PACK_SCHEMA_VERSION);
+  const payload = stripLocalInstallMetadata(pack);
+  return exportWithHeader(await bundleResources(payload, collectResourceIds(payload)), ACTION_PACK_MAGIC_BYTES, ACTION_PACK_SCHEMA_VERSION);
 }
 
 export async function importWorkspaceBinary(bytes: Uint8Array): Promise<{ workspace: WorkspaceFileV2; checksumHex: string; schemaVersion: number }> {
@@ -108,7 +125,8 @@ export async function importWorkspaceBinary(bytes: Uint8Array): Promise<{ worksp
     throw new Error(`Unsupported workspace schema version: ${imported.schemaVersion}`);
   }
 
-  const validation = validateWorkspaceFile(imported.decoded);
+  const decoded = await hydrateResourceBundle(imported.decoded);
+  const validation = validateWorkspaceFile(decoded);
   if (!validation.ok) {
     throw new Error(validation.errors.join('; '));
   }
@@ -126,11 +144,12 @@ export async function importCompiledActionPackV2Binary(bytes: Uint8Array): Promi
     throw new Error(`Unsupported Action Pack schema version: ${imported.schemaVersion}`);
   }
 
-  const validation = validateCompiledActionPackV2(migrateCompiledActionPackV2Candidate(imported.decoded));
+  const decoded = await hydrateResourceBundle(imported.decoded);
+  const validation = validateCompiledActionPackV2(migrateCompiledActionPackV2Candidate(decoded));
   if (!validation.ok) {
     throw new Error(validation.errors.join('; '));
   }
-  const { traceEnabledUntil: _traceEnabledUntil, ...pack } = validation.pack;
+  const pack = stripLocalInstallMetadata(validation.pack);
 
   return {
     pack: {
@@ -140,6 +159,101 @@ export async function importCompiledActionPackV2Binary(bytes: Uint8Array): Promi
     checksumHex: imported.checksumHex,
     schemaVersion: imported.schemaVersion,
   };
+}
+
+function isResourceAsset(value: unknown): value is { source: 'resource'; resourceId?: string; sha256?: string } {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value) && (value as { source?: unknown }).source === 'resource');
+}
+
+function collectResourceIds(value: unknown, ids = new Set<string>()): Set<string> {
+  if (isResourceAsset(value)) {
+    const id = value.resourceId ?? value.sha256;
+    if (typeof id === 'string') {
+      ids.add(id);
+    }
+    return ids;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((entry) => collectResourceIds(entry, ids));
+    return ids;
+  }
+
+  if (typeof value === 'object' && value !== null) {
+    Object.values(value).forEach((entry) => collectResourceIds(entry, ids));
+  }
+
+  return ids;
+}
+
+async function bundleResources(artifact: unknown, resourceIds: Set<string>): Promise<unknown> {
+  if (resourceIds.size === 0) {
+    return artifact;
+  }
+
+  const resources: ResourceBundleEntry[] = [];
+  for (const resourceId of resourceIds) {
+    const resource = await getResource(resourceId);
+    if (!resource) {
+      continue;
+    }
+
+    resources.push({
+      resourceId: resource.resourceId,
+      name: resource.name,
+      mimeType: resource.mimeType,
+      kind: resource.kind,
+      bytes: resourceToBytes(resource),
+    });
+  }
+
+  return resources.length === 0
+    ? artifact
+    : {
+        __urlAlchemistResourceBundle: RESOURCE_BUNDLE_VERSION,
+        artifact,
+        resources,
+      } satisfies ResourceBundleEnvelope;
+}
+
+function isResourceBundleEnvelope(value: unknown): value is ResourceBundleEnvelope {
+  return Boolean(
+    value &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    (value as { __urlAlchemistResourceBundle?: unknown }).__urlAlchemistResourceBundle === RESOURCE_BUNDLE_VERSION &&
+    Array.isArray((value as { resources?: unknown }).resources),
+  );
+}
+
+async function hydrateResourceBundle(decoded: unknown): Promise<unknown> {
+  if (!isResourceBundleEnvelope(decoded)) {
+    return decoded;
+  }
+
+  for (const resource of decoded.resources) {
+    if (
+      typeof resource.resourceId !== 'string' ||
+      typeof resource.name !== 'string' ||
+      typeof resource.mimeType !== 'string' ||
+      !(resource.bytes instanceof Uint8Array)
+    ) {
+      throw new Error('Portable resource bundle contains an invalid resource entry.');
+    }
+
+    const stored = await putResourceBytes(resource.bytes, {
+      name: resource.name,
+      mimeType: resource.mimeType,
+      kind: resource.kind === 'image' || resource.kind === 'video' || resource.kind === 'audio' || resource.kind === 'unknown'
+        ? resource.kind
+        : 'unknown',
+    });
+    if (stored.resourceId !== resource.resourceId) {
+      throw new Error(`Portable resource checksum mismatch for ${resource.name}.`);
+    }
+  }
+
+  return decoded.artifact;
 }
 
 export async function importAnyArtifact(bytes: Uint8Array): Promise<ImportedV2Artifact> {

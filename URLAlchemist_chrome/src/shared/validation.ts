@@ -16,6 +16,7 @@ import {
 import { SUPPORTED_ACTION_PACK_SCHEMA_VERSIONS } from './v2/types';
 import type { CompiledActionPackV2 } from './v2/types';
 import { validateCompiledActionPackV2 } from './v2/actionPackValidator';
+import { migratedStoredInstallMetadata } from './v2/installMetadata';
 import { validateWorkspaceFile } from './v2/workspace';
 
 interface ValidationSuccess<T> {
@@ -53,6 +54,11 @@ const SETTINGS_KEYS = [
   'allowLocalFiles',
   'advancedModeEnabled',
   'syncEnabled',
+  'defaultActionPackLoggingEnabled',
+  'ollamaEnabled',
+  'ollamaEndpoint',
+  'ollamaModel',
+  'ollamaTimeoutMs',
   'uiScale',
   'hardeningMaxInstructions',
   'hardeningMaxRecursion',
@@ -308,9 +314,18 @@ export function validateStoredState(candidate: unknown): ValidationResult<Valida
     typeof candidate.settings.globalEnabled !== 'boolean' ||
     typeof candidate.settings.allowLocalFiles !== 'boolean' ||
     typeof candidate.settings.advancedModeEnabled !== 'boolean' ||
-    (candidate.settings.syncEnabled !== undefined && typeof candidate.settings.syncEnabled !== 'boolean')
+    (candidate.settings.syncEnabled !== undefined && typeof candidate.settings.syncEnabled !== 'boolean') ||
+    (candidate.settings.defaultActionPackLoggingEnabled !== undefined && typeof candidate.settings.defaultActionPackLoggingEnabled !== 'boolean') ||
+    (candidate.settings.ollamaEnabled !== undefined && typeof candidate.settings.ollamaEnabled !== 'boolean')
   ) {
     return { ok: false, errors: ['Stored settings values must be booleans'] };
+  }
+
+  if (
+    (candidate.settings.ollamaEndpoint !== undefined && typeof candidate.settings.ollamaEndpoint !== 'string') ||
+    (candidate.settings.ollamaModel !== undefined && typeof candidate.settings.ollamaModel !== 'string')
+  ) {
+    return { ok: false, errors: ['Stored Ollama settings must be strings'] };
   }
 
   if (candidate.settings.builderUuid !== undefined && typeof candidate.settings.builderUuid !== 'string') {
@@ -321,7 +336,8 @@ export function validateStoredState(candidate: unknown): ValidationResult<Valida
     (candidate.settings.uiScale !== undefined && !isFiniteNumber(candidate.settings.uiScale)) ||
     (candidate.settings.hardeningMaxInstructions !== undefined && !isFiniteNumber(candidate.settings.hardeningMaxInstructions)) ||
     (candidate.settings.hardeningMaxRecursion !== undefined && !isFiniteNumber(candidate.settings.hardeningMaxRecursion)) ||
-    (candidate.settings.hardeningRegexTimeoutMs !== undefined && !isFiniteNumber(candidate.settings.hardeningRegexTimeoutMs))
+    (candidate.settings.hardeningRegexTimeoutMs !== undefined && !isFiniteNumber(candidate.settings.hardeningRegexTimeoutMs)) ||
+    (candidate.settings.ollamaTimeoutMs !== undefined && !isFiniteNumber(candidate.settings.ollamaTimeoutMs))
   ) {
     return { ok: false, errors: ['Stored numeric settings must be finite numbers'] };
   }
@@ -370,7 +386,7 @@ export function validateStoredState(candidate: unknown): ValidationResult<Valida
     ) {
       const validation = validateCompiledActionPackV2(pack);
       if (validation.ok) {
-        actionPacksV2.push(validation.pack);
+        actionPacksV2.push(migratedStoredInstallMetadata(validation.pack));
       } else {
         warnings.push(`Dropped Action Pack at index ${index}: ${validation.errors.join('; ')}`);
       }
@@ -441,6 +457,11 @@ export function validateStoredState(candidate: unknown): ValidationResult<Valida
       allowLocalFiles: candidate.settings.allowLocalFiles,
       advancedModeEnabled: candidate.settings.advancedModeEnabled,
       syncEnabled: candidate.settings.syncEnabled ?? DEFAULT_SETTINGS.syncEnabled,
+      defaultActionPackLoggingEnabled: candidate.settings.defaultActionPackLoggingEnabled ?? DEFAULT_SETTINGS.defaultActionPackLoggingEnabled,
+      ollamaEnabled: candidate.settings.ollamaEnabled ?? DEFAULT_SETTINGS.ollamaEnabled,
+      ollamaEndpoint: candidate.settings.ollamaEndpoint || DEFAULT_SETTINGS.ollamaEndpoint,
+      ollamaModel: candidate.settings.ollamaModel || DEFAULT_SETTINGS.ollamaModel,
+      ollamaTimeoutMs: Math.max(1_000, Math.min(120_000, Math.trunc(candidate.settings.ollamaTimeoutMs ?? DEFAULT_SETTINGS.ollamaTimeoutMs))),
       uiScale: normalizeUiScale(candidate.settings.uiScale),
       hardeningMaxInstructions: normalizeHardeningMaxInstructions(candidate.settings.hardeningMaxInstructions),
       hardeningMaxRecursion: normalizeHardeningMaxRecursion(candidate.settings.hardeningMaxRecursion),

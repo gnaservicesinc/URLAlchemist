@@ -56,7 +56,7 @@ const URL_QUERY_MODES = ['PARSE', 'GET_PARAM', 'SET_PARAM', 'DELETE_PARAM', 'KEE
 const DICT_OPERATION_MODES = ['MERGE', 'DELETE_KEY', 'HAS_KEY', 'KEYS', 'VALUES'] as const;
 const LOG_SEVERITIES = ['debug', 'info', 'warn', 'error'] as const;
 const ASSET_KINDS = ['image', 'video', 'audio', 'unknown'] as const;
-const ASSET_SOURCES = ['remote', 'embedded', 'picked-file'] as const;
+const ASSET_SOURCES = ['remote', 'embedded', 'picked-file', 'resource'] as const;
 const ASSET_COMPRESSION = ['gzip', 'none'] as const;
 const CONDITION_VM_OPS = new Set<GraphVmInstruction['op']>([
   'SOURCE',
@@ -285,7 +285,7 @@ function validateAssetRef(value: unknown, prefix: string, errors: string[]): boo
     return false;
   }
 
-  if (!hasExactKeys(value, ['source', 'kind', 'mimeType'], ['url', 'name', 'sha256', 'sizeBytes', 'compression', 'dataBase64', 'cacheKey'])) {
+  if (!hasExactKeys(value, ['source', 'kind', 'mimeType'], ['url', 'resourceId', 'name', 'sha256', 'sizeBytes', 'compression', 'dataBase64', 'cacheKey'])) {
     addError(errors, prefix, 'asset has invalid keys');
     return false;
   }
@@ -318,6 +318,11 @@ function validateAssetRef(value: unknown, prefix: string, errors: string[]): boo
         ok = false;
       }
     }
+  }
+
+  if (value.resourceId !== undefined && (!isString(value.resourceId) || !/^[a-f0-9]{64}$/i.test(value.resourceId))) {
+    addError(errors, prefix, 'asset resource id is invalid');
+    ok = false;
   }
 
   if (value.name !== undefined && (!isString(value.name) || value.name.length > 180)) {
@@ -1359,11 +1364,11 @@ function validateManifest(value: unknown, errors: string[]): CompiledActionPackV
     errors.push('manifest.enabled must be a boolean');
   }
 
-  if (!isRecord(value.metadata) || !hasExactKeys(value.metadata, ['created_at'], ['author', 'description', 'versionFileUrl', 'versionFileSignatureUrl', 'downloadUrl', 'publicKeyLocateValue'])) {
+  if (!isRecord(value.metadata) || !hasExactKeys(value.metadata, ['created_at'], ['author', 'description'])) {
     errors.push('manifest.metadata must be exact');
   } else {
     const metadata = value.metadata;
-    ['author', 'description', 'versionFileUrl', 'versionFileSignatureUrl', 'downloadUrl', 'publicKeyLocateValue'].forEach((key) => {
+    ['author', 'description'].forEach((key) => {
       if (!isOptionalString(metadata[key])) {
         errors.push(`manifest.metadata.${key} must be a string when provided`);
       }
@@ -1790,6 +1795,7 @@ export function migrateCompiledActionPackV2Candidate(candidate: unknown): unknow
   }
 
   const manifest = isRecord(candidate.manifest) ? candidate.manifest : {};
+  const metadata = isRecord(manifest.metadata) ? manifest.metadata : {};
   const vm = isRecord(candidate.vm) ? candidate.vm : {};
   const trigger = isRecord(manifest.trigger) ? manifest.trigger : {};
   const triggerType = trigger.type === 'ALWAYS' ? 'INPUT_DATA' : trigger.type;
@@ -1823,6 +1829,11 @@ export function migrateCompiledActionPackV2Candidate(candidate: unknown): unknow
     schemaVersion: ACTION_PACK_SCHEMA_VERSION,
     manifest: {
       ...manifest,
+      metadata: {
+        author: isString(metadata.author) ? metadata.author : undefined,
+        description: isString(metadata.description) ? metadata.description : undefined,
+        created_at: isNonNegativeInteger(metadata.created_at) ? metadata.created_at : 0,
+      },
       trigger: {
         type: triggerPlan.type,
         hotkey: isString(trigger.hotkey) ? trigger.hotkey : undefined,
@@ -1854,11 +1865,67 @@ export function migrateCompiledActionPackV2Candidate(candidate: unknown): unknow
   };
 }
 
+function validateInstallMetadata(value: unknown): CompiledActionPackV2['install'] | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const source = isEnumValue(['user-created', 'bundled', 'imported', 'legacy-converted', 'focus-guard'] as const, value.source)
+    ? value.source
+    : 'imported';
+  const trustStatus = isEnumValue(['trusted', 'review', 'modified', 'blocked', 'user-reviewed'] as const, value.trustStatus)
+    ? value.trustStatus
+    : 'review';
+  const lockState = isRecord(value.lockState) && isEnumValue(['0', '1', '2', '3'] as const, String(value.lockState.level))
+    ? {
+        locked: Boolean(value.lockState.locked),
+        level: Number(value.lockState.level) as 0 | 1 | 2 | 3,
+        createdAt: isNonNegativeInteger(value.lockState.createdAt) ? value.lockState.createdAt : Date.now(),
+        updatedAt: isNonNegativeInteger(value.lockState.updatedAt) ? value.lockState.updatedAt : Date.now(),
+        challengeText: isOptionalString(value.lockState.challengeText) ? value.lockState.challengeText : undefined,
+        passwordSaltBase64: isOptionalString(value.lockState.passwordSaltBase64) ? value.lockState.passwordSaltBase64 : undefined,
+        passwordHashBase64: isOptionalString(value.lockState.passwordHashBase64) ? value.lockState.passwordHashBase64 : undefined,
+        note: isOptionalString(value.lockState.note) ? value.lockState.note : undefined,
+      }
+    : undefined;
+  const focusGuard = isRecord(value.focusGuard)
+    ? {
+        blockedPatterns: Array.isArray(value.focusGuard.blockedPatterns) ? value.focusGuard.blockedPatterns.filter(isString) : [],
+        allowPatterns: Array.isArray(value.focusGuard.allowPatterns) ? value.focusGuard.allowPatterns.filter(isString) : [],
+        pageTitle: isString(value.focusGuard.pageTitle) ? value.focusGuard.pageTitle : 'Focus Guard',
+        pageMessage: isString(value.focusGuard.pageMessage) ? value.focusGuard.pageMessage : 'This page is blocked by URL Alchemist.',
+        resourceIds: Array.isArray(value.focusGuard.resourceIds) ? value.focusGuard.resourceIds.filter(isString) : undefined,
+        blockCount: isNonNegativeInteger(value.focusGuard.blockCount) ? value.focusGuard.blockCount : undefined,
+        lastBlockedAt: isNonNegativeInteger(value.focusGuard.lastBlockedAt) ? value.focusGuard.lastBlockedAt : undefined,
+      }
+    : undefined;
+
+  return {
+    source,
+    trustStatus,
+    loggingEnabled: typeof value.loggingEnabled === 'boolean' ? value.loggingEnabled : true,
+    installedAt: isNonNegativeInteger(value.installedAt) ? value.installedAt : Date.now(),
+    artifactChecksumHex: isOptionalString(value.artifactChecksumHex) ? value.artifactChecksumHex : undefined,
+    bundledHashVerified: typeof value.bundledHashVerified === 'boolean' ? value.bundledHashVerified : undefined,
+    userReview: isRecord(value.userReview) && isNonNegativeInteger(value.userReview.reviewedAt)
+      ? {
+          reviewedAt: value.userReview.reviewedAt,
+          trustStatus: isEnumValue(['trusted', 'review', 'modified', 'blocked', 'user-reviewed'] as const, value.userReview.trustStatus)
+            ? value.userReview.trustStatus
+            : trustStatus,
+          note: isOptionalString(value.userReview.note) ? value.userReview.note : undefined,
+        }
+      : undefined,
+    lockState,
+    focusGuard,
+  };
+}
+
 export function validateCompiledActionPackV2(candidate: unknown): ValidationResult {
   const errors: string[] = [];
   candidate = migrateCompiledActionPackV2Candidate(candidate);
 
-  if (!isRecord(candidate) || !hasExactKeys(candidate, ['kind', 'schemaVersion', 'manifest', 'builder', 'risk', 'triggerPlan', 'requiredPermissions', 'vm'], ['sourceWorkspaceId', 'checksumHex', 'traceEnabledUntil'])) {
+  if (!isRecord(candidate) || !hasExactKeys(candidate, ['kind', 'schemaVersion', 'manifest', 'builder', 'risk', 'triggerPlan', 'requiredPermissions', 'vm'], ['sourceWorkspaceId', 'checksumHex', 'traceEnabledUntil', 'install'])) {
     return { ok: false, errors: ['The file is not a valid Action Pack'] };
   }
 
@@ -1903,6 +1970,7 @@ export function validateCompiledActionPackV2(candidate: unknown): ValidationResu
           requiredPermissions,
           vm: vmValidation.vm,
           traceEnabledUntil: isNonNegativeInteger(candidate.traceEnabledUntil) ? candidate.traceEnabledUntil : undefined,
+          install: validateInstallMetadata(candidate.install),
         },
       };
     }

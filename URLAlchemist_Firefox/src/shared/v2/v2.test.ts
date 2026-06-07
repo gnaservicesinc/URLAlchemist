@@ -17,6 +17,9 @@ import { validateCompiledActionPackV2 } from './actionPackValidator';
 import { BUNDLED_ACTION_PACK_EXAMPLES, createBundledExampleActionPacks, createBundledExampleWorkspaces } from './bundledExamples';
 import { compileWorkspace } from './compiler';
 import { explainRiskReason } from './explain';
+import { stripLocalInstallMetadata } from './installMetadata';
+import { createChallengeLockState, createPasswordLockState, verifyPasswordLock } from './locks';
+import { validateOllamaEndpoint } from './ollama';
 import { createSandboxGraphRuntime } from './sandboxRuntime';
 import { ACTION_PACK_SCHEMA_VERSION, LEGACY_ACTION_PACK_SCHEMA_VERSION, type CompiledActionPackV2, type GraphValue } from './types';
 import { extractVariableReferences, resolveVariableText } from './variables';
@@ -250,6 +253,97 @@ describe('v2 workspace compiler and VM', () => {
     expect((result.value as unknown as Record<string, unknown>).unexpectedRoot).toBeUndefined();
     expect((result.value.metadata as unknown as Record<string, unknown>).unexpectedMetadata).toBeUndefined();
     expect((result.value.trigger as unknown as Record<string, unknown>).unexpectedTrigger).toBeUndefined();
+  });
+
+  it('migrates schema 6 workspace metadata by stripping removed version-file fields', () => {
+    const workspace = createDefaultWorkspace();
+    const result = validateWorkspaceFile({
+      ...workspace,
+      schemaVersion: 6,
+      metadata: {
+        ...workspace.metadata,
+        versionFileUrl: 'https://example.com/pack.version',
+        versionFileSignatureUrl: 'https://example.com/pack.version.asc',
+        downloadUrl: 'https://example.com/pack.actionpack',
+        publicKeyLocateValue: 'author@example.com',
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error(result.errors.join('; '));
+    }
+    const metadata = result.value.metadata as unknown as Record<string, unknown>;
+    expect(metadata.versionFileUrl).toBeUndefined();
+    expect(metadata.versionFileSignatureUrl).toBeUndefined();
+    expect(metadata.downloadUrl).toBeUndefined();
+    expect(metadata.publicKeyLocateValue).toBeUndefined();
+  });
+
+  it('migrates schema 6 Action Pack metadata by stripping removed version-file fields', () => {
+    const pack = createBasicCompiledPack();
+    const result = validateCompiledActionPackV2({
+      ...pack,
+      schemaVersion: 6,
+      manifest: {
+        ...pack.manifest,
+        metadata: {
+          ...pack.manifest.metadata,
+          versionFileUrl: 'https://example.com/pack.version',
+          versionFileSignatureUrl: 'https://example.com/pack.version.asc',
+          downloadUrl: 'https://example.com/pack.actionpack',
+          publicKeyLocateValue: 'author@example.com',
+        },
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error(result.errors.join('; '));
+    }
+    const metadata = result.pack.manifest.metadata as unknown as Record<string, unknown>;
+    expect(metadata.versionFileUrl).toBeUndefined();
+    expect(metadata.versionFileSignatureUrl).toBeUndefined();
+    expect(metadata.downloadUrl).toBeUndefined();
+    expect(metadata.publicKeyLocateValue).toBeUndefined();
+  });
+
+  it('keeps local install metadata out of exported Action Packs', async () => {
+    const pack = createBasicCompiledPack();
+    const withLocalMetadata: CompiledActionPackV2 = {
+      ...pack,
+      checksumHex: 'local-checksum',
+      traceEnabledUntil: Date.now() + 60_000,
+      install: {
+        source: 'focus-guard',
+        trustStatus: 'trusted',
+        loggingEnabled: false,
+        installedAt: Date.now(),
+        artifactChecksumHex: 'artifact-checksum',
+        lockState: createChallengeLockState(pack.manifest.name, 1),
+        focusGuard: {
+          blockedPatterns: ['example.com'],
+          allowPatterns: [],
+          pageTitle: 'Focus Guard',
+          pageMessage: 'Blocked',
+          blockCount: 3,
+        },
+      },
+    };
+
+    expect(stripLocalInstallMetadata(withLocalMetadata).install).toBeUndefined();
+    const imported = await importCompiledActionPackV2Binary(await exportCompiledActionPackV2Binary(withLocalMetadata));
+    expect(imported.pack.install).toBeUndefined();
+    expect(imported.pack.traceEnabledUntil).toBeUndefined();
+  });
+
+  it('verifies password locks and rejects non-local Ollama endpoints', async () => {
+    const lock = await createPasswordLockState('correct horse battery staple');
+    expect(await verifyPasswordLock(lock, 'correct horse battery staple')).toBe(true);
+    expect(await verifyPasswordLock(lock, 'wrong password')).toBe(false);
+    expect(validateOllamaEndpoint('http://127.0.0.1:11434/api/generate')).toBe('http://127.0.0.1:11434');
+    expect(() => validateOllamaEndpoint('https://127.0.0.1:11434')).toThrow('Ollama endpoint must be local');
+    expect(() => validateOllamaEndpoint('http://192.168.0.10:11434')).toThrow('Ollama endpoint must be local');
   });
 
   it('validates runtime overlay and hotkey messages strictly', () => {

@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 
 interface BundledExamplesPanelProps {
   examples: BundledActionPackExample[];
+  collection: 'bundled' | 'examples';
   installedPackIds: Set<string>;
   savedWorkspaceIds: Set<string>;
   onDownloadActionPack: (example: BundledActionPackExample) => void;
@@ -12,6 +13,10 @@ interface BundledExamplesPanelProps {
   onDeleteInstalledWorkspace: (example: BundledActionPackExample) => void;
   onInstallActionPack: (example: BundledActionPackExample) => void;
   onOpenWorkspace: (example: BundledActionPackExample) => void;
+}
+
+function collectionForExample(example: BundledActionPackExample): 'bundled' | 'examples' {
+  return ['URL cleanup', 'Search', 'Storage'].includes(example.category) ? 'bundled' : 'examples';
 }
 
 function riskClass(risk: BundledActionPackExample['risk']): string {
@@ -40,6 +45,7 @@ function riskLabel(risk: BundledActionPackExample['risk']): string {
 
 export function BundledExamplesPanel({
   examples,
+  collection,
   installedPackIds,
   savedWorkspaceIds,
   onDownloadActionPack,
@@ -51,10 +57,14 @@ export function BundledExamplesPanel({
 }: BundledExamplesPanelProps) {
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState<string>('All');
-  const categories = useMemo(() => ['All', ...Array.from(new Set(examples.map((example) => example.category))).sort()], [examples]);
+  const collectionExamples = useMemo(
+    () => examples.filter((example) => collectionForExample(example) === collection),
+    [collection, examples],
+  );
+  const categories = useMemo(() => ['All', ...Array.from(new Set(collectionExamples.map((example) => example.category))).sort()], [collectionExamples]);
   const visibleExamples = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    return examples.filter((example) => {
+    return collectionExamples.filter((example) => {
       const matchesCategory = category === 'All' || example.category === category;
       const matchesQuery = !normalized || [
         example.name,
@@ -66,14 +76,14 @@ export function BundledExamplesPanel({
       ].join(' ').toLowerCase().includes(normalized);
       return matchesCategory && matchesQuery;
     });
-  }, [category, examples, query]);
+  }, [category, collectionExamples, query]);
 
   return (
     <section className="panel-shell reveal-panel">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="eyebrow">Examples</p>
-          <h2 className="mt-2 text-2xl font-semibold text-slate-900">Built-in Action Packs</h2>
+          <p className="eyebrow">{collection === 'bundled' ? 'Bundled' : 'Examples'}</p>
+          <h2 className="mt-2 text-2xl font-semibold text-slate-900">{collection === 'bundled' ? 'Verified starter packs' : 'Example workspaces'}</h2>
           <p className="mt-2 max-w-3xl text-sm text-slate-600">
             Search practical examples by task. Install the compiled Action Pack directly, or open the workspace source to inspect and adapt the blocks first. These examples are never installed automatically.
           </p>

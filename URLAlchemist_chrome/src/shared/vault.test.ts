@@ -9,6 +9,6 @@ describe('vault', () => {
     bytes.set(new TextEncoder().encode(VAULT_MAGIC), 0);
     bytes[VAULT_MAGIC.length] = VAULT_SCHEMA_VERSION;
 
-    await expect(importActionPackBinary(bytes)).rejects.toThrow('larger than 1MB');
+    await expect(importActionPackBinary(bytes)).rejects.toThrow('larger than 128 MB');
   });
 });

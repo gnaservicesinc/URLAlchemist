@@ -72,6 +72,7 @@ export interface GraphRuntime extends EngineRuntime {
   deleteSessionValue?: (key: string) => Promise<void>;
   fetchRemote?: (request: RemoteRequest) => Promise<GraphValue>;
   resolveAsset?: (request: AssetRequest) => Promise<AssetRef>;
+  resolveStoredAsset?: (asset: AssetRef) => Promise<AssetRef>;
   requestUserInteraction?: (request: UserInteractionRequest) => Promise<GraphValue>;
   displayOverlay?: (request: DisplayRequest) => Promise<GraphValue>;
   overlayControl?: (request: OverlayControlRequest) => Promise<GraphValue>;
@@ -1021,7 +1022,12 @@ async function executeInstruction(
     case 'GET_ASSET': {
       const requestUrl = instruction.url ? asString(getValue(state, instruction.url)) : instruction.fallbackUrl;
       const value: GraphValue = instruction.embedded
-        ? { type: 'asset', value: instruction.embedded }
+        ? {
+            type: 'asset',
+            value: instruction.embedded.source === 'resource'
+              ? await (runtime.resolveStoredAsset?.(instruction.embedded) ?? Promise.resolve(instruction.embedded))
+              : instruction.embedded,
+          }
         : {
             type: 'asset',
             value: await (runtime.resolveAsset ?? defaultResolveAsset)({

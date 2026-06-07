@@ -106,7 +106,7 @@ bash ./reviewer-build.sh
 The script performs these steps:
 
 ```bash
-export URL_ALCHEMIST_BUILD_TIME="${URL_ALCHEMIST_BUILD_TIME:-2026-05-19T00:00:00.000Z}"
+export URL_ALCHEMIST_BUILD_TIME="${URL_ALCHEMIST_BUILD_TIME:-2026-06-07T00:00:00.000Z}"
 npm ci
 npm run generate:bundled
 npm run build
@@ -141,4 +141,7 @@ npx web-ext lint -s dist
 - `package-lock.json` is included so dependency resolution is pinned.
 - The authoritative project source is in `src/`, `public/`, and the top-level config files listed above.
 - Firefox uses an MV3 background script/page for regex, clipboard, interval, and overlay runtime services; it does not use Chrome offscreen documents.
+- Version 2.5 uses schema 7 workspace/action-pack artifacts, removes version-file export/update metadata, preserves V1 `.urlpack` conversion, stores large resources in IndexedDB by SHA-256, and strips local-only install metadata from exported `.actionpack` files.
+- Focus Guard content-blocker packs are normal compiled Action Packs with local lock metadata. Locks are enforced inside the extension but cannot prevent add-on removal or browser profile tampering.
+- The Local Ollama Builder accepts only loopback HTTP endpoints and produces previewed JSON workspace recipes; Action Packs do not contain runtime AI instructions.
 - `dist/` is generated output and should be recreated from source.

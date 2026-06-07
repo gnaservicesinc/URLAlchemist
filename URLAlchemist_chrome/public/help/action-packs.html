@@ -16,15 +16,18 @@
 <p>An Action Pack is the compiled binary runtime form of a workspace. The extension executes Action Packs, not workspace source files.</p>
 <h2>Compilation</h2>
 <p>Compilation validates required connections, block compatibility, regex safety, risk metadata, permissions, schema version, and Run details. A valid workspace can be compiled and exported from the editor or Manage Resources.</p>
-<p>Action Pack schema 6 supports input-data, hotkey, context-menu, interval, and conditional runs; remote data blocks; media/display blocks; utility text, URL, dictionary, and list blocks; logging; aborts; and event-driven overlay handlers.</p>
+<p>Action Pack schema 7 supports input-data, hotkey, context-menu, interval, and conditional runs; remote data blocks; media/display blocks; resource-backed assets; utility text, URL, dictionary, and list blocks; logging toggles; aborts; Focus Guard metadata; and event-driven overlay handlers.</p>
 <p>Conditional Action Packs embed a validated condition VM inside the trigger plan so exported packs remain self-contained across supported browsers.</p>
+<p>Version-file export and update metadata are no longer part of workspace or Action Pack metadata. Imported old files are migrated by stripping those fields.</p>
 <h2>Import Review</h2>
 <p>Imported Action Packs open in the staging gate. The gate shows metadata, risk warnings, plain-language behavior steps, and an interactive sandbox before the Confirm Import button unlocks.</p>
 <p>Action Packs cannot run imported JavaScript. They execute only the compiled instruction types that URL Alchemist knows how to validate, explain, and run.</p>
+<p>Locked Action Packs cannot be imported from <code>.actionpack</code> files. Create or import the workspace source and build the locked Action Pack locally.</p>
 <p>If a legacy <code>.urlpack</code> is imported, URL Alchemist converts it into an editable workspace instead of forcing you to recreate it manually.</p>
 <h2>Logs</h2>
 <p>Each installed Action Pack has a local log in Manage Resources. Every run records a timestamp, exit code, handler, issue count, and URL summary.</p>
 <p>The <strong>Save string to log</strong> block writes a formatted entry with a severity level. You can view, export, or clear a pack log from Manage Resources.</p>
+<p>Logging is controlled per installed pack. Fresh installs default logging off; migrated existing packs keep logging on to preserve behavior.</p>
 <p>Logs stay local and rotate automatically: URL Alchemist keeps the newest 300 entries or about 256 KB per Action Pack, whichever comes first.</p>
 <h2>Pairing</h2>
 <p>Manage Resources draws a connection between an installed workspace and any installed Action Pack compiled from it. You may delete either resource independently.</p>
@@ -33,5 +36,6 @@
 <p>The staging review shows these overlay and event instructions as normal compiled behavior. They are generic primitives, not hidden game-specific runtime code.</p>
 <h2>Sharing</h2>
 <p>Share a <code>.workspace</code> when you want someone to edit or inspect the source graph. Share a <code>.actionpack</code> when you want a compact runtime package that still goes through staging before install.</p>
+<p>Local install metadata such as trust status, logging, locks, review overrides, block counts, and install timestamps is not exported in <code>.actionpack</code> files. Resource bytes are bundled into exported artifacts so the file remains portable.</p>
 </body>
 </html>

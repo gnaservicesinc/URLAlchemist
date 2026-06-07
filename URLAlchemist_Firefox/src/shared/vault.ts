@@ -29,7 +29,7 @@ export async function exportActionPackBinary(pack: ActionPack): Promise<Uint8Arr
 
 export async function importActionPackBinary(bytes: Uint8Array): Promise<ImportEnvelope> {
   if (bytes.byteLength > MAX_ACTION_PACK_BINARY_BYTES) {
-    throw new Error('Pack files larger than 1MB are rejected');
+    throw new Error('Pack files larger than 128 MB are rejected');
   }
 
   if (bytes.length <= HEADER_LENGTH) {

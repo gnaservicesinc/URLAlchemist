@@ -44,7 +44,7 @@ import { formatEventHandler, formatRunType } from '../../shared/v2/labels';
 import { createSandboxGraphRuntime } from '../../shared/v2/sandboxRuntime';
 import { createWorkspaceBlockClipboard, pasteWorkspaceBlockClipboard, type WorkspaceBlockClipboard } from '../../shared/v2/workspaceClipboard';
 import { createEdge, createWorkspaceNode } from '../../shared/v2/workspace';
-import type { BlockDefinition, BlockKind, GraphEventHandler, GraphPortDefinition, GraphValue, RiskLevel, WorkspaceBlockSettings, WorkspaceFileV2, WorkspaceNodeV2 } from '../../shared/v2/types';
+import type { AssetRef, BlockDefinition, BlockKind, GraphEventHandler, GraphPortDefinition, GraphValue, RiskLevel, WorkspaceBlockSettings, WorkspaceFileV2, WorkspaceNodeV2 } from '../../shared/v2/types';
 import { extractVariableReferences, normalizeVariableName, validateVariableName, variableDrivenInputHandles } from '../../shared/v2/variables';
 import { executeCompiledActionPackV2 } from '../../shared/v2/vm';
 import { toActivityDraft, updateActivityDraft, type ActivityDraft } from '../drafts';
@@ -63,12 +63,13 @@ interface WorkspaceEditorProps {
   allWorkspaces: WorkspaceFileV2[];
   isDirty: boolean;
   workspace: WorkspaceFileV2;
+  resourceAssets: AssetRef[];
   onNewWorkspace: () => void;
   onSwitchWorkspace: (workspaceId: string) => void;
   onWorkspaceChange: (workspace: WorkspaceFileV2, options?: WorkspaceChangeOptions) => void;
+  onUploadResource: (file: File) => Promise<AssetRef>;
   onBuildActionPack: () => void;
   onExportActionPack: () => void;
-  onExportActionPackVersionFile: () => void;
   onExportWorkspace: () => void;
   onSaveWorkspace: () => void;
 }
@@ -82,12 +83,14 @@ interface WorkspaceBlockData {
   invalidInputs: string[];
   node: WorkspaceNodeV2;
   outputs: GraphPortDefinition[];
+  resourceAssets: AssetRef[];
   variables: DeclaredVariable[];
   onCollapseToggle: (nodeId: string) => void;
   onDeleteNode: (nodeId: string) => void;
   onLockToggle: (nodeId: string) => void;
   onOpenRegexBuilder: (nodeId: string) => void;
   onSettingsChange: (nodeId: string, settings: Partial<WorkspaceBlockSettings>) => void;
+  onUploadResource: (file: File) => Promise<AssetRef>;
 }
 
 interface DeclaredVariable {
@@ -336,13 +339,28 @@ function updateNodeSettings(workspace: WorkspaceFileV2, nodeId: string, settings
   };
 }
 
+function mediaBlockAssetKind(nodeType: WorkspaceNodeV2['type'], asset?: AssetRef): WorkspaceBlockSettings['assetKind'] {
+  if (asset?.kind === 'image' || asset?.kind === 'video' || asset?.kind === 'audio') {
+    return asset.kind;
+  }
+  if (nodeType === 'GetVideo') {
+    return 'video';
+  }
+  if (nodeType === 'GetAudio') {
+    return 'audio';
+  }
+  return 'image';
+}
+
 function renderBlockSettings(
   node: WorkspaceNodeV2,
   connectedInputs: Set<string>,
   blockedInputs: Set<string>,
   variables: DeclaredVariable[],
+  resourceAssets: AssetRef[],
   onSettingsChange: (settings: Partial<WorkspaceBlockSettings>) => void,
   onOpenRegexBuilder: (() => void) | undefined,
+  onUploadResource: (file: File) => Promise<AssetRef>,
 ) {
   const inputClass = blockInputClass;
   const isConnected = (portId: string): boolean => connectedInputs.has(portId) && !blockedInputs.has(portId);
@@ -1061,12 +1079,79 @@ function renderBlockSettings(
       );
     case 'GetImage':
     case 'GetVideo':
-    case 'GetAudio':
+    case 'GetAudio': {
+      const selectedResourceId = node.settings.assetResourceId;
+      const selectedResource = resourceAssets.find((asset) => (asset.resourceId ?? asset.sha256) === selectedResourceId);
+      const accept = node.type === 'GetVideo' ? 'video/*' : node.type === 'GetAudio' ? 'audio/*' : 'image/*';
       return (
         <div className="mt-3 grid gap-2">
+          {resourceAssets.length > 0 ? (
+            <SettingField help="Local resources are stored once in IndexedDB and bundled only when exporting a workspace or Action Pack." label="Local resource">
+              <select
+                className={inputClass}
+                value={selectedResourceId ?? ''}
+                onChange={(event) => {
+                  const resourceId = event.target.value;
+                  const asset = resourceAssets.find((candidate) => (candidate.resourceId ?? candidate.sha256) === resourceId);
+	                  onSettingsChange(resourceId && asset ? {
+	                    assetResourceId: resourceId,
+	                    assetMimeType: asset.mimeType,
+	                    assetName: asset.name,
+	                    assetKind: mediaBlockAssetKind(node.type, asset),
+	                    assetUrl: '',
+                  } : {
+                    assetResourceId: undefined,
+                  });
+                }}
+              >
+                <option value="">Remote URL</option>
+                {resourceAssets
+                  .filter((asset) => asset.kind === 'unknown' || asset.kind === (node.type === 'GetVideo' ? 'video' : node.type === 'GetAudio' ? 'audio' : 'image'))
+                  .map((asset) => {
+                    const id = asset.resourceId ?? asset.sha256 ?? asset.name ?? '';
+                    return (
+                      <option key={id} value={id}>
+                        {asset.name ?? id.slice(0, 12)}{asset.sizeBytes ? ` (${Math.round(asset.sizeBytes / 1024)} KB)` : ''}
+                      </option>
+                    );
+                  })}
+              </select>
+            </SettingField>
+          ) : null}
+          {selectedResource ? (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-800">
+              {selectedResource.name ?? 'Local resource'} is referenced by SHA-256 and will be bundled on export.
+            </div>
+          ) : null}
+          <SettingField help="Stores this file once locally and references it from the block. Resources are not synced." label="Upload resource">
+            <input
+              className={inputClass}
+              type="file"
+              accept={accept}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) {
+                  void onUploadResource(file).then((asset) => {
+                    const resourceId = asset.resourceId ?? asset.sha256;
+                    if (!resourceId) {
+                      return;
+                    }
+	                    onSettingsChange({
+	                      assetResourceId: resourceId,
+	                      assetMimeType: asset.mimeType,
+	                      assetName: asset.name,
+	                      assetKind: mediaBlockAssetKind(node.type, asset),
+	                      assetUrl: '',
+                    });
+                  });
+                }
+                event.currentTarget.value = '';
+              }}
+            />
+          </SettingField>
           {!isConnected('url') ? (
             <SettingField help="HTTPS-only media URL used when the URL input is not connected." label="Media URL">
-              <input className={inputClass} placeholder={`https://example.com/file.${node.type === 'GetVideo' ? 'mp4' : node.type === 'GetAudio' ? 'mp3' : 'png'}`} value={settingText(node.settings.assetUrl)} onChange={(event) => onSettingsChange({ assetUrl: event.target.value })} />
+              <input className={inputClass} disabled={Boolean(selectedResourceId)} placeholder={`https://example.com/file.${node.type === 'GetVideo' ? 'mp4' : node.type === 'GetAudio' ? 'mp3' : 'png'}`} value={settingText(node.settings.assetUrl)} onChange={(event) => onSettingsChange({ assetUrl: event.target.value, assetResourceId: undefined })} />
             </SettingField>
           ) : connectedNote('Media URL')}
           <SettingField help="Optional MIME type hint for embedded or fetched media." label="MIME type">
@@ -1080,13 +1165,14 @@ function renderBlockSettings(
           </SettingField>
         </div>
       );
+    }
     default:
       return null;
   }
 }
 
 const WorkspaceBlockNode = memo(function WorkspaceBlockNode({ data, selected }: NodeProps<WorkspaceFlowNode>) {
-  const { blockedInputs, connectedInputs, definition, inputs, invalidInputs, node, outputs, variables, onCollapseToggle, onDeleteNode, onLockToggle, onOpenRegexBuilder, onSettingsChange } = data;
+  const { blockedInputs, connectedInputs, definition, inputs, invalidInputs, node, outputs, resourceAssets, variables, onCollapseToggle, onDeleteNode, onLockToggle, onOpenRegexBuilder, onSettingsChange, onUploadResource } = data;
   const locked = Boolean(node.settings.locked);
   const collapsed = Boolean(node.settings.collapsed);
   const title = blockTitle(node, definition);
@@ -1205,8 +1291,10 @@ const WorkspaceBlockNode = memo(function WorkspaceBlockNode({ data, selected }: 
           new Set(connectedInputs),
           new Set(blockedInputs),
           data.variables,
+          resourceAssets,
           (settings) => onSettingsChange(node.id, settings),
           node.type === 'RegExpression' ? () => onOpenRegexBuilder(node.id) : undefined,
+          onUploadResource,
         )}
 
         <div className="mt-3 grid gap-2">
@@ -1539,13 +1627,15 @@ function applyConnectionQuickFix(workspace: WorkspaceFileV2, fix: ConnectionQuic
 interface WorkspaceFlowProps {
   advancedModeEnabled: boolean;
   workspace: WorkspaceFileV2;
+  resourceAssets: AssetRef[];
+  onUploadResource: (file: File) => Promise<AssetRef>;
   onWorkspaceChange: (workspace: WorkspaceFileV2, options?: WorkspaceChangeOptions) => void;
   invalidEdgeIds: Set<string>;
   focusRequest?: { requestId: number; nodeIds: string[] } | null;
   heightClassName?: string;
 }
 
-function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, invalidEdgeIds, focusRequest, heightClassName = 'h-[720px]' }: WorkspaceFlowProps) {
+function WorkspaceFlow({ advancedModeEnabled, workspace, resourceAssets, onUploadResource, onWorkspaceChange, invalidEdgeIds, focusRequest, heightClassName = 'h-[720px]' }: WorkspaceFlowProps) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const pendingSelectionRef = useRef<Set<string> | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; flowX: number; flowY: number } | null>(null);
@@ -1644,18 +1734,20 @@ function WorkspaceFlow({ advancedModeEnabled, workspace, onWorkspaceChange, inva
             invalidInputs: Array.from(new Set([...invalidInputs, ...blockedInputs])),
             node,
             outputs,
+            resourceAssets,
             variables: declaredVariables,
             onCollapseToggle: handleCollapseToggle,
             onDeleteNode: handleDeleteNode,
             onLockToggle: handleLockToggle,
             onOpenRegexBuilder: setRegexBuilderNodeId,
             onSettingsChange: handleSettingsChange,
+            onUploadResource,
           },
           deletable: definition.flags.canDelete && !node.settings.locked,
           draggable: !node.settings.locked,
         };
       }),
-    [workspace, invalidEdgeIds, declaredVariables, handleCollapseToggle, handleDeleteNode, handleLockToggle, handleSettingsChange],
+    [workspace, invalidEdgeIds, resourceAssets, declaredVariables, handleCollapseToggle, handleDeleteNode, handleLockToggle, handleSettingsChange, onUploadResource],
   );
 
   const workspaceEdges = useMemo<Edge[]>(
@@ -2260,12 +2352,13 @@ export function WorkspaceEditor({
   allWorkspaces,
   isDirty,
   workspace,
+  resourceAssets,
   onWorkspaceChange,
   onNewWorkspace,
   onSwitchWorkspace,
+  onUploadResource,
   onBuildActionPack,
   onExportActionPack,
-  onExportActionPackVersionFile,
   onExportWorkspace,
   onSaveWorkspace,
 }: WorkspaceEditorProps) {
@@ -2454,7 +2547,9 @@ export function WorkspaceEditor({
           focusRequest={focusRequest}
           heightClassName={heightClassName}
           invalidEdgeIds={invalidEdgeIds}
+          resourceAssets={resourceAssets}
           workspace={workspace}
+          onUploadResource={onUploadResource}
           onWorkspaceChange={onWorkspaceChange}
         />
       </ReactFlowProvider>
@@ -2511,9 +2606,6 @@ export function WorkspaceEditor({
           </button>
           <button className="primary-button" disabled={!compileResult.ok} type="button" onClick={onExportActionPack}>
             Export .actionpack
-          </button>
-          <button className="ghost-button" disabled={!compileResult.ok} type="button" onClick={onExportActionPackVersionFile}>
-            Export Version File
           </button>
         </div>
       </div>
@@ -2578,22 +2670,6 @@ export function WorkspaceEditor({
             </label>
           </>
         ) : null}
-        <label className="field-shell lg:col-span-2">
-          <span className="field-label">Version File URL</span>
-          <input className="field-input" placeholder="https://example.com/path/pack.version" value={workspace.metadata.versionFileUrl ?? ''} onChange={(event) => updateWorkspace({ metadata: { ...workspace.metadata, versionFileUrl: event.target.value } })} />
-        </label>
-        <label className="field-shell lg:col-span-2">
-          <span className="field-label">Download URL</span>
-          <input className="field-input" placeholder="https://example.com/path/pack.actionpack" value={workspace.metadata.downloadUrl ?? ''} onChange={(event) => updateWorkspace({ metadata: { ...workspace.metadata, downloadUrl: event.target.value } })} />
-        </label>
-        <label className="field-shell lg:col-span-2">
-          <span className="field-label">Signature URL</span>
-          <input className="field-input" placeholder="https://example.com/path/pack.version.asc" value={workspace.metadata.versionFileSignatureUrl ?? ''} onChange={(event) => updateWorkspace({ metadata: { ...workspace.metadata, versionFileSignatureUrl: event.target.value } })} />
-        </label>
-        <label className="field-shell lg:col-span-2">
-          <span className="field-label">Public Key Locator</span>
-          <input className="field-input" placeholder="author@example.com" value={workspace.metadata.publicKeyLocateValue ?? ''} onChange={(event) => updateWorkspace({ metadata: { ...workspace.metadata, publicKeyLocateValue: event.target.value } })} />
-        </label>
         {workspace.trigger.type === 'HOTKEY' ? (
           <div className="lg:col-span-2">
             <HotkeyRecorder

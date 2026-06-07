@@ -18,8 +18,10 @@ interface SettingsPanelProps {
   onBuilderUuidInputChange: (value: string) => void;
   onExportBackup: () => void;
   onExportBuilderUuid: () => void;
+  onDefaultLoggingToggle: () => void;
   onGlobalEnabledToggle: () => void;
   onLocalFilesToggle: () => void;
+  onOllamaSettingsChange: (settings: Partial<Pick<GlobalSettings, 'ollamaEnabled' | 'ollamaEndpoint' | 'ollamaModel' | 'ollamaTimeoutMs'>>) => void;
   onRequestClipboardPermission: () => void;
   onRestoreBuilderUuid: () => void;
   onSyncEnabledToggle: () => void;
@@ -58,8 +60,10 @@ export function SettingsPanel({
   onBuilderUuidInputChange,
   onExportBackup,
   onExportBuilderUuid,
+  onDefaultLoggingToggle,
   onGlobalEnabledToggle,
   onLocalFilesToggle,
+  onOllamaSettingsChange,
   onRequestClipboardPermission,
   onRestoreBuilderUuid,
   onSyncEnabledToggle,
@@ -110,12 +114,22 @@ export function SettingsPanel({
 
         <div className="flex items-center justify-between gap-4 rounded-lg border border-slate-200 bg-white/80 px-4 py-3">
           <div>
-            <p className="text-sm font-semibold text-slate-900">Browser Sync</p>
+            <p className="text-sm font-semibold text-slate-900">Google Sync</p>
             <p className="text-xs text-slate-500">
-              Best-effort sync for settings and small workspaces or Action Packs. <HelpTooltip label="Browser Sync" text="Large workspaces and Action Packs stay local because browser sync storage has small per-item quotas." />
+              Best-effort sync for settings and small workspaces or Action Packs. <HelpTooltip label="Google Sync" text="Large workspaces and Action Packs stay local because Chrome sync has a small per-item quota." />
             </p>
           </div>
-          <ToggleSwitch checked={settings.syncEnabled} label="Browser Sync" onToggle={onSyncEnabledToggle} />
+          <ToggleSwitch checked={settings.syncEnabled} label="Google Sync" onToggle={onSyncEnabledToggle} />
+        </div>
+
+        <div className="flex items-center justify-between gap-4 rounded-lg border border-slate-200 bg-white/80 px-4 py-3">
+          <div>
+            <p className="text-sm font-semibold text-slate-900">New Action Pack logging</p>
+            <p className="text-xs text-slate-500">
+              Default for newly installed packs. Existing packs keep their own setting.
+            </p>
+          </div>
+          <ToggleSwitch checked={settings.defaultActionPackLoggingEnabled} label="New Action Pack logging" onToggle={onDefaultLoggingToggle} />
         </div>
 
         <div className="rounded-lg border border-slate-200 bg-white/80 px-4 py-4 lg:col-span-2">
@@ -171,6 +185,32 @@ export function SettingsPanel({
             <button className="ghost-button" disabled={clipboardGranted} type="button" onClick={onRequestClipboardPermission}>
               Grant Access
             </button>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-slate-200 bg-white/80 px-4 py-4 lg:col-span-2">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-slate-900">Local Ollama Builder</p>
+              <p className="mt-1 text-xs text-slate-500">
+                Uses only a local Ollama server to draft workspace changes. Runtime Action Packs do not call AI providers.
+              </p>
+            </div>
+            <ToggleSwitch checked={settings.ollamaEnabled} label="Local Ollama Builder" onToggle={() => onOllamaSettingsChange({ ollamaEnabled: !settings.ollamaEnabled })} />
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-[1fr_180px_140px]">
+            <label className="field-shell">
+              <span className="field-label">Endpoint</span>
+              <input className="field-input" value={settings.ollamaEndpoint} onChange={(event) => onOllamaSettingsChange({ ollamaEndpoint: event.target.value })} />
+            </label>
+            <label className="field-shell">
+              <span className="field-label">Model</span>
+              <input className="field-input" value={settings.ollamaModel} onChange={(event) => onOllamaSettingsChange({ ollamaModel: event.target.value })} />
+            </label>
+            <label className="field-shell">
+              <span className="field-label">Timeout ms</span>
+              <input className="field-input" min={1000} max={120000} type="number" value={settings.ollamaTimeoutMs} onChange={(event) => onOllamaSettingsChange({ ollamaTimeoutMs: Number.parseInt(event.target.value || '30000', 10) })} />
+            </label>
           </div>
         </div>
 

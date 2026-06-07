@@ -35,9 +35,11 @@ URL Alchemist stores data locally by default. Profile sync is optional and best-
 
 Build the browser workflows you actually need, inspect what they do, and keep control over how your tabs, URLs, page data, and overlays behave.
 
-Version 2.1.0 focuses on practical block-building, conditional runs, examples, and cross-browser polish.
-- Added Text Transform, Text Split/Join, URL Query, Dict Operation, and Condition Out blocks.
-- Added Conditional Run support with embedded, validated condition VMs and rising-edge or while-true scheduling.
-- Added Clipboard Cleanup, Query Param Manager, and Daily Break Once examples.
-- Added example compatibility chips, compile-error focus links, common type quick fixes, copyable debug traces, and clearer high-risk port labeling.
-- Updated schema V6 validation, permission/risk recomputation, Firefox binary clipboard compatibility warnings, manifests/package versions, bundled examples, and help pages.
+Version 2.5.0 focuses on trust-oriented cleanup, large local resources, Focus Guard content blocking, extension-local locks, per-pack logging controls, and local-only Ollama workspace drafting.
+- Updated workspace and Action Pack schema to 7 while preserving V1 `.urlpack` import/conversion and older V2 migrations.
+- Removed version-file export/update metadata from workspace and Action Pack metadata; old fields are stripped during migration and export.
+- Added local-only install metadata for trust source, review status, logging, locks, install timestamps, checksums, and Focus Guard statistics.
+- Added IndexedDB resource storage keyed by SHA-256, with resources excluded from sync and bundled into exported artifacts.
+- Added Focus Guard for local content-blocker workspaces with block/allow rules, custom block pages, optional image resources, stats, and lock levels.
+- Added per-pack logging toggles. Fresh installs default logging off; migrated existing packs keep logging on.
+- Added local-only Ollama builder settings and preview-first strict JSON workspace drafting with no runtime AI blocks.

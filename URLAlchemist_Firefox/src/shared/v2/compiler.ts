@@ -633,7 +633,8 @@ function validateWorkspace(workspace: WorkspaceFileV2): WorkspaceValidationState
       const remoteDataNode = node.type === 'FetchData' || node.type === 'HttpRequest';
       const urlInput = connectedInput(edgesByTarget, node.id, 'url');
       const hasEmbeddedAsset = !remoteDataNode && Boolean(node.settings.assetDataBase64?.trim());
-      addRisk(risk, 'high', remoteDataNode ? 'Remote data access is high risk.' : hasEmbeddedAsset ? 'Embedded media access is high risk.' : 'Remote media access is high risk.', 'input');
+      const hasResourceAsset = !remoteDataNode && Boolean(node.settings.assetResourceId?.trim());
+      addRisk(risk, 'high', remoteDataNode ? 'Remote data access is high risk.' : hasEmbeddedAsset || hasResourceAsset ? 'Local media access is high risk for imported packs.' : 'Remote media access is high risk.', 'input');
       const fallbackUrl = urlInput ? '' : (remoteDataNode ? node.settings.remoteUrl : node.settings.assetUrl)?.trim() ?? '';
       if (!urlInput && !fallbackUrl && !hasEmbeddedAsset) {
         errors.push(`${node.settings.label || definition.label}: remote URL or embedded asset is required unless the URL input is connected.`);
@@ -957,7 +958,16 @@ function instructionForNode(
         output: symbol(node.id, 'result'),
         fallbackUrl: urlInput ? '' : node.settings.assetUrl ?? '',
         kind: node.settings.assetKind ?? assetKindForNode(node.type),
-        embedded: node.settings.assetDataBase64
+        embedded: node.settings.assetResourceId
+          ? {
+              source: 'resource',
+              kind: node.settings.assetKind ?? assetKindForNode(node.type),
+              mimeType: node.settings.assetMimeType ?? 'application/octet-stream',
+              name: node.settings.assetName,
+              resourceId: node.settings.assetResourceId,
+              sha256: node.settings.assetResourceId,
+            }
+          : node.settings.assetDataBase64
           ? {
               source: 'embedded',
               kind: node.settings.assetKind ?? assetKindForNode(node.type),
@@ -1805,10 +1815,6 @@ export function compileWorkspace(workspace: WorkspaceFileV2, options: CompileOpt
       metadata: {
         author: workspace.metadata.author,
         description: workspace.metadata.description,
-        versionFileUrl: cleanUrl(workspace.metadata.versionFileUrl),
-        versionFileSignatureUrl: cleanUrl(workspace.metadata.versionFileSignatureUrl),
-        downloadUrl: cleanUrl(workspace.metadata.downloadUrl),
-        publicKeyLocateValue: cleanLocateValue(workspace.metadata.publicKeyLocateValue),
         created_at: workspace.metadata.created_at,
       },
       trigger: {

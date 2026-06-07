@@ -19,6 +19,7 @@
 <p>Tracing records local execution steps and issues for selected installed Action Packs. The Security tab explains audited files in plain language so you can see what a pack reads, writes, changes, or sends before enabling it.</p>
 <h2>Action Pack Logs</h2>
 <p>Per-pack logs are local records of runs and explicit <strong>Save string to log</strong> entries. They can include URLs or strings chosen by a workflow, so export or share them with the same care as trace files.</p>
+<p>New Action Packs default logging off. Migrated existing packs keep logging on until you turn it off in Manage Resources.</p>
 <p>Use <strong>Clear Log</strong> in Manage Resources when a pack log no longer needs to be retained. Older entries are also pruned automatically after the newest 300 entries or about 256 KB per Action Pack.</p>
 <h2>Hardening</h2>
 <p>Hardening settings can reduce VM instruction count, redirect recursion, and regex timeout limits. They cannot loosen the built-in default safety budgets.</p>
@@ -26,6 +27,10 @@
 <p>Page text, raw HTML, and page-link reads are capped before leaving the content script so unusually large pages cannot create unbounded runtime payloads.</p>
 <p class="warning">Clipboard, raw page, remote request, and page mutation behavior should be reviewed carefully before installing a pack.</p>
 <p class="warning">Keyboard or mouse capture and real-time overlay events are allowed only through overlay blocks that URL Alchemist owns. Review these packs carefully and close the visible overlay to stop capture and event routing.</p>
+<h2>Focus Guard Locks</h2>
+<p>Focus Guard installs content-blocker rules as normal Action Packs with extra local metadata. Locked packs cannot be disabled, deleted, exported, overwritten by rebuild/import, or removed through backup restore or full reset until unlocked.</p>
+<p>Level 1 locks require challenge text, repeated confirmation, and a delay. Level 2 locks verify a password with salted PBKDF2 through WebCrypto. Level 3 locks have no in-app unlock path.</p>
+<p class="warning">Locks are enforced inside the extension and browser APIs. They cannot prevent extension removal or direct browser profile tampering.</p>
 <h2>File Audit</h2>
 <p>The Security tab can inspect an uninstalled workspace or Action Pack and report validation, permissions, risk reasons, Run plan, and plain-language steps without saving it.</p>
 <h2>Sandbox Model</h2>

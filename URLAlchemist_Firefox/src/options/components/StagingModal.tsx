@@ -11,7 +11,6 @@ interface StagingModalProps {
   sandboxError: string | null;
   hasSandboxRun: boolean;
   reviewAcknowledged: boolean;
-  compatibilityWarnings: string[];
   validationErrors: string[];
   onClose: () => void;
   onConfirm: () => void;
@@ -71,7 +70,6 @@ export function StagingModal({
   sandboxError,
   hasSandboxRun,
   reviewAcknowledged,
-  compatibilityWarnings,
   validationErrors,
   onClose,
   onConfirm,
@@ -126,17 +124,6 @@ export function StagingModal({
                 <li key={instruction.nodeId}>
                   {remoteInstructionHost(instruction)}
                 </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-
-        {compatibilityWarnings.length > 0 ? (
-          <div className="mb-5 rounded-lg border border-amber-300 bg-amber-50 px-5 py-4 text-amber-950">
-            <p className="font-semibold">Firefox compatibility notes</p>
-            <ul className="mt-2 list-disc pl-5 text-sm">
-              {compatibilityWarnings.map((warning) => (
-                <li key={warning}>{warning}</li>
               ))}
             </ul>
           </div>

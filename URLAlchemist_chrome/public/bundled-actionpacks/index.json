@@ -17,7 +17,12 @@
         "Safe URL output"
       ],
       "workspacePath": "bundled-actionpacks/workspaces/clean-campaign-links.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/clean-campaign-links.actionpack"
+      "actionPackPath": "bundled-actionpacks/action-packs/clean-campaign-links.actionpack",
+      "collection": "bundled",
+      "artifactHashes": {
+        "workspaceSha256": "1399efdc251022c3ce9505a463023fcfa7ff38b2be04ef467b3a3883a4d7ceb3",
+        "actionPackSha256": "934f475444a66d79f29812653c8615299670bfe9e80eabc01fb4f7c4616449c8"
+      }
     },
     {
       "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200002",
@@ -33,7 +38,12 @@
         "Stable share URLs"
       ],
       "workspacePath": "bundled-actionpacks/workspaces/keep-stable-query.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/keep-stable-query.actionpack"
+      "actionPackPath": "bundled-actionpacks/action-packs/keep-stable-query.actionpack",
+      "collection": "bundled",
+      "artifactHashes": {
+        "workspaceSha256": "f67c09fb197d1800516a6f4e752379e4b3241868cb171274aeb75110ba336110",
+        "actionPackSha256": "0f704d1a6ba5431b1cc9eafe1a4ccd2460b384cf3044cf0a7a031a9f5859ac3f"
+      }
     },
     {
       "id": "f5ef8a65-c730-4915-9b8d-6bdca5850250",
@@ -50,7 +60,12 @@
         "No regex"
       ],
       "workspacePath": "bundled-actionpacks/workspaces/query-param-manager.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/query-param-manager.actionpack"
+      "actionPackPath": "bundled-actionpacks/action-packs/query-param-manager.actionpack",
+      "collection": "bundled",
+      "artifactHashes": {
+        "workspaceSha256": "757b7d043e50c145c3b672ddc9373251f01c5084d24b67036767efaef9efbe27",
+        "actionPackSha256": "40e6bd8ec33551baea17c42529192a9176ea316693cd5f207afbf05464339c9d"
+      }
     },
     {
       "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200003",
@@ -66,7 +81,12 @@
         "Link URL friendly"
       ],
       "workspacePath": "bundled-actionpacks/workspaces/github-pr-files-shortcut.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/github-pr-files-shortcut.actionpack"
+      "actionPackPath": "bundled-actionpacks/action-packs/github-pr-files-shortcut.actionpack",
+      "collection": "bundled",
+      "artifactHashes": {
+        "workspaceSha256": "89617580a761e1bd7087e06ac8c9026c70c4621bf5cd709f3e1f9deb9503c67f",
+        "actionPackSha256": "88861a4d1ab3afebf8bcc2d119816e92d0fb39c633bbe3ad1e3ecbf24f010887"
+      }
     },
     {
       "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200004",
@@ -82,7 +102,12 @@
         "String to URL conversion"
       ],
       "workspacePath": "bundled-actionpacks/workspaces/search-selected-text.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/search-selected-text.actionpack"
+      "actionPackPath": "bundled-actionpacks/action-packs/search-selected-text.actionpack",
+      "collection": "bundled",
+      "artifactHashes": {
+        "workspaceSha256": "780a01f06941a8b9a0a36d72069f54a32e3a0d79d95d3677d600c2a778505a3b",
+        "actionPackSha256": "7b0da53e30883f27eef516fd5fc951cb89390a3b7786026a0292fc708a96cc27"
+      }
     },
     {
       "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200005",
@@ -98,7 +123,12 @@
         "String to URL conversion"
       ],
       "workspacePath": "bundled-actionpacks/workspaces/clipboard-search-launcher.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/clipboard-search-launcher.actionpack"
+      "actionPackPath": "bundled-actionpacks/action-packs/clipboard-search-launcher.actionpack",
+      "collection": "bundled",
+      "artifactHashes": {
+        "workspaceSha256": "fe4f6d73ecd1a5692b4e19005b810ac50c081016ef7709f85233dbdf4fe637e1",
+        "actionPackSha256": "346f0061e3fb7bc9cf7fe420ff464ea1c346fbedad0444fa579a5d7c9618b110"
+      }
     },
     {
       "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200006",
@@ -114,7 +144,12 @@
         "Overlay preview"
       ],
       "workspacePath": "bundled-actionpacks/workspaces/remember-current-page.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/remember-current-page.actionpack"
+      "actionPackPath": "bundled-actionpacks/action-packs/remember-current-page.actionpack",
+      "collection": "bundled",
+      "artifactHashes": {
+        "workspaceSha256": "e52a059b75ca757738bf8925728f8e69e26611bca4d6cac9d4181e75675e74bd",
+        "actionPackSha256": "829ab363254ec62206e71b5e87cec07f8e4774c873dab7035e11f0d003750cd5"
+      }
     },
     {
       "id": "514631bb-d33c-46e2-b416-70720c6e02f9",
@@ -131,7 +166,12 @@
         "Overlay and log"
       ],
       "workspacePath": "bundled-actionpacks/workspaces/variable-use-across-runs.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/variable-use-across-runs.actionpack"
+      "actionPackPath": "bundled-actionpacks/action-packs/variable-use-across-runs.actionpack",
+      "collection": "bundled",
+      "artifactHashes": {
+        "workspaceSha256": "71e30375a6c52cca373fc30ef05970a170b861342abb20dfd03b18b6fae04bcf",
+        "actionPackSha256": "7ad1adcf074b76c1525b6d2341a940473e595def8d2e85fdace9671b94a3eeb1"
+      }
     },
     {
       "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200016",
@@ -147,7 +187,12 @@
         "No redirect"
       ],
       "workspacePath": "bundled-actionpacks/workspaces/copy-page-title.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/copy-page-title.actionpack"
+      "actionPackPath": "bundled-actionpacks/action-packs/copy-page-title.actionpack",
+      "collection": "examples",
+      "artifactHashes": {
+        "workspaceSha256": "b1540c383581951ac1d88f1a05747ce46f0fcc859c2270882310475ee8a081c4",
+        "actionPackSha256": "84d6f0b0908c1b3ad8868e2f602064633ba240d0711d9a09dc3ec77da65efccf"
+      }
     },
     {
       "id": "daf235dc-182c-4df0-b806-9d22f4a0c1c4",
@@ -164,7 +209,12 @@
         "High-risk warning"
       ],
       "workspacePath": "bundled-actionpacks/workspaces/clipboard-cleanup.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/clipboard-cleanup.actionpack"
+      "actionPackPath": "bundled-actionpacks/action-packs/clipboard-cleanup.actionpack",
+      "collection": "examples",
+      "artifactHashes": {
+        "workspaceSha256": "81aef418c89b038cc63493c6b0ca04224054eba137502b63f501792f02b6cc4a",
+        "actionPackSha256": "c7243a819666d87a201841aad8b6f8333348bf60225a9e1da50e18f807cc7fc0"
+      }
     },
     {
       "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200017",
@@ -180,7 +230,12 @@
         "Abort guard"
       ],
       "workspacePath": "bundled-actionpacks/workspaces/debug-page-logger.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/debug-page-logger.actionpack"
+      "actionPackPath": "bundled-actionpacks/action-packs/debug-page-logger.actionpack",
+      "collection": "examples",
+      "artifactHashes": {
+        "workspaceSha256": "e5e685bc28b762d62adbb9895e55d1b1d9439f175b2a065e9a9546f2805e44e4",
+        "actionPackSha256": "a692ac694219d816158cee2effb7e57721ce4a6721ae5ca4a570c3594eea23bc"
+      }
     },
     {
       "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200007",
@@ -196,7 +251,12 @@
         "Clipboard output"
       ],
       "workspacePath": "bundled-actionpacks/workspaces/research-note-snapshot.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/research-note-snapshot.actionpack"
+      "actionPackPath": "bundled-actionpacks/action-packs/research-note-snapshot.actionpack",
+      "collection": "examples",
+      "artifactHashes": {
+        "workspaceSha256": "a68d053827b049224fa8b2be9081977f4ba7e840812d43240647fc5762606246",
+        "actionPackSha256": "9dee6d27ae3f538cd1b5f9cde9be87f454ae3fbc20c5afcd262f314fb6da6f91"
+      }
     },
     {
       "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200008",
@@ -212,7 +272,12 @@
         "Math conversion to clipboard"
       ],
       "workspacePath": "bundled-actionpacks/workspaces/uppercase-selection-clipboard.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/uppercase-selection-clipboard.actionpack"
+      "actionPackPath": "bundled-actionpacks/action-packs/uppercase-selection-clipboard.actionpack",
+      "collection": "examples",
+      "artifactHashes": {
+        "workspaceSha256": "4c809c0338f597daea70e55d84f6f55597609c5cb4120bc16cdbb0e65ad4b05b",
+        "actionPackSha256": "be348d4fce282b5f2c0fe859f3aee497d569825aec41e496c06d62df9941fae2"
+      }
     },
     {
       "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200009",
@@ -228,7 +293,12 @@
         "No redirect"
       ],
       "workspacePath": "bundled-actionpacks/workspaces/remote-text-fetch-preview.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/remote-text-fetch-preview.actionpack"
+      "actionPackPath": "bundled-actionpacks/action-packs/remote-text-fetch-preview.actionpack",
+      "collection": "examples",
+      "artifactHashes": {
+        "workspaceSha256": "5bb4039a050926416c902cba735b8d41657e98533679e3299960ca867596b362",
+        "actionPackSha256": "29a3e9c725895dcb86c035e2fdc43553496dea2c6d970219a3be6f87726d68d4"
+      }
     },
     {
       "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200010",
@@ -244,7 +314,12 @@
         "Echo response"
       ],
       "workspacePath": "bundled-actionpacks/workspaces/remote-post-snapshot.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/remote-post-snapshot.actionpack"
+      "actionPackPath": "bundled-actionpacks/action-packs/remote-post-snapshot.actionpack",
+      "collection": "examples",
+      "artifactHashes": {
+        "workspaceSha256": "29d6812b173e1ead6c7a480cfb71a55d6fe81422371ac463ddf9892df8647472",
+        "actionPackSha256": "bb405d604265204b97370c6c11c0e456a7e49ea74096573ff546e71bb216a499"
+      }
     },
     {
       "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200011",
@@ -260,7 +335,12 @@
         "Overlay message"
       ],
       "workspacePath": "bundled-actionpacks/workspaces/clean-words.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/clean-words.actionpack"
+      "actionPackPath": "bundled-actionpacks/action-packs/clean-words.actionpack",
+      "collection": "examples",
+      "artifactHashes": {
+        "workspaceSha256": "32f96cda22dc302107bdb3a1fa290eb39aa120f4df0c7687300b199b1a293e42",
+        "actionPackSha256": "1ed968c2fecb0dba5b6926be821b4a4180add6a55a8d506af914e7987d4c4e9a"
+      }
     },
     {
       "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200012",
@@ -276,7 +356,12 @@
         "SaveLoad timestamp"
       ],
       "workspacePath": "bundled-actionpacks/workspaces/break-reminder.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/break-reminder.actionpack"
+      "actionPackPath": "bundled-actionpacks/action-packs/break-reminder.actionpack",
+      "collection": "examples",
+      "artifactHashes": {
+        "workspaceSha256": "c224eeed58c81d2b747577e48576c5596d7639d6126dd46a36757bb194ee14c3",
+        "actionPackSha256": "d12e84867802ce7b45be770337edf1592abdf02c891f4ed70e7336bc41b6e051"
+      }
     },
     {
       "id": "58dc160e-3fc3-437c-9fe2-7dd02a36ab8c",
@@ -293,7 +378,12 @@
         "SaveLoad state"
       ],
       "workspacePath": "bundled-actionpacks/workspaces/daily-break-once.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/daily-break-once.actionpack"
+      "actionPackPath": "bundled-actionpacks/action-packs/daily-break-once.actionpack",
+      "collection": "bundled",
+      "artifactHashes": {
+        "workspaceSha256": "4ce59a53b266913f2ce65cc87f0ef9c42bcdf30fe5c4409bec6cb1beb56fc141",
+        "actionPackSha256": "b287c2cdf8d3c641f297afcf26d20c043199a6a3fb29c8f617e2224d813f96e2"
+      }
     },
     {
       "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200013",
@@ -309,7 +399,12 @@
         "SaveLoad"
       ],
       "workspacePath": "bundled-actionpacks/workspaces/playback-resume.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/playback-resume.actionpack"
+      "actionPackPath": "bundled-actionpacks/action-packs/playback-resume.actionpack",
+      "collection": "examples",
+      "artifactHashes": {
+        "workspaceSha256": "9c6199f9cfddb168e8194b8597b49d32253c5d635f95c740efcb25d699b6f2a8",
+        "actionPackSha256": "b3ec8a6937ecb1fe25d0a48b7affdf9a489f5f410d52e8c67eda9ba086188461"
+      }
     },
     {
       "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200014",
@@ -326,7 +421,12 @@
         "Mouse capture"
       ],
       "workspacePath": "bundled-actionpacks/workspaces/overlay-input-capture.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/overlay-input-capture.actionpack"
+      "actionPackPath": "bundled-actionpacks/action-packs/overlay-input-capture.actionpack",
+      "collection": "examples",
+      "artifactHashes": {
+        "workspaceSha256": "1989aaea10c32e93ecd9de67ebbba0f1d5e00573251083673710d80fe6916dda",
+        "actionPackSha256": "72f0b18d2210cd8938d325fceceabcdd6b088d6d1edfee5eaff8db9ce6e4452e"
+      }
     },
     {
       "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200015",
@@ -345,7 +445,12 @@
         "Grid drawing"
       ],
       "workspacePath": "bundled-actionpacks/workspaces/snake-overlay-arcade.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/snake-overlay-arcade.actionpack"
+      "actionPackPath": "bundled-actionpacks/action-packs/snake-overlay-arcade.actionpack",
+      "collection": "examples",
+      "artifactHashes": {
+        "workspaceSha256": "1b0640b7e7ecec964fe67b1e53d8d2c5ec4355842488434d7beb1e27c49d2636",
+        "actionPackSha256": "4fc477da783980d7565ededf16ad03d483deb2791dae5d920c98098ff0a84a7a"
+      }
     }
   ]
 }

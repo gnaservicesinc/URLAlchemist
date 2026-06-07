@@ -57,6 +57,11 @@ export interface GlobalSettings {
   allowLocalFiles: boolean;
   advancedModeEnabled: boolean;
   syncEnabled: boolean;
+  defaultActionPackLoggingEnabled: boolean;
+  ollamaEnabled: boolean;
+  ollamaEndpoint: string;
+  ollamaModel: string;
+  ollamaTimeoutMs: number;
   uiScale: number;
   hardeningMaxInstructions: number;
   hardeningMaxRecursion: number;

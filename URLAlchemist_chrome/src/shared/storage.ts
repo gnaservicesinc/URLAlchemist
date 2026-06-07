@@ -2,6 +2,7 @@ import { DEFAULT_SETTINGS, STORAGE_KEY } from './constants';
 import { capLogMessage, rotateActionPackLogEntries } from './logs';
 import type { ActionPack, GlobalSettings, StoredActionPackLogEntry, StoredState, StoredTraceEntry } from './types';
 import { normalizeStoredState } from './validation';
+import { isActionPackLocked, withInstallMetadata } from './v2/installMetadata';
 import { validateWorkspaceFile } from './v2/workspace';
 import type { CompiledActionPackV2, WorkspaceFileV2, WorkspaceViewport } from './v2/types';
 
@@ -38,7 +39,9 @@ function createSyncSnapshot(state: StoredState): StoredState {
     ...state.settings,
     syncEnabled: true,
   };
-  const actionPacksV2 = state.actionPacksV2.filter((pack) => jsonBytes(pack) <= SYNC_MAX_ITEM_BYTES);
+  const actionPacksV2 = state.actionPacksV2
+    .filter((pack) => !pack.install?.lockState?.locked)
+    .filter((pack) => jsonBytes(pack) <= SYNC_MAX_ITEM_BYTES);
   const workspacesV2 = state.workspacesV2.filter((workspace) => jsonBytes(workspace) <= SYNC_MAX_ITEM_BYTES);
   let snapshot: StoredState = {
     settings,
@@ -234,11 +237,25 @@ export async function upsertActionPackV2(pack: CompiledActionPackV2): Promise<St
   const state = await loadStoredState();
   const index = state.actionPacksV2.findIndex((candidate) => candidate.manifest.id === pack.manifest.id);
   const actionPacksV2 = [...state.actionPacksV2];
+  const existing = index >= 0 ? actionPacksV2[index] : undefined;
+  if (existing && isActionPackLocked(existing)) {
+    throw new Error('Locked Action Packs cannot be overwritten. Unlock the Action Pack before rebuilding or importing over it.');
+  }
+
+  const nextPack = pack.install
+    ? pack
+    : withInstallMetadata(pack, state.settings, {
+        source: existing?.install?.source ?? 'user-created',
+        trustStatus: existing?.install?.trustStatus,
+        loggingEnabled: existing?.install?.loggingEnabled,
+        lockState: existing?.install?.lockState,
+        focusGuard: existing?.install?.focusGuard,
+      });
 
   if (index >= 0) {
-    actionPacksV2[index] = pack;
+    actionPacksV2[index] = nextPack;
   } else {
-    actionPacksV2.unshift(pack);
+    actionPacksV2.unshift(nextPack);
   }
 
   const nextState = {
@@ -252,6 +269,10 @@ export async function upsertActionPackV2(pack: CompiledActionPackV2): Promise<St
 
 export async function deleteActionPackV2(packId: string): Promise<StoredState> {
   const state = await loadStoredState();
+  const pack = state.actionPacksV2.find((candidate) => candidate.manifest.id === packId);
+  if (pack?.install?.lockState?.locked) {
+    throw new Error('Locked Action Packs must be unlocked before they can be deleted.');
+  }
   const nextState = {
     ...state,
     actionPacksV2: state.actionPacksV2.filter((pack) => pack.manifest.id !== packId),
@@ -319,6 +340,38 @@ export async function updateActionPackV2Trace(packId: string, traceEnabledUntil:
         ? {
             ...pack,
             traceEnabledUntil,
+          }
+        : pack,
+    ),
+  };
+
+  await saveStoredState(nextState);
+  return nextState;
+}
+
+export async function updateActionPackV2Install(
+  packId: string,
+  install: Partial<NonNullable<CompiledActionPackV2['install']>>,
+): Promise<StoredState> {
+  const state = await loadStoredState();
+  const nextState = {
+    ...state,
+    actionPacksV2: state.actionPacksV2.map((pack) =>
+      pack.manifest.id === packId
+        ? {
+            ...pack,
+            install: {
+              ...pack.install,
+              source: install.source ?? pack.install?.source ?? 'imported',
+              trustStatus: install.trustStatus ?? pack.install?.trustStatus ?? 'review',
+              loggingEnabled: install.loggingEnabled ?? pack.install?.loggingEnabled ?? state.settings.defaultActionPackLoggingEnabled,
+              installedAt: install.installedAt ?? pack.install?.installedAt ?? Date.now(),
+              artifactChecksumHex: install.artifactChecksumHex ?? pack.install?.artifactChecksumHex ?? pack.checksumHex,
+              bundledHashVerified: install.bundledHashVerified ?? pack.install?.bundledHashVerified,
+              userReview: install.userReview ?? pack.install?.userReview,
+              lockState: install.lockState ?? pack.install?.lockState,
+              focusGuard: install.focusGuard ?? pack.install?.focusGuard,
+            },
           }
         : pack,
     ),
@@ -412,6 +465,11 @@ export async function deletePack(packId: string): Promise<StoredState> {
 }
 
 export async function resetExtensionStorage(): Promise<void> {
+  const state = await loadStoredState();
+  if (state.actionPacksV2.some((pack) => pack.install?.lockState?.locked)) {
+    throw new Error('Locked Action Packs must be unlocked before resetting URL Alchemist.');
+  }
+
   const local = getChromeStorageLocal();
   const sync = getChromeStorageSync();
   const session = getChromeStorageSession();

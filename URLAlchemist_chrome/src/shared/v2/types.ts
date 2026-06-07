@@ -1,23 +1,27 @@
 import type { ActionPack, ActionPackLogSeverity, ActionType, MatchMode, WorkspaceTriggerType } from '../types';
 
-export const WORKSPACE_SCHEMA_VERSION = 6;
-export const LEGACY_WORKSPACE_SCHEMA_VERSION = 5;
-export const OLDER_WORKSPACE_SCHEMA_VERSION = 4;
+export const WORKSPACE_SCHEMA_VERSION = 7;
+export const LEGACY_WORKSPACE_SCHEMA_VERSION = 6;
+export const OLDER_WORKSPACE_SCHEMA_VERSION = 5;
+export const ANCIENT_WORKSPACE_SCHEMA_VERSION = 4;
 export const EARLIEST_WORKSPACE_SCHEMA_VERSION = 3;
-export const ACTION_PACK_SCHEMA_VERSION = 6;
-export const LEGACY_ACTION_PACK_SCHEMA_VERSION = 5;
-export const OLDER_ACTION_PACK_SCHEMA_VERSION = 4;
+export const ACTION_PACK_SCHEMA_VERSION = 7;
+export const LEGACY_ACTION_PACK_SCHEMA_VERSION = 6;
+export const OLDER_ACTION_PACK_SCHEMA_VERSION = 5;
+export const ANCIENT_ACTION_PACK_SCHEMA_VERSION = 4;
 export const EARLIEST_ACTION_PACK_SCHEMA_VERSION = 3;
 export const SUPPORTED_WORKSPACE_SCHEMA_VERSIONS = [
   WORKSPACE_SCHEMA_VERSION,
   LEGACY_WORKSPACE_SCHEMA_VERSION,
   OLDER_WORKSPACE_SCHEMA_VERSION,
+  ANCIENT_WORKSPACE_SCHEMA_VERSION,
   EARLIEST_WORKSPACE_SCHEMA_VERSION,
 ] as const;
 export const SUPPORTED_ACTION_PACK_SCHEMA_VERSIONS = [
   ACTION_PACK_SCHEMA_VERSION,
   LEGACY_ACTION_PACK_SCHEMA_VERSION,
   OLDER_ACTION_PACK_SCHEMA_VERSION,
+  ANCIENT_ACTION_PACK_SCHEMA_VERSION,
   EARLIEST_ACTION_PACK_SCHEMA_VERSION,
 ] as const;
 export const INPUT_TRIGGER_HISTORY_LIMIT = 25;
@@ -43,13 +47,14 @@ export type GraphDataType =
   | 'Any';
 
 export type AssetKind = 'image' | 'video' | 'audio' | 'unknown';
-export type AssetSource = 'remote' | 'embedded' | 'picked-file';
+export type AssetSource = 'remote' | 'embedded' | 'picked-file' | 'resource';
 
 export interface AssetRef {
   source: AssetSource;
   kind: AssetKind;
   mimeType: string;
   url?: string;
+  resourceId?: string;
   name?: string;
   sha256?: string;
   sizeBytes?: number;
@@ -159,10 +164,7 @@ export interface WorkspaceMetadata {
   author?: string;
   description?: string;
   compatibility?: WorkspaceCompatibilityMetadata;
-  versionFileUrl?: string;
-  versionFileSignatureUrl?: string;
-  downloadUrl?: string;
-  publicKeyLocateValue?: string;
+  profile?: 'standard' | 'content-blocker';
   created_at: number;
   updated_at: number;
 }
@@ -325,6 +327,7 @@ export interface WorkspaceBlockSettings {
   assetKind?: AssetFetchKind;
   assetMimeType?: string;
   assetName?: string;
+  assetResourceId?: string;
   assetDataBase64?: string;
   assetCompression?: 'gzip' | 'none';
   systemDataMode?: SystemDataMode;
@@ -473,10 +476,6 @@ export interface CompiledManifestV2 {
   metadata: {
     author?: string;
     description?: string;
-    versionFileUrl?: string;
-    versionFileSignatureUrl?: string;
-    downloadUrl?: string;
-    publicKeyLocateValue?: string;
     created_at: number;
   };
   trigger: WorkspaceTrigger;
@@ -844,6 +843,48 @@ export interface CompiledActionPackV2 {
   vm: GraphVmProgram;
   checksumHex?: string;
   traceEnabledUntil?: number;
+  install?: ActionPackInstallMetadata;
+}
+
+export type ActionPackSource = 'user-created' | 'bundled' | 'imported' | 'legacy-converted' | 'focus-guard';
+export type TrustStatus = 'trusted' | 'review' | 'modified' | 'blocked' | 'user-reviewed';
+export type ActionPackLockLevel = 0 | 1 | 2 | 3;
+
+export interface ActionPackLockState {
+  locked: boolean;
+  level: ActionPackLockLevel;
+  createdAt: number;
+  updatedAt: number;
+  challengeText?: string;
+  passwordSaltBase64?: string;
+  passwordHashBase64?: string;
+  note?: string;
+}
+
+export interface FocusGuardConfig {
+  blockedPatterns: string[];
+  allowPatterns: string[];
+  pageTitle: string;
+  pageMessage: string;
+  resourceIds?: string[];
+  blockCount?: number;
+  lastBlockedAt?: number;
+}
+
+export interface ActionPackInstallMetadata {
+  source: ActionPackSource;
+  trustStatus: TrustStatus;
+  loggingEnabled: boolean;
+  installedAt: number;
+  artifactChecksumHex?: string;
+  bundledHashVerified?: boolean;
+  userReview?: {
+    reviewedAt: number;
+    trustStatus: TrustStatus;
+    note?: string;
+  };
+  lockState?: ActionPackLockState;
+  focusGuard?: FocusGuardConfig;
 }
 
 export interface GraphCompileResult {
