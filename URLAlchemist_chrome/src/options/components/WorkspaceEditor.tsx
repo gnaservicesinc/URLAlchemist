@@ -8,7 +8,6 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type MouseEvent as ReactMouseEvent,
   type ReactElement,
   type ReactNode,
 } from 'react';
@@ -145,6 +144,7 @@ const DATA_TYPE_COLORS: Record<string, string> = {
   URL: '#7c3aed',
   JSON: '#16a34a',
   data: '#64748b',
+  list: '#475569',
   dict: '#db2777',
   asset: '#ea580c',
   Any: '#334155',
@@ -172,7 +172,7 @@ const CATEGORY_LABELS: Record<BlockDefinition['category'], string> = {
   custom: 'Custom',
 };
 
-const DATA_TYPE_OPTIONS: GraphDataType[] = ['bool', 'number', 'floatingPoint', 'string', 'URL', 'JSON', 'data', 'dict', 'asset', 'Any'];
+const DATA_TYPE_OPTIONS: GraphDataType[] = ['bool', 'number', 'floatingPoint', 'string', 'URL', 'JSON', 'data', 'list', 'dict', 'asset', 'Any'];
 
 const EVENT_LANE_DEFINITIONS = [
   { id: 'trigger', label: 'Trigger', sourceTypes: new Set<BlockKind>(['DataFlowIn', 'ContentDataIn', 'ExtendedDataIn', 'OnTriggerEvent']) },
@@ -302,7 +302,7 @@ const BLOCK_SEARCH_TERMS: Partial<Record<BlockKind, string>> = {
   ChallengeClicker: 'content blocker challenge click button count',
   ChallengeConfirm: 'content blocker challenge confirm choice',
   ChallengeReason: 'content blocker challenge reason prompt',
-  ChallengeComplete: 'content blocker challenge complete finish',
+  ChallengeComplete: 'content blocker challenge result complete finished',
   ExtendedDataIn: 'clipboard page raw html high risk input',
   ExtendedDataOut: 'clipboard page mutation high risk output',
   Convert: 'data to string string to url json dict number',
@@ -313,13 +313,14 @@ const BLOCK_SEARCH_TERMS: Partial<Record<BlockKind, string>> = {
 };
 
 const DEFAULT_QUICK_BLOCK_KINDS: BlockKind[] = ['TextTransform', 'UrlQuery', 'Substitution', 'Logical', 'LogicalFlow', 'ConditionOut', 'SaveStringToLog', 'Abort', 'SharedState', 'OverlayControl', 'OverlayDraw'];
-const CONTENT_BLOCKER_DECISION_BLOCK_KINDS: BlockKind[] = ['ContentDataIn', 'Constant', 'Logical', 'Math', 'ConditionSelect', 'TextTransform', 'UrlQuery', 'RegExpression', 'DecisionOut', 'SaveStringToLog'];
-const CONTENT_BLOCKER_CHALLENGE_BLOCK_KINDS: BlockKind[] = ['ChallengeTimer', 'ChallengeTyper', 'ChallengeClicker', 'ChallengeConfirm', 'ChallengeReason', 'ChallengeComplete', 'Constant', 'Math', 'Logical', 'ConditionSelect', 'TextTransform', 'Substitution'];
+const CONTENT_BLOCKER_DECISION_BLOCK_KINDS: BlockKind[] = ['ContentDataIn', 'SystemData', 'Constant', 'Logical', 'LogicalFlow', 'Math', 'Convert', 'TextTransform', 'TextSplitJoin', 'UrlQuery', 'RegExpression', 'DataStructure', 'DictGet', 'DictOperation', 'ListOperation', 'AddStringToList', 'CheckListForUrl', 'ConditionSelect', 'RandomNumber', 'SaveLoad', 'SharedState', 'Declarations', 'Substitution', 'DecisionOut', 'SaveStringToLog'];
+const CONTENT_BLOCKER_CHALLENGE_TASK_KINDS = new Set<BlockKind>(['ChallengeTimer', 'ChallengeTyper', 'ChallengeClicker', 'ChallengeConfirm', 'ChallengeReason']);
+const CONTENT_BLOCKER_CHALLENGE_BLOCK_KINDS: BlockKind[] = ['ChallengeTimer', 'ChallengeTyper', 'ChallengeClicker', 'ChallengeConfirm', 'ChallengeReason', 'ChallengeComplete', 'Constant', 'Logical', 'LogicalFlow', 'Math', 'Convert', 'TextTransform', 'TextSplitJoin', 'UrlQuery', 'DataStructure', 'DictGet', 'DictOperation', 'ListOperation', 'AddStringToList', 'ConditionSelect', 'RandomNumber', 'SaveLoad', 'SharedState', 'Declarations', 'Substitution'];
 const CONTENT_BLOCKER_SURFACE_META: Array<{ id: ContentBlockerSurfaceId; label: string; description: string }> = [
   {
     id: 'page-load',
     label: 'Page Load Decision',
-    description: 'Runs once for each eligible http(s) page load. The required Decision Out block returns 0 to allow, 1 to challenge, or 2 to block.',
+    description: 'Runs once for each eligible http(s) page load. Decision Out returns 0 to allow, 1 to challenge, or 2 to block.',
   },
   {
     id: 'recurring',
@@ -329,7 +330,7 @@ const CONTENT_BLOCKER_SURFACE_META: Array<{ id: ContentBlockerSurfaceId; label: 
   {
     id: 'challenge',
     label: 'Challenge Page',
-    description: 'Defines the tasks the user must complete before the current tab/session can revisit the original page.',
+    description: 'Challenge task blocks run one at a time from left to right, then top to bottom.',
   },
 ];
 
@@ -591,10 +592,11 @@ function renderBlockSettings(
         </div>
       );
     }
-    case 'Logical':
+    case 'Logical': {
+      const compareConnected = connectedInputs.has('compare');
       return (
         <div className="mt-3 grid grid-cols-[1fr_0.8fr] gap-2">
-          <SettingField help="Comparison operator for the numeric input." label="Operator">
+          <SettingField help="Comparison operator. Equality compares values by type; lists compare item-by-item." label="Operator">
             <select className={inputClass} value={node.settings.operator ?? 'EQ'} onChange={(event) => onSettingsChange({ operator: event.target.value as WorkspaceBlockSettings['operator'] })}>
               <option value="LT">Less</option>
               <option value="LTE">Less/Equal</option>
@@ -604,11 +606,12 @@ function renderBlockSettings(
               <option value="GTE">Greater/Equal</option>
             </select>
           </SettingField>
-          <SettingField help="Fallback value used when the comparison side is not connected." label="Compare value">
+          {!compareConnected ? <SettingField help="Fallback value used when Compare value is not connected." label="Compare value">
             <input className={inputClass} value={settingText(node.settings.compareValue ?? '1')} onChange={(event) => onSettingsChange({ compareValue: event.target.value })} />
-          </SettingField>
+          </SettingField> : connectedNote('Compare value')}
         </div>
       );
+    }
     case 'Math':
       return (
         <div className="mt-3 grid gap-2">
@@ -638,6 +641,7 @@ function renderBlockSettings(
               <option value="FLOAT_TO_NUMBER">Float to Number</option>
               <option value="DICT_TO_JSON">Dict to JSON</option>
               <option value="JSON_TO_DICT">JSON to Dict</option>
+              <option value="NUMBER_TO_BOOL">Number to Bool</option>
               <option value="NUMBER_TO_STRING">Number to String</option>
               <option value="DATA_TO_STRING">Data to String</option>
             </select>
@@ -673,11 +677,20 @@ function renderBlockSettings(
               <option value="URL">URL</option>
               <option value="JSON">JSON</option>
               <option value="data">Data</option>
+              <option value="list">List</option>
               <option value="dict">Dict</option>
               <option value="Any">Any</option>
             </select>
           </SettingField> : null}
-          {!isConnected('value') ? <SettingField help="Initial value used when the value input is not connected." label="Initial value">
+          {!isConnected('value') && node.settings.literalDataType === 'list' ? (
+            <SettingField help="List entries use one string per line. URL lists drop invalid URLs." label="List kind">
+              <select className={inputClass} value={node.settings.literalListType ?? 'string'} onChange={(event) => onSettingsChange({ literalListType: event.target.value as WorkspaceBlockSettings['literalListType'] })}>
+                <option value="string">String List</option>
+                <option value="URL">URL List</option>
+              </select>
+            </SettingField>
+          ) : null}
+          {!isConnected('value') ? <SettingField help={node.settings.literalDataType === 'list' ? 'One string per line.' : 'Initial value used when the value input is not connected.'} label={node.settings.literalDataType === 'list' ? 'List entries' : 'Initial value'}>
             <textarea className={`${inputClass} min-h-14`} value={settingText(node.settings.literalValue)} onChange={(event) => onSettingsChange({ literalValue: event.target.value })} />
           </SettingField> : connectedNote('Initial value')}
         </div>
@@ -918,11 +931,20 @@ function renderBlockSettings(
               <option value="URL">URL</option>
               <option value="JSON">JSON</option>
               <option value="data">Data</option>
+              <option value="list">List</option>
               <option value="dict">Dict</option>
               <option value="Any">Any</option>
             </select>
           </SettingField>
-          <SettingField help="Literal value. Data, Dict, and Any can parse JSON." label="Literal">
+          {node.settings.literalDataType === 'list' ? (
+            <SettingField help="List entries use one string per line. URL lists drop invalid URLs." label="List kind">
+              <select className={inputClass} value={node.settings.literalListType ?? 'string'} onChange={(event) => onSettingsChange({ literalListType: event.target.value as WorkspaceBlockSettings['literalListType'] })}>
+                <option value="string">String List</option>
+                <option value="URL">URL List</option>
+              </select>
+            </SettingField>
+          ) : null}
+          <SettingField help={node.settings.literalDataType === 'list' ? 'One string per line.' : 'Literal value. Data, Dict, and Any can parse JSON.'} label={node.settings.literalDataType === 'list' ? 'List entries' : 'Literal'}>
             <textarea className={`${inputClass} min-h-14`} value={settingText(node.settings.literalValue)} onChange={(event) => onSettingsChange({ literalValue: event.target.value })} />
           </SettingField>
         </div>
@@ -1101,9 +1123,9 @@ function renderBlockSettings(
       );
     case 'ChallengeComplete':
       return (
-        <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] leading-5 text-slate-600">
-          The challenge page becomes passable when all challenge task blocks complete.
-        </p>
+        <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] leading-5 text-slate-600">
+          Connect the final task or success branch to Finished. The challenge page grants Continue only after the ordered task list is complete.
+        </div>
       );
     case 'ConditionOut':
       return (
@@ -1213,6 +1235,20 @@ function renderBlockSettings(
           </SettingField> : connectedNote('Item value')}
         </div>
       );
+    case 'AddStringToList':
+      return (
+        <div className="mt-3 grid gap-2">
+          {!isConnected('list') ? <SettingField help="Optional variable to read and update when the List input is not connected." label="List variable">
+            <input className={inputClass} placeholder="blockedUrls" value={settingText(node.settings.listVariableName)} onChange={(event) => onSettingsChange({ listVariableName: event.target.value })} />
+          </SettingField> : connectedNote('List')}
+          {!isConnected('list') ? <SettingField help="Fallback list, one string per line." label="Starting list">
+            <textarea className={`${inputClass} min-h-14`} value={settingText(node.settings.literalValue)} onChange={(event) => onSettingsChange({ literalValue: event.target.value, literalDataType: 'list' })} />
+          </SettingField> : null}
+          {!isConnected('item') ? <SettingField help="String appended when the String input is not connected." label="String">
+            <input className={inputClass} value={settingText(node.settings.selectTrueValue)} onChange={(event) => onSettingsChange({ selectTrueValue: event.target.value })} />
+          </SettingField> : connectedNote('String')}
+        </div>
+      );
     case 'ConditionSelect':
       return (
         <div className="mt-3 grid gap-2">
@@ -1255,6 +1291,23 @@ function renderBlockSettings(
               ))}
             </select>
           </SettingField>
+        </div>
+      );
+    case 'CheckListForUrl':
+      return (
+        <div className="mt-3 grid gap-2">
+          <SettingField help="Decision emitted when the URL is found in the list." label="When found">
+            <select className={inputClass} value={node.settings.contentBlockerMatchDecision ?? 2} onChange={(event) => onSettingsChange({ contentBlockerMatchDecision: Number.parseInt(event.target.value, 10) as WorkspaceBlockSettings['contentBlockerMatchDecision'] })}>
+              <option value={1}>Challenge (1)</option>
+              <option value={2}>Block (2)</option>
+            </select>
+          </SettingField>
+          {!isConnected('url') ? <SettingField help="Fallback URL checked when the URL input is not connected." label="URL">
+            <input className={inputClass} placeholder="https://example.com/" value={settingText(node.settings.urlQueryValue)} onChange={(event) => onSettingsChange({ urlQueryValue: event.target.value })} />
+          </SettingField> : connectedNote('URL')}
+          {!isConnected('list') ? <SettingField help="Fallback URL list, one URL per line. Invalid URLs are ignored." label="URL list">
+            <textarea className={`${inputClass} min-h-14`} value={settingText(node.settings.literalValue)} onChange={(event) => onSettingsChange({ literalValue: event.target.value, literalDataType: 'list', literalListType: 'URL' })} />
+          </SettingField> : connectedNote('List')}
         </div>
       );
     case 'CustomBlock':
@@ -1742,6 +1795,10 @@ function logicalFlowGroupForNode(workspace: WorkspaceFileV2, nodeId: string): Wo
   return workspace.logicalFlows?.find((group) => logicalFlowUnitNodeIds(workspace, group).has(nodeId)) ?? null;
 }
 
+function isLogicalFlowConditionEdge(workspace: WorkspaceFileV2, edge: { target: string; targetHandle: string | null | undefined }): boolean {
+  return edge.targetHandle === 'condition' && (workspace.logicalFlows ?? []).some((group) => group.controlNodeId === edge.target);
+}
+
 function logicalFlowUnitNodeIds(workspace: WorkspaceFileV2, group: WorkspaceLogicalFlowGroup): Set<string> {
   const ids = new Set<string>([group.conditionNodeId, group.controlNodeId]);
   downstreamNodeIdsFromOutput(workspace, group.controlNodeId, 'trueValue').forEach((id) => ids.add(id));
@@ -1771,13 +1828,13 @@ function buildLogicalFlowUnit(workspace: WorkspaceFileV2, x: number, y: number):
   const maxDepth = workspace.logicalFlows?.reduce((max, group) => Math.max(max, group.depth), 0) ?? 0;
   const condition = createWorkspaceNode('Logical', { x, y }, {
     label: 'Logic',
-    locked: true,
+    locked: false,
     logicalFlowGroupId: groupId,
     logicalFlowRole: 'condition',
   });
-  const control = createWorkspaceNode('LogicalFlow', { x, y: y + 210 }, {
+  const control = createWorkspaceNode('LogicalFlow', { x, y: y + 260 }, {
     label: 'Logical Flow',
-    locked: true,
+    locked: false,
     logicalFlowGroupId: groupId,
     logicalFlowRole: 'control',
   });
@@ -1786,14 +1843,14 @@ function buildLogicalFlowUnit(workspace: WorkspaceFileV2, x: number, y: number):
     conditionNodeId: condition.id,
     controlNodeId: control.id,
     depth: maxDepth + 1,
-    locked: true,
+    locked: false,
   };
 
   return {
     ...workspace,
     metadata: { ...workspace.metadata, updated_at: Date.now() },
     nodes: [...workspace.nodes, condition, control],
-    edges: [...workspace.edges, createEdge(condition.id, 'result', control.id, 'condition')],
+    edges: workspace.edges,
     logicalFlows: [...(workspace.logicalFlows ?? []), group],
   };
 }
@@ -1809,12 +1866,16 @@ function createLogicalFlowContainerNodes(workspace: WorkspaceFileV2): LogicalFlo
       const nodeIds = downstreamNodeIdsFromOutput(workspace, group.controlNodeId, branch === 'true' ? 'trueValue' : 'falseValue');
       const branchNodes = workspace.nodes.filter((node) => nodeIds.has(node.id));
       const color = LOGICAL_FLOW_BRANCH_COLORS[group.depth % LOGICAL_FLOW_BRANCH_COLORS.length];
-      const fallbackX = control.position.x + 370;
-      const fallbackY = control.position.y + (branch === 'true' ? -130 : 170);
-      const minX = branchNodes.length > 0 ? Math.min(...branchNodes.map((node) => node.position.x)) - 48 : fallbackX;
-      const minY = branchNodes.length > 0 ? Math.min(...branchNodes.map((node) => node.position.y)) - 54 : fallbackY;
-      const maxX = branchNodes.length > 0 ? Math.max(...branchNodes.map((node) => node.position.x + 300)) + 48 : fallbackX + 350;
-      const maxY = branchNodes.length > 0 ? Math.max(...branchNodes.map((node) => node.position.y + 230)) + 54 : fallbackY + 210;
+      const fallbackX = control.position.x + 520;
+      const fallbackY = control.position.y + (branch === 'true' ? -8 : 224);
+      const branchMinX = branchNodes.length > 0 ? Math.min(...branchNodes.map((node) => node.position.x)) - 48 : fallbackX;
+      const branchMinY = branchNodes.length > 0 ? Math.min(...branchNodes.map((node) => node.position.y)) - 54 : fallbackY;
+      const branchMaxX = branchNodes.length > 0 ? Math.max(...branchNodes.map((node) => node.position.x + 300)) + 48 : fallbackX + 380;
+      const branchMaxY = branchNodes.length > 0 ? Math.max(...branchNodes.map((node) => node.position.y + 230)) + 54 : fallbackY + 220;
+      const minX = Math.max(fallbackX, branchMinX);
+      const minY = branchNodes.length > 0 ? branchMinY : fallbackY;
+      const maxX = Math.max(branchMaxX, fallbackX + 380);
+      const maxY = Math.max(branchMaxY, fallbackY + 220);
 
       return {
         id: `logical-flow-${group.id}-${branch}`,
@@ -1826,7 +1887,7 @@ function createLogicalFlowContainerNodes(workspace: WorkspaceFileV2): LogicalFlo
           branch,
           count: branchNodes.length,
           depth: group.depth,
-          height: Math.max(190, maxY - minY),
+          height: Math.max(220, maxY - minY),
           label: branch === 'true' ? 'True branch' : 'False branch',
           width: Math.max(340, maxX - minX),
         },
@@ -1834,7 +1895,7 @@ function createLogicalFlowContainerNodes(workspace: WorkspaceFileV2): LogicalFlo
           borderColor: color.border,
           backgroundColor: color.background,
           color: color.text,
-          height: Math.max(190, maxY - minY),
+          height: Math.max(220, maxY - minY),
           pointerEvents: 'none',
           width: Math.max(340, maxX - minX),
           zIndex: 0,
@@ -2072,18 +2133,19 @@ interface WorkspaceFlowProps {
   onUploadResource: (file: File) => Promise<AssetRef>;
   onWorkspaceChange: (workspace: WorkspaceFileV2, options?: WorkspaceChangeOptions) => void;
   invalidEdgeIds: Set<string>;
+  copiedBlocks: WorkspaceBlockClipboard | null;
+  onCopiedBlocksChange: (clipboard: WorkspaceBlockClipboard | null) => void;
   focusRequest?: { requestId: number; nodeIds: string[] } | null;
   heightClassName?: string;
 }
 
-function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITIONS, canUndo = false, workspace, resourceAssets, onUndo, onUploadResource, onWorkspaceChange, invalidEdgeIds, focusRequest, heightClassName = 'h-[720px]' }: WorkspaceFlowProps) {
+function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITIONS, canUndo = false, workspace, resourceAssets, onUndo, onUploadResource, onWorkspaceChange, invalidEdgeIds, copiedBlocks, onCopiedBlocksChange, focusRequest, heightClassName = 'h-[720px]' }: WorkspaceFlowProps) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const pendingSelectionRef = useRef<Set<string> | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; flowX: number; flowY: number } | null>(null);
   const [flowInstance, setFlowInstance] = useState<ReactFlowInstance | null>(null);
   const [regexBuilderNodeId, setRegexBuilderNodeId] = useState<string | null>(null);
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
-  const [copiedBlocks, setCopiedBlocks] = useState<WorkspaceBlockClipboard | null>(null);
   const declaredVariables = useMemo(() => collectDeclaredVariables(workspace), [workspace]);
   const usedVariables = useMemo(() => usedVariableTokens(workspace, declaredVariables), [workspace, declaredVariables]);
 
@@ -2218,7 +2280,7 @@ function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITION
 
   const workspaceEdges = useMemo<Edge[]>(
     () =>
-      workspace.edges.map((edge) => ({
+      workspace.edges.filter((edge) => !isLogicalFlowConditionEdge(workspace, edge)).map((edge) => ({
         id: edge.id,
         source: edge.source,
         sourceHandle: edge.sourceHandle,
@@ -2230,7 +2292,7 @@ function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITION
           strokeWidth: 2,
         },
       })),
-    [workspace.edges, invalidEdgeIds],
+    [workspace, invalidEdgeIds],
   );
   const laneTargets = useMemo(() => buildEventLaneTargets(workspace), [workspace]);
   const collapsedCount = workspace.nodes.filter((node) => node.settings.collapsed).length;
@@ -2267,7 +2329,7 @@ function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITION
 
     const clipboard = createWorkspaceBlockClipboard(workspace, selectedNodeIds);
     if (clipboard.nodes.length > 0) {
-      setCopiedBlocks(clipboard);
+      onCopiedBlocksChange(clipboard);
     }
   }
 
@@ -2935,7 +2997,14 @@ function contentBlockerDefinitions(surfaceId: ContentBlockerSurfaceId): BlockDef
 function contentBlockerQuickKinds(surfaceId: ContentBlockerSurfaceId): BlockKind[] {
   return surfaceId === 'challenge'
     ? ['ChallengeTimer', 'ChallengeTyper', 'ChallengeClicker', 'ChallengeConfirm', 'ChallengeReason', 'ChallengeComplete']
-    : ['ContentDataIn', 'Constant', 'Logical', 'RegExpression', 'DecisionOut', 'SaveStringToLog'];
+    : ['ContentDataIn', 'Constant', 'CheckListForUrl', 'Logical', 'LogicalFlow', 'RegExpression', 'DecisionOut', 'SaveStringToLog'];
+}
+
+function contentBlockerChallengeTaskNodes(surface: WorkspaceGraphSurface): WorkspaceNodeV2[] {
+  return surface.nodes
+    .filter((node) => CONTENT_BLOCKER_CHALLENGE_TASK_KINDS.has(node.type))
+    .slice()
+    .sort((left, right) => left.position.x - right.position.x || left.position.y - right.position.y);
 }
 
 export function WorkspaceEditor({
@@ -2959,6 +3028,7 @@ export function WorkspaceEditor({
   const [metadataCollapsed, setMetadataCollapsed] = useState(false);
   const [isPopout, setIsPopout] = useState(false);
   const [selectedContentSurface, setSelectedContentSurface] = useState<ContentBlockerSurfaceId>('page-load');
+  const [copiedBlocks, setCopiedBlocks] = useState<WorkspaceBlockClipboard | null>(null);
   const [debugUrl, setDebugUrl] = useState('https://example.com/path?utm_source=newsletter&id=123');
   const [debugSelectedText, setDebugSelectedText] = useState('example selection');
   const [debugPageTitle, setDebugPageTitle] = useState('Example Page Title');
@@ -3034,6 +3104,19 @@ export function WorkspaceEditor({
   function addToolbarBlock(definition: BlockDefinition): void {
     if (isContentBlocker) {
       const surface = contentBlockerSurfaceFor(workspace, selectedContentSurface);
+      if (definition.kind === 'LogicalFlow') {
+        const surfaceUnit = buildLogicalFlowUnit(surfaceWorkspace(workspace, surface), 320 + surface.nodes.length * 24, 260 + surface.nodes.length * 18);
+        onWorkspaceChange(updateContentBlockerSurface({
+          ...workspace,
+          logicalFlows: surfaceUnit.logicalFlows,
+        }, selectedContentSurface, {
+          ...surface,
+          nodes: surfaceUnit.nodes,
+          edges: surfaceUnit.edges,
+          viewport: surfaceUnit.viewport,
+        }));
+        return;
+      }
       const nextNode = createWorkspaceNode(definition.kind, { x: 320 + surface.nodes.length * 24, y: 260 + surface.nodes.length * 18 }, settingsForDefinition(definition));
       onWorkspaceChange(updateContentBlockerSurface(workspace, selectedContentSurface, {
         ...surface,
@@ -3466,6 +3549,8 @@ export function WorkspaceEditor({
             focusRequest={focusRequest}
             heightClassName={heightClassName}
             invalidEdgeIds={invalidEdgeIds}
+            copiedBlocks={copiedBlocks}
+            onCopiedBlocksChange={setCopiedBlocks}
             resourceAssets={resourceAssets}
             workspace={workspace}
             onUndo={onUndo}
@@ -3478,8 +3563,12 @@ export function WorkspaceEditor({
   }
 
   function renderContentBlockerSurface(heightClassName?: string, expanded = false): ReactNode {
+    const challengeTaskNodes = selectedContentSurface === 'challenge' ? contentBlockerChallengeTaskNodes(activeContentSurface) : [];
     const updateSurfaceWorkspace = (nextSurfaceWorkspace: WorkspaceFileV2, options: WorkspaceChangeOptions = {}): void => {
-      onWorkspaceChange(updateContentBlockerSurface(workspace, selectedContentSurface, {
+      onWorkspaceChange(updateContentBlockerSurface({
+        ...workspace,
+        logicalFlows: nextSurfaceWorkspace.logicalFlows,
+      }, selectedContentSurface, {
         ...activeContentSurface,
         nodes: nextSurfaceWorkspace.nodes,
         edges: nextSurfaceWorkspace.edges,
@@ -3519,6 +3608,20 @@ export function WorkspaceEditor({
         <div className="shrink-0">
           <BlockPicker definitions={activeContentDefinitions} quickBlockKinds={activeContentQuickKinds} onAddBlock={addToolbarBlock} />
         </div>
+        {selectedContentSurface === 'challenge' ? (
+          <div className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-2">
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+              <span className="font-semibold uppercase tracking-[0.16em] text-slate-400">Task order</span>
+              {challengeTaskNodes.length > 0 ? challengeTaskNodes.map((node, index) => (
+                <span key={node.id} className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 font-semibold text-slate-700">
+                  {index + 1}. {node.settings.label || getBlockDefinition(node.type).label}
+                </span>
+              )) : (
+                <span className="text-slate-400">Add Timer, Clicker, Typer, Confirm, or Reason blocks.</span>
+              )}
+            </div>
+          </div>
+        ) : null}
         <ReactFlowProvider>
           <WorkspaceFlow
             key={activeContentSurface.id}
@@ -3528,6 +3631,8 @@ export function WorkspaceEditor({
             focusRequest={focusRequest}
             heightClassName={heightClassName}
             invalidEdgeIds={invalidEdgeIds}
+            copiedBlocks={copiedBlocks}
+            onCopiedBlocksChange={setCopiedBlocks}
             resourceAssets={resourceAssets}
             workspace={activeContentSurfaceWorkspace}
             onUndo={onUndo}

@@ -33,7 +33,11 @@
 <p>Select multiple blocks with Shift-click or Shift-drag. Use the canvas toolbar or <code>Ctrl+C</code>/<code>Ctrl+V</code> on Windows and <code>Cmd+C</code>/<code>Cmd+V</code> on macOS to copy and paste selected blocks.</p>
 <h2>Utility Blocks</h2>
 <p><strong>Text Transform</strong> handles common cleanup such as trimming, whitespace collapse, control-character stripping, case changes, and URL encode/decode. <strong>Text Split/Join</strong> converts between text and list data by lines, whitespace, comma, or a custom separator.</p>
+<p><strong>List</strong> literals are edited one string per line. Choose <strong>URL List</strong> when invalid URL entries should be removed automatically, then use <strong>Add string to list</strong> or Content Blocker <strong>Check list for URL</strong> to build URL-list decisions. <strong>Check list for URL</strong> can return either <code>1</code> for challenge or <code>2</code> for block when a URL is found.</p>
 <p><strong>URL Query</strong> parses URL parts, gets or changes parameters, keeps named parameters, sorts parameters, and rebuilds URLs without regex. <strong>Dict Operation</strong> merges dictionaries, deletes keys, checks keys, and lists keys or values.</p>
+<h2>Content Blocker Surfaces</h2>
+<p><strong>Page Load Decision</strong> runs once per eligible page load. <strong>Recurring Check</strong> runs while an allowed page stays open. Both surfaces send <code>0</code> to allow, <code>1</code> to show the challenge page, or <code>2</code> to block.</p>
+<p><strong>Challenge Page</strong> task blocks run one at a time from left to right, then top to bottom. Put a Timer before a Clicker to require the timer first, then the click task. <strong>Challenge Result</strong> marks the intended success path; the blocker page grants Continue only after the ordered task list is complete.</p>
 <h2>Debug Blocks</h2>
 <p><strong>Save string to log</strong> writes a timestamped entry to the current Action Pack log with a severity level. <strong>Abort</strong> stops the current run when its boolean input is true and returns exit code <code>130</code>.</p>
 <h2>Interactive Blocks</h2>

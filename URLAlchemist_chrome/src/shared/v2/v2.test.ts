@@ -372,6 +372,206 @@ describe('v2 workspace compiler and VM', () => {
     await expect(importAnyArtifact(await encodeActionPackForImportTest(result.pack!))).rejects.toThrow('Compiled Content Blocker Action Packs cannot be imported');
   });
 
+  it('creates a default Content Blocker that checks the current URL against a URL list', async () => {
+    const workspace = createDefaultContentBlockerWorkspace();
+    const pageLoad = workspace.surfaces!.find((surface) => surface.id === 'page-load')!;
+    const list = pageLoad.nodes.find((node) => node.type === 'Constant' && node.settings.literalDataType === 'list')!;
+    const result = compileWorkspace({
+      ...workspace,
+      surfaces: workspace.surfaces!.map((surface) => surface.id === 'page-load'
+        ? {
+            ...surface,
+            nodes: surface.nodes.map((node) => node.id === list.id ? {
+              ...node,
+              settings: {
+                ...node.settings,
+                literalValue: 'https://blocked.example/path\nnot a url',
+                literalListType: 'URL',
+              },
+            } : node),
+          }
+        : surface),
+    });
+
+    expect(result.ok, result.validation.errors.join('; ')).toBe(true);
+    const pageLoadProgram = result.pack!.install!.contentBlocker!.pageLoad;
+    const decisionPack: CompiledActionPackV2 = { ...result.pack!, vm: pageLoadProgram.vm };
+    const blocked = await executeCompiledActionPackV2('https://blocked.example/path', decisionPack, runtime, DEFAULT_SETTINGS);
+    const allowed = await executeCompiledActionPackV2('https://allowed.example/path', decisionPack, runtime, DEFAULT_SETTINGS);
+
+    expect(blocked.outputs.contentBlockerDecision).toEqual({ type: 'number', value: 2 });
+    expect(allowed.outputs.contentBlockerDecision).toEqual({ type: 'number', value: 0 });
+
+    const challengeResult = compileWorkspace({
+      ...workspace,
+      surfaces: workspace.surfaces!.map((surface) => surface.id === 'page-load'
+        ? {
+            ...surface,
+            nodes: surface.nodes.map((node) => node.type === 'CheckListForUrl' ? {
+              ...node,
+              settings: {
+                ...node.settings,
+                contentBlockerMatchDecision: 1 as const,
+              },
+            } : node).map((node) => node.id === list.id ? {
+              ...node,
+              settings: {
+                ...node.settings,
+                literalValue: 'https://blocked.example/path',
+                literalListType: 'URL',
+              },
+            } : node),
+          }
+        : surface),
+    });
+    expect(challengeResult.ok, challengeResult.validation.errors.join('; ')).toBe(true);
+    const challengePack: CompiledActionPackV2 = { ...challengeResult.pack!, vm: challengeResult.pack!.install!.contentBlocker!.pageLoad.vm };
+    const challenged = await executeCompiledActionPackV2('https://blocked.example/path', challengePack, runtime, DEFAULT_SETTINGS);
+    expect(challenged.outputs.contentBlockerDecision).toEqual({ type: 'number', value: 1 });
+  });
+
+  it('compares values intelligently with a dynamic Logic compare input', async () => {
+    const workspace = createDefaultWorkspace();
+    const left = createWorkspaceNode('Constant', { x: 240, y: 80 }, {
+      literalDataType: 'string',
+      literalValue: 'example',
+    });
+    const right = createWorkspaceNode('Constant', { x: 240, y: 240 }, {
+      literalDataType: 'string',
+      literalValue: 'example',
+    });
+    const logic = createWorkspaceNode('Logical', { x: 520, y: 120 }, {
+      operator: 'EQ',
+    });
+    const output = createWorkspaceNode('ConditionOut', { x: 820, y: 120 });
+    const compiled = compileWorkspace({
+      ...workspace,
+      nodes: [workspace.nodes[0], left, right, logic, output],
+      edges: [
+        createEdge(left.id, 'value', logic.id, 'input'),
+        createEdge(right.id, 'value', logic.id, 'compare'),
+        createEdge(logic.id, 'result', output.id, 'condition'),
+      ],
+    });
+
+    expect(compiled.ok, compiled.validation.errors.join('; ')).toBe(true);
+    const result = await executeCompiledActionPackV2('https://example.com/', compiled.pack!, runtime, DEFAULT_SETTINGS);
+    expect(result.outputs.condition).toEqual({ type: 'bool', value: 1 });
+  });
+
+  it('runs Logical Flow from its paired Logic block without a visible condition edge', async () => {
+    const workspace = createDefaultWorkspace();
+    const source = createWorkspaceNode('Constant', { x: 240, y: 120 }, {
+      literalDataType: 'number',
+      literalValue: '1',
+    });
+    const logic = createWorkspaceNode('Logical', { x: 520, y: 80 }, {
+      compareValue: '1',
+      logicalFlowGroupId: 'flow-test',
+      logicalFlowRole: 'condition',
+    });
+    const flow = createWorkspaceNode('LogicalFlow', { x: 520, y: 320 }, {
+      logicalFlowGroupId: 'flow-test',
+      logicalFlowRole: 'control',
+    });
+    const output = createWorkspaceNode('ConditionOut', { x: 860, y: 260 });
+    const compiled = compileWorkspace({
+      ...workspace,
+      nodes: [workspace.nodes[0], source, logic, flow, output],
+      edges: [
+        createEdge(source.id, 'value', logic.id, 'input'),
+        createEdge(source.id, 'value', flow.id, 'input'),
+        createEdge(flow.id, 'trueValue', output.id, 'condition'),
+      ],
+      logicalFlows: [{
+        id: 'flow-test',
+        conditionNodeId: logic.id,
+        controlNodeId: flow.id,
+        depth: 1,
+        locked: false,
+      }],
+    });
+
+    expect(compiled.ok, compiled.validation.errors.join('; ')).toBe(true);
+    const result = await executeCompiledActionPackV2('https://example.com/', compiled.pack!, runtime, DEFAULT_SETTINGS);
+    expect(result.outputs.condition).toEqual({ type: 'bool', value: 1 });
+  });
+
+  it('converts numeric values to bool using the positive-number rule', async () => {
+    const workspace = createDefaultWorkspace();
+    const positive = createWorkspaceNode('Constant', { x: 240, y: 80 }, {
+      literalDataType: 'number',
+      literalValue: '3',
+    });
+    const negative = createWorkspaceNode('Constant', { x: 240, y: 240 }, {
+      literalDataType: 'number',
+      literalValue: '-1',
+    });
+    const convert = createWorkspaceNode('Convert', { x: 520, y: 80 }, {
+      convertMode: 'NUMBER_TO_BOOL',
+    });
+    const positiveOut = createWorkspaceNode('ConditionOut', { x: 820, y: 80 }, { label: 'Positive Out' });
+    const negativeOut = createWorkspaceNode('ConditionOut', { x: 820, y: 240 }, { label: 'Negative Out' });
+    const converted = compileWorkspace({
+      ...workspace,
+      nodes: [workspace.nodes[0], positive, convert, positiveOut],
+      edges: [
+        createEdge(positive.id, 'value', convert.id, 'input'),
+        createEdge(convert.id, 'result', positiveOut.id, 'condition'),
+      ],
+    });
+    const direct = compileWorkspace({
+      ...workspace,
+      nodes: [workspace.nodes[0], negative, negativeOut],
+      edges: [
+        createEdge(negative.id, 'value', negativeOut.id, 'condition'),
+      ],
+    });
+
+    expect(converted.ok, converted.validation.errors.join('; ')).toBe(true);
+    expect(direct.ok, direct.validation.errors.join('; ')).toBe(true);
+    const convertedResult = await executeCompiledActionPackV2('https://example.com/', converted.pack!, runtime, DEFAULT_SETTINGS);
+    const directResult = await executeCompiledActionPackV2('https://example.com/', direct.pack!, runtime, DEFAULT_SETTINGS);
+    expect(convertedResult.outputs.condition).toEqual({ type: 'bool', value: 1 });
+    expect(directResult.outputs.condition).toEqual({ type: 'bool', value: 0 });
+  });
+
+  it('compares list values item-by-item and can append strings to lists', async () => {
+    const workspace = createDefaultWorkspace();
+    const baseList = createWorkspaceNode('Constant', { x: 240, y: 80 }, {
+      literalDataType: 'list',
+      literalValue: 'one\ntwo',
+    });
+    const item = createWorkspaceNode('Constant', { x: 240, y: 240 }, {
+      literalDataType: 'list',
+      literalValue: 'three\nfour',
+    });
+    const append = createWorkspaceNode('AddStringToList', { x: 520, y: 120 });
+    const length = createWorkspaceNode('ListOperation', { x: 760, y: 120 }, {
+      listOperation: 'LENGTH',
+    });
+    const equals = createWorkspaceNode('Logical', { x: 1000, y: 120 }, {
+      compareValue: '4',
+      operator: 'EQ',
+    });
+    const output = createWorkspaceNode('ConditionOut', { x: 1260, y: 120 });
+    const compiled = compileWorkspace({
+      ...workspace,
+      nodes: [workspace.nodes[0], baseList, item, append, length, equals, output],
+      edges: [
+        createEdge(baseList.id, 'value', append.id, 'list'),
+        createEdge(item.id, 'value', append.id, 'item'),
+        createEdge(append.id, 'result', length.id, 'list'),
+        createEdge(length.id, 'result', equals.id, 'input'),
+        createEdge(equals.id, 'result', output.id, 'condition'),
+      ],
+    });
+
+    expect(compiled.ok, compiled.validation.errors.join('; ')).toBe(true);
+    const result = await executeCompiledActionPackV2('https://example.com/', compiled.pack!, runtime, DEFAULT_SETTINGS);
+    expect(result.outputs.condition).toEqual({ type: 'bool', value: 1 });
+  });
+
   it('enforces Decision Out on Content Blocker decision surfaces', () => {
     const workspace = createDefaultContentBlockerWorkspace();
     const pageLoad = workspace.surfaces!.find((surface) => surface.id === 'page-load')!;

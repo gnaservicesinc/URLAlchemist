@@ -188,6 +188,16 @@ function bytes(value: GraphValue): number {
 }
 
 function graphValueFromUnknown(value: unknown, preferredType: GraphValue['type'] = 'Any'): GraphValue {
+  if (preferredType === 'list') {
+    if (Array.isArray(value)) {
+      return { type: 'list', value: value.flatMap((entry) => Array.isArray(entry) ? entry : [entry]).map((entry) => String(entry)).filter(Boolean) };
+    }
+    if (typeof value === 'string') {
+      return { type: 'list', value: value.replace(/\r\n?/g, '\n').split('\n').map((entry) => entry.trim()).filter(Boolean) };
+    }
+    return { type: 'list', value: [] };
+  }
+
   if (preferredType === 'asset') {
     return { type: 'asset', value: value as AssetRef };
   }
@@ -270,7 +280,7 @@ function plainValue(value: GraphValue | undefined): unknown {
     );
   }
 
-  if (value.type === 'data' && Array.isArray(value.value)) {
+  if ((value.type === 'data' || value.type === 'list') && Array.isArray(value.value)) {
     return value.value.map((entry) => plainValue(isGraphValue(entry) ? entry : graphValueFromUnknown(entry)));
   }
 
@@ -436,7 +446,7 @@ function truthy(value: GraphValue | undefined): boolean {
   }
 
   if (typeof value.value === 'number') {
-    return value.value !== 0;
+    return value.value > 0;
   }
 
   if (typeof value.value === 'string') {
@@ -468,6 +478,102 @@ function asString(value: GraphValue | undefined): string {
   }
 
   return JSON.stringify(value.value);
+}
+
+function listStrings(value: GraphValue | undefined): string[] {
+  if (!value) {
+    return [];
+  }
+
+  if (value.type === 'list' && Array.isArray(value.value)) {
+    return value.value.map((entry) => String(entry)).filter(Boolean);
+  }
+
+  if (Array.isArray(value.value)) {
+    return value.value.flatMap((entry) => Array.isArray(entry) ? entry : [entry]).map((entry) => String(entry)).filter(Boolean);
+  }
+
+  if (typeof value.value === 'string') {
+    return value.value.replace(/\r\n?/g, '\n').split('\n').map((entry) => entry.trim()).filter(Boolean);
+  }
+
+  return [];
+}
+
+function sameGraphValue(left: GraphValue | undefined, right: GraphValue | undefined): boolean {
+  if (!left || !right) {
+    return !left && !right;
+  }
+
+  if (left.type === 'list' || right.type === 'list' || Array.isArray(left.value) || Array.isArray(right.value)) {
+    const leftList = listStrings(left);
+    const rightList = listStrings(right);
+    return leftList.length === rightList.length && leftList.every((entry, index) => entry === rightList[index]);
+  }
+
+  if (left.type === 'dict' || right.type === 'dict' || left.type === 'data' || right.type === 'data' || left.type === 'Any' || right.type === 'Any') {
+    return JSON.stringify(plainValue(left)) === JSON.stringify(plainValue(right));
+  }
+
+  return left.type === right.type && left.value === right.value;
+}
+
+function compareGraphValues(left: GraphValue | undefined, right: GraphValue | undefined, operator: Extract<GraphVmInstruction, { op: 'COMPARE' }>['operator']): boolean {
+  const leftIsText = left?.type === 'string' || left?.type === 'URL' || left?.type === 'JSON';
+  const rightIsText = right?.type === 'string' || right?.type === 'URL' || right?.type === 'JSON';
+  const leftNumbers = numericValues(left);
+  const rightNumbers = numericValues(right);
+
+  if (operator === 'EQ') {
+    if (!leftIsText && !rightIsText && leftNumbers.length === 1 && rightNumbers.length === 1) {
+      return leftNumbers[0] === rightNumbers[0];
+    }
+    return sameGraphValue(left, right);
+  }
+  if (operator === 'NEQ') {
+    if (!leftIsText && !rightIsText && leftNumbers.length === 1 && rightNumbers.length === 1) {
+      return leftNumbers[0] !== rightNumbers[0];
+    }
+    return !sameGraphValue(left, right);
+  }
+
+  if (leftNumbers.length === 1 && rightNumbers.length === 1) {
+    return operator === 'LT'
+      ? leftNumbers[0] < rightNumbers[0]
+      : operator === 'LTE'
+        ? leftNumbers[0] <= rightNumbers[0]
+        : operator === 'GT'
+          ? leftNumbers[0] > rightNumbers[0]
+          : leftNumbers[0] >= rightNumbers[0];
+  }
+
+  const leftText = asString(left);
+  const rightText = asString(right);
+  return operator === 'LT'
+    ? leftText < rightText
+    : operator === 'LTE'
+      ? leftText <= rightText
+      : operator === 'GT'
+        ? leftText > rightText
+        : leftText >= rightText;
+}
+
+function compareFallbackValue(raw: string): GraphValue {
+  const trimmed = raw.trim();
+  const parsedNumber = Number.parseFloat(trimmed);
+  if (trimmed && Number.isFinite(parsedNumber) && String(parsedNumber) === trimmed) {
+    return { type: Number.isInteger(parsedNumber) ? 'number' : 'floatingPoint', value: parsedNumber } as GraphValue;
+  }
+
+  if (trimmed.toLowerCase() === 'true' || trimmed === '1') {
+    return { type: 'bool', value: 1 };
+  }
+
+  if (trimmed.toLowerCase() === 'false' || trimmed === '0') {
+    return { type: 'bool', value: 0 };
+  }
+
+  return { type: 'string', value: raw };
 }
 
 function numericValues(value: GraphValue | undefined): number[] {
@@ -743,7 +849,7 @@ function graphList(value: GraphValue | undefined): unknown[] {
     return [];
   }
 
-  if (value.type === 'data' && Array.isArray(value.value)) {
+  if ((value.type === 'data' || value.type === 'list') && Array.isArray(value.value)) {
     return value.value;
   }
 
@@ -752,6 +858,46 @@ function graphList(value: GraphValue | undefined): unknown[] {
   }
 
   return [];
+}
+
+function lookupMutableList(state: VmState, rawName: string): { name: string; value: GraphValue | undefined; scope: 'local' | 'global' } | null {
+  const name = rawName.trim();
+  if (!name) {
+    return null;
+  }
+
+  if (name.startsWith('_')) {
+    return { name, value: state.locals.get(name), scope: 'local' };
+  }
+
+  const normalized = name.startsWith('$') ? name : `$${name}`;
+  return { name: normalized, value: state.globals.get(normalized) ?? state.globals.get(name), scope: 'global' };
+}
+
+function setMutableList(state: VmState, target: ReturnType<typeof lookupMutableList>, value: GraphValue): void {
+  if (!target) {
+    return;
+  }
+
+  if (target.scope === 'local') {
+    state.locals.set(target.name, value);
+    return;
+  }
+
+  state.globals.set(target.name, value);
+  if (target.name.startsWith('$')) {
+    state.globals.set(target.name.slice(1), value);
+  } else {
+    state.globals.set(`$${target.name}`, value);
+  }
+}
+
+function canonicalUrl(raw: string): string | null {
+  try {
+    return new URL(raw).toString();
+  } catch {
+    return null;
+  }
 }
 
 function graphDictEntries(value: GraphValue | undefined): Record<string, GraphValue> {
@@ -1078,47 +1224,13 @@ async function executeInstruction(
     case 'COMPARE': {
       const source = getValue(state, instruction.input);
       const compareRaw = instruction.compareValue.trim();
-      const parsedRight = Number.parseFloat(compareRaw);
-      const compareAsNumber =
-        compareRaw.startsWith('$') ||
-        compareRaw.startsWith('_') ||
-        (compareRaw !== '' && Number.isFinite(parsedRight) && String(parsedRight) === compareRaw);
-      const matched = compareAsNumber
-        ? (() => {
-            const left = asNumber(source);
-            const right = asNumber(parseVariableOrLiteral(state, compareRaw));
-            return instruction.operator === 'LT'
-              ? left < right
-              : instruction.operator === 'LTE'
-                ? left <= right
-                : instruction.operator === 'NEQ'
-                  ? left !== right
-                  : instruction.operator === 'GT'
-                    ? left > right
-                    : instruction.operator === 'GTE'
-                      ? left >= right
-                      : left === right;
-          })()
-        : (() => {
-            const left = asString(source);
-            const right = compareRaw.startsWith('$') || compareRaw.startsWith('_')
-              ? asString(parseVariableOrLiteral(state, compareRaw))
-              : compareRaw;
-            return instruction.operator === 'LT'
-              ? left < right
-              : instruction.operator === 'LTE'
-                ? left <= right
-                : instruction.operator === 'NEQ'
-                  ? left !== right
-                  : instruction.operator === 'GT'
-                    ? left > right
-                    : instruction.operator === 'GTE'
-                      ? left >= right
-                      : left === right;
-          })();
-      const value: GraphValue = instruction.booleanOutput
-        ? { type: 'bool', value: matched ? 1 : 0 }
-        : { type: 'number', value: matched ? asNumber(source) : 0 };
+      const compareValue = instruction.compareInput
+        ? getValue(state, instruction.compareInput)
+        : compareRaw.startsWith('$') || compareRaw.startsWith('_')
+          ? parseVariableOrLiteral(state, compareRaw)
+          : compareFallbackValue(compareRaw);
+      const matched = compareGraphValues(source, compareValue, instruction.operator);
+      const value: GraphValue = { type: 'bool', value: matched ? 1 : 0 };
       setValue(state, instruction.output, value, program.valueByteLimit);
       trace(state, instruction, 'Compared value', value);
       break;
@@ -1152,6 +1264,11 @@ async function executeInstruction(
         case 'JSON_TO_DICT':
           value = graphValueFromUnknown(JSON.parse(asString(source) || '{}'), 'dict');
           break;
+        case 'NUMBER_TO_BOOL': {
+          const input = numericValues(source)[0] ?? 0;
+          value = { type: 'bool', value: input > 0 ? 1 : 0 };
+          break;
+        }
         case 'NUMBER_TO_STRING':
           value = { type: 'string', value: numberValuesToString(numericValues(source), instruction.ord ?? true) };
           break;
@@ -1343,6 +1460,18 @@ async function executeInstruction(
       trace(state, instruction, `List ${instruction.operation.toLowerCase()}`, value);
       break;
     }
+    case 'ADD_STRING_TO_LIST': {
+      const target = lookupMutableList(state, instruction.variableName);
+      const base = instruction.list
+        ? getValue(state, instruction.list)
+        : target?.value ?? instruction.fallbackList;
+      const items = listStrings(getValue(state, instruction.item) ?? instruction.fallbackItem);
+      const value: GraphValue = { type: 'list', value: [...listStrings(base), ...items] };
+      setMutableList(state, target, value);
+      setValue(state, instruction.output, value, program.valueByteLimit);
+      trace(state, instruction, 'Added string to list', value);
+      break;
+    }
     case 'SELECT': {
       const selected = truthy(getValue(state, instruction.condition))
         ? getValue(state, instruction.trueValue) ?? instruction.fallbackTrue
@@ -1530,6 +1659,14 @@ async function executeInstruction(
       setValue(state, instruction.output, value, program.valueByteLimit);
       state.outputs.set('contentBlockerDecision', value);
       trace(state, instruction, 'Evaluated content blocker decision', value);
+      break;
+    }
+    case 'CHECK_LIST_FOR_URL': {
+      const url = canonicalUrl(instruction.url ? asString(getValue(state, instruction.url)) : instruction.fallbackUrl);
+      const list = new Set(listStrings(getValue(state, instruction.list) ?? instruction.fallbackList).map(canonicalUrl).filter((entry): entry is string => Boolean(entry)));
+      const value: GraphValue = { type: 'number', value: url && list.has(url) ? instruction.matchDecision : 0 };
+      setValue(state, instruction.output, value, program.valueByteLimit);
+      trace(state, instruction, 'Checked URL list', value);
       break;
     }
     case 'LOG': {

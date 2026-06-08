@@ -29,11 +29,11 @@ export const BLOCK_REGISTRY: Record<BlockKind, BlockDefinition> = {
     category: 'flow',
     inputs: [],
     outputs: [
-      port('url', 'URL', 'URL', { risk: 'safe' }),
-      port('linkUrl', 'Link URL', 'URL', { risk: 'safe' }),
-      port('selectedText', 'Selection', 'string', { risk: 'safe' }),
-      port('pageTitle', 'Title', 'string', { risk: 'safe' }),
-      port('pageMetadata', 'Metadata', 'dict', { risk: 'safe' }),
+      port('url', 'URL', 'URL', { risk: 'safe', description: 'The current tab URL when the Action Pack runs.' }),
+      port('linkUrl', 'Link URL', 'URL', { risk: 'safe', description: 'The href of the link that launched a context-menu run. Empty when the run did not start from a page link.' }),
+      port('selectedText', 'Selection', 'string', { risk: 'safe', description: 'The text selected on the page when the Action Pack starts. Empty when no text is selected.' }),
+      port('pageTitle', 'Title', 'string', { risk: 'safe', description: 'The current document title from the active tab.' }),
+      port('pageMetadata', 'Metadata', 'dict', { risk: 'safe', description: 'A dictionary of safe page metadata captured by the extension runtime.' }),
     ],
     flags: defaultFlags,
     defaultSettings: { locked: false },
@@ -55,8 +55,8 @@ export const BLOCK_REGISTRY: Record<BlockKind, BlockDefinition> = {
     typeId: BLOCK_TYPE_IDS.Logical,
     label: 'Logic',
     category: 'logic',
-    inputs: [port('input', 'Input', 'number', { required: true })],
-    outputs: [port('result', 'Result', 'number')],
+    inputs: [port('input', 'Input', 'Any', { required: true }), port('compare', 'Compare value', 'Any')],
+    outputs: [port('result', 'Result', 'bool')],
     flags: defaultFlags,
     defaultSettings: {
       operator: 'EQ',
@@ -587,6 +587,22 @@ export const BLOCK_REGISTRY: Record<BlockKind, BlockDefinition> = {
     },
     risk: 'safe',
   },
+  AddStringToList: {
+    kind: 'AddStringToList',
+    typeId: BLOCK_TYPE_IDS.AddStringToList,
+    label: 'Add string to list',
+    category: 'data',
+    inputs: [port('list', 'List', 'list'), port('item', 'String', 'string', { required: true })],
+    outputs: [port('result', 'List', 'list')],
+    flags: defaultFlags,
+    defaultSettings: {
+      listVariableName: '',
+      literalValue: '',
+      literalDataType: 'list',
+      literalListType: 'string',
+    },
+    risk: 'safe',
+  },
   ConditionSelect: {
     kind: 'ConditionSelect',
     typeId: BLOCK_TYPE_IDS.ConditionSelect,
@@ -748,11 +764,11 @@ export const BLOCK_REGISTRY: Record<BlockKind, BlockDefinition> = {
     category: 'content-blocker',
     inputs: [],
     outputs: [
-      port('url', 'URL', 'URL', { risk: 'safe' }),
-      port('pageTitle', 'Title', 'string', { risk: 'safe' }),
-      port('pageMetadata', 'Metadata', 'dict', { risk: 'safe' }),
+      port('url', 'URL', 'URL', { risk: 'safe', description: 'The page URL being checked by the Content Blocker.' }),
+      port('pageTitle', 'Title', 'string', { risk: 'safe', description: 'The title of the page being checked, when available.' }),
+      port('pageMetadata', 'Metadata', 'dict', { risk: 'safe', description: 'Safe page metadata captured for the current check.' }),
       port('pageText', 'Page Text', 'string', { risk: 'high', description: 'High risk: reads visible page text.' }),
-      port('secondsOnPage', 'Seconds', 'number', { risk: 'safe' }),
+      port('secondsOnPage', 'Seconds', 'number', { risk: 'safe', description: 'Seconds elapsed on the current allowed page before a recurring check runs. It is 0 during initial page-load decisions.' }),
     ],
     flags: defaultFlags,
     defaultSettings: { locked: true },
@@ -843,12 +859,30 @@ export const BLOCK_REGISTRY: Record<BlockKind, BlockDefinition> = {
   ChallengeComplete: {
     kind: 'ChallengeComplete',
     typeId: BLOCK_TYPE_IDS.ChallengeComplete,
-    label: 'Challenge Complete',
+    label: 'Challenge Result',
     category: 'content-blocker',
-    inputs: [port('complete', 'Complete', 'bool')],
+    description: 'Marks the completed challenge path. Challenge task blocks run in workspace order.',
+    inputs: [port('complete', 'Finished', 'bool')],
     outputs: [],
     flags: defaultFlags,
-    defaultSettings: { locked: true },
+    defaultSettings: { locked: false },
+    risk: 'safe',
+  },
+  CheckListForUrl: {
+    kind: 'CheckListForUrl',
+    typeId: BLOCK_TYPE_IDS.CheckListForUrl,
+    label: 'Check list for URL',
+    category: 'content-blocker',
+    description: 'Returns Block when the URL appears in the list, otherwise Allow.',
+    inputs: [port('url', 'URL', 'Any', { required: true }), port('list', 'List', 'list', { required: true })],
+    outputs: [port('decision', 'Decision', 'number')],
+    flags: defaultFlags,
+    defaultSettings: {
+      literalValue: '',
+      literalDataType: 'list',
+      literalListType: 'URL',
+      contentBlockerMatchDecision: 2,
+    },
     risk: 'safe',
   },
   LogicalFlow: {
@@ -857,8 +891,8 @@ export const BLOCK_REGISTRY: Record<BlockKind, BlockDefinition> = {
     label: 'Logical Flow',
     category: 'logic',
     description: 'Routes an input through a True or False branch. Instructions guarded by the unselected branch are skipped.',
-    tips: ['Connect a Logic block into Condition, then continue work from the True or False outputs. The else side may be left empty.'],
-    inputs: [port('input', 'Input', 'Any'), port('condition', 'Condition', 'bool', { required: true })],
+    tips: ['Add Logical Flow from the toolbar to create the paired Logic block. The condition connection is managed internally.'],
+    inputs: [port('input', 'Input', 'Any')],
     outputs: [port('trueValue', 'True', 'Any'), port('falseValue', 'False', 'Any')],
     flags: defaultFlags,
     defaultSettings: {
@@ -944,6 +978,10 @@ function effectiveConvertPorts(
       return direction === 'input'
         ? [port('input', 'Input', 'JSON', { required: true })]
         : [port('result', 'Result', 'dict')];
+    case 'NUMBER_TO_BOOL':
+      return direction === 'input'
+        ? [port('input', 'Input', 'number', { required: true })]
+        : [port('result', 'Result', 'bool')];
     case 'NUMBER_TO_STRING':
       return direction === 'input'
         ? [port('input', 'Input', 'number', { required: true })]
@@ -1061,7 +1099,7 @@ export function getEffectivePortDefinitions(
     return [port('result', 'Result', operation === 'GET' ? 'Any' : 'data')];
   }
 
-  if (node.type === 'Logical' && direction === 'output' && node.settings.booleanOutput !== false) {
+  if (node.type === 'Logical' && direction === 'output') {
     return [port('result', 'Result', 'bool')];
   }
 
@@ -1114,12 +1152,20 @@ export function isTypeCompatible(source: GraphDataType, target: GraphDataType): 
     return true;
   }
 
+  if (target === 'list') {
+    return source === 'data';
+  }
+
   if (target === 'data') {
     return true;
   }
 
   if (target === 'string') {
-    return ['URL', 'JSON', 'dict', 'data'].includes(source);
+    return ['URL', 'JSON', 'dict', 'data', 'list'].includes(source);
+  }
+
+  if ((target === 'URL' || target === 'JSON') && source === 'list') {
+    return true;
   }
 
   if (source === 'bool') {
@@ -1127,11 +1173,11 @@ export function isTypeCompatible(source: GraphDataType, target: GraphDataType): 
   }
 
   if (source === 'number') {
-    return target === 'floatingPoint';
+    return target === 'floatingPoint' || target === 'bool';
   }
 
   if (source === 'floatingPoint') {
-    return false;
+    return target === 'bool';
   }
 
   if (source === 'string') {

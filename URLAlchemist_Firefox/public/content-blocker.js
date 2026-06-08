@@ -26,17 +26,17 @@
     return payload;
   }
 
-  function taskShell(task) {
+  function taskShell(task, index, total) {
     const shell = document.createElement('section');
     shell.className = 'challenge-task';
     const title = document.createElement('h2');
-    title.textContent = task.label || 'Challenge';
+    title.textContent = total > 1 ? `Step ${index + 1} of ${total}: ${task.label || 'Challenge'}` : task.label || 'Challenge';
     shell.append(title);
     return shell;
   }
 
-  function renderTimer(task, markComplete) {
-    const shell = taskShell(task);
+  function renderTimer(task, markComplete, index, total) {
+    const shell = taskShell(task, index, total);
     const remaining = document.createElement('p');
     remaining.className = 'task-value';
     const seconds = Math.max(1, Math.trunc(task.seconds || 30));
@@ -55,8 +55,8 @@
     return shell;
   }
 
-  function renderTyper(task, markComplete) {
-    const shell = taskShell(task);
+  function renderTyper(task, markComplete, index, total) {
+    const shell = taskShell(task, index, total);
     const text = String(task.text || 'I want to continue');
     const count = Math.max(1, Math.trunc(task.count || 1));
     const prompt = document.createElement('p');
@@ -79,8 +79,8 @@
     return shell;
   }
 
-  function renderClicker(task, markComplete) {
-    const shell = taskShell(task);
+  function renderClicker(task, markComplete, index, total) {
+    const shell = taskShell(task, index, total);
     const count = Math.max(1, Math.trunc(task.count || 10));
     let clicked = 0;
     const button = document.createElement('button');
@@ -100,8 +100,8 @@
     return shell;
   }
 
-  function renderConfirm(task, markComplete) {
-    const shell = taskShell(task);
+  function renderConfirm(task, markComplete, index, total) {
+    const shell = taskShell(task, index, total);
     const text = document.createElement('p');
     text.textContent = String(task.text || 'Confirm that you want to continue.');
     const button = document.createElement('button');
@@ -117,8 +117,8 @@
     return shell;
   }
 
-  function renderReason(task, markComplete) {
-    const shell = taskShell(task);
+  function renderReason(task, markComplete, index, total) {
+    const shell = taskShell(task, index, total);
     const text = document.createElement('p');
     text.textContent = String(task.text || 'Why do you want to continue?');
     const input = document.createElement('textarea');
@@ -134,19 +134,19 @@
     return shell;
   }
 
-  function renderTask(task, markComplete) {
+  function renderTask(task, markComplete, index, total) {
     switch (task.kind) {
       case 'timer':
-        return renderTimer(task, markComplete);
+        return renderTimer(task, markComplete, index, total);
       case 'typer':
-        return renderTyper(task, markComplete);
+        return renderTyper(task, markComplete, index, total);
       case 'clicker':
-        return renderClicker(task, markComplete);
+        return renderClicker(task, markComplete, index, total);
       case 'reason':
-        return renderReason(task, markComplete);
+        return renderReason(task, markComplete, index, total);
       case 'confirm':
       default:
-        return renderConfirm(task, markComplete);
+        return renderConfirm(task, markComplete, index, total);
     }
   }
 
@@ -194,15 +194,28 @@
     if (tasks.length === 0) {
       continueButton.disabled = false;
     } else {
-      let completed = 0;
-      const markComplete = () => {
-        completed += 1;
-        if (completed >= tasks.length) {
-          continueButton.disabled = false;
-        }
-      };
-      tasks.forEach((task) => {
-        taskList.append(renderTask(task, markComplete));
+      let activeTask = 0;
+      const taskElements = tasks.map((task, index) => {
+        let completed = false;
+        const markComplete = () => {
+          if (completed) {
+            return;
+          }
+          completed = true;
+          activeTask = index + 1;
+          if (activeTask < taskElements.length) {
+            taskElements[activeTask].hidden = false;
+            taskElements[activeTask].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+          } else {
+            continueButton.disabled = false;
+          }
+        };
+        const element = renderTask(task, markComplete, index, tasks.length);
+        element.hidden = index !== 0;
+        return element;
+      });
+      taskElements.forEach((taskElement) => {
+        taskList.append(taskElement);
       });
     }
 

@@ -50,6 +50,7 @@ export type GraphDataType =
   | 'URL'
   | 'JSON'
   | 'data'
+  | 'list'
   | 'dict'
   | 'asset'
   | 'Any';
@@ -79,6 +80,7 @@ export type GraphValue =
   | { type: 'URL'; value: string }
   | { type: 'JSON'; value: string }
   | { type: 'data'; value: unknown }
+  | { type: 'list'; value: string[] }
   | { type: 'dict'; value: Record<string, GraphValue> }
   | { type: 'asset'; value: AssetRef }
   | { type: 'Any'; value: unknown };
@@ -144,6 +146,8 @@ export const BLOCK_TYPE_IDS = {
   CustomBlock: 57,
   CustomBlockInput: 58,
   CustomBlockOutput: 59,
+  AddStringToList: 60,
+  CheckListForUrl: 61,
 } as const;
 
 export type BlockKind = keyof typeof BLOCK_TYPE_IDS;
@@ -275,6 +279,7 @@ export type GraphEventHandler = 'trigger' | 'keyboard' | 'mouse' | 'tick';
 export type OverlayControlAction = 'START' | 'STOP' | 'TOGGLE' | 'STATUS';
 export type SharedStateMode = 'GET' | 'SET' | 'DELETE' | 'EXISTS';
 export type ListOperationMode = 'APPEND' | 'PREPEND' | 'DROP_LAST' | 'GET' | 'LENGTH' | 'CONTAINS_POINT';
+export type ListValueType = 'string' | 'URL';
 export type TextTransformMode =
   | 'TRIM'
   | 'COLLAPSE_WHITESPACE'
@@ -388,6 +393,7 @@ export interface WorkspaceBlockSettings {
     | 'STRING_TO_URL'
     | 'DICT_TO_JSON'
     | 'JSON_TO_DICT'
+    | 'NUMBER_TO_BOOL'
     | 'NUMBER_TO_STRING'
     | 'DATA_TO_STRING';
   convertOrd?: boolean;
@@ -395,8 +401,10 @@ export interface WorkspaceBlockSettings {
   variableName?: string;
   literalValue?: string;
   literalDataType?: GraphDataType;
+  literalListType?: ListValueType;
   saveLoadMode?: 'SAVE' | 'EXISTS' | 'GET';
   dictKey?: string;
+  listVariableName?: string;
   loopLimit?: number;
   outputDestination?: string;
   sharedStateMode?: SharedStateMode;
@@ -428,6 +436,7 @@ export interface WorkspaceBlockSettings {
   challengeSeconds?: number;
   challengeText?: string;
   challengeCount?: number;
+  contentBlockerMatchDecision?: 1 | 2;
   logicalFlowGroupId?: string;
   logicalFlowRole?: 'condition' | 'control';
   customBlockId?: string;
@@ -739,6 +748,7 @@ export type GraphVmInstruction = (
       input?: string;
       output: string;
       operator: NonNullable<WorkspaceBlockSettings['operator']>;
+      compareInput?: string;
       compareValue: string;
       booleanOutput: boolean;
     }
@@ -834,6 +844,26 @@ export type GraphVmInstruction = (
 	      operation: ListOperationMode;
 	      fallbackList: GraphValue;
 	      fallbackItem: GraphValue;
+	    }
+	  | {
+	      op: 'ADD_STRING_TO_LIST';
+	      nodeId: string;
+	      list?: string;
+	      item?: string;
+	      output: string;
+	      fallbackList: GraphValue;
+	      fallbackItem: GraphValue;
+	      variableName: string;
+	    }
+	  | {
+	      op: 'CHECK_LIST_FOR_URL';
+	      nodeId: string;
+	      url?: string;
+	      list?: string;
+	      output: string;
+	      fallbackUrl: string;
+	      fallbackList: GraphValue;
+	      matchDecision: 1 | 2;
 	    }
 	  | {
 	      op: 'SELECT';

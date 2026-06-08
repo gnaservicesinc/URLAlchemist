@@ -99,8 +99,10 @@ const CONTENT_BLOCKER_DECISION_ALLOWED_BLOCKS = new Set<BlockKind>([
   'DictGet',
   'DictOperation',
   'ListOperation',
+  'AddStringToList',
   'ConditionSelect',
   'LogicalFlow',
+  'CheckListForUrl',
   'CustomBlock',
   'RandomNumber',
   'SaveLoad',
@@ -240,13 +242,21 @@ function connectedInput(edgesByTarget: Map<string, WorkspaceEdgeV2>, nodeId: str
   return edge ? symbol(edge.source, edge.sourceHandle) : undefined;
 }
 
+function isLogicalFlowConditionEdge(workspace: WorkspaceFileV2, edge: WorkspaceEdgeV2): boolean {
+  return edge.targetHandle === 'condition' && (workspace.logicalFlows ?? []).some((group) => group.controlNodeId === edge.target);
+}
+
+function visibleWorkspaceEdges(workspace: WorkspaceFileV2): WorkspaceEdgeV2[] {
+  return workspace.edges.filter((edge) => !isLogicalFlowConditionEdge(workspace, edge));
+}
+
 function connectedOutputHandles(
   workspace: WorkspaceFileV2,
   nodeId: string,
   includedNodeIds: Set<string>,
 ): Set<string> {
   const handles = new Set<string>();
-  workspace.edges.forEach((edge) => {
+  visibleWorkspaceEdges(workspace).forEach((edge) => {
     if (edge.source === nodeId && includedNodeIds.has(edge.target)) {
       handles.add(edge.sourceHandle);
     }
@@ -292,10 +302,15 @@ function upstreamNodeIds(workspace: WorkspaceFileV2, nodeId: string): Set<string
     }
 
     reachable.add(current);
-    workspace.edges
+    visibleWorkspaceEdges(workspace)
       .filter((edge) => edge.target === current)
       .forEach((edge) => {
         stack.push(edge.source);
+      });
+    (workspace.logicalFlows ?? [])
+      .filter((group) => group.controlNodeId === current)
+      .forEach((group) => {
+        stack.push(group.conditionNodeId);
       });
   }
 
@@ -469,7 +484,7 @@ function collectReachableNodes(workspace: WorkspaceFileV2): Set<string> {
 
 function downstreamNodeIdsFromHandle(workspace: WorkspaceFileV2, sourceId: string, sourceHandle: string): Set<string> {
   const reachable = new Set<string>();
-  const stack = workspace.edges
+  const stack = visibleWorkspaceEdges(workspace)
     .filter((edge) => edge.source === sourceId && edge.sourceHandle === sourceHandle)
     .map((edge) => edge.target);
 
@@ -479,7 +494,7 @@ function downstreamNodeIdsFromHandle(workspace: WorkspaceFileV2, sourceId: strin
       continue;
     }
     reachable.add(current);
-    workspace.edges
+    visibleWorkspaceEdges(workspace)
       .filter((edge) => edge.source === current)
       .forEach((edge) => stack.push(edge.target));
   }
@@ -487,12 +502,20 @@ function downstreamNodeIdsFromHandle(workspace: WorkspaceFileV2, sourceId: strin
   return reachable;
 }
 
+function logicalFlowConditionSymbol(workspace: WorkspaceFileV2, controlNodeId: string): string | undefined {
+  const group = (workspace.logicalFlows ?? []).find((candidate) => candidate.controlNodeId === controlNodeId);
+  if (!group || !workspace.nodes.some((node) => node.id === group.conditionNodeId)) {
+    return undefined;
+  }
+  return symbol(group.conditionNodeId, 'result');
+}
+
 function logicalFlowGuards(workspace: WorkspaceFileV2, edgesByTarget: Map<string, WorkspaceEdgeV2>): Map<string, { guard: string; expected: 0 | 1 }> {
   const guards = new Map<string, { guard: string; expected: 0 | 1 }>();
   workspace.nodes
     .filter((node) => node.type === 'LogicalFlow')
     .forEach((node) => {
-      const guard = connectedInput(edgesByTarget, node.id, 'condition');
+      const guard = logicalFlowConditionSymbol(workspace, node.id) ?? connectedInput(edgesByTarget, node.id, 'condition');
       if (!guard) {
         return;
       }
@@ -583,13 +606,21 @@ function topologicalSort(workspace: WorkspaceFileV2, includedNodeIds: Set<string
     outgoing.set(node.id, []);
   });
 
-  workspace.edges.forEach((edge) => {
+  visibleWorkspaceEdges(workspace).forEach((edge) => {
     if (!includedNodeIds.has(edge.source) || !includedNodeIds.has(edge.target)) {
       return;
     }
 
     outgoing.get(edge.source)?.push(edge.target);
     inDegree.set(edge.target, (inDegree.get(edge.target) ?? 0) + 1);
+  });
+
+  (workspace.logicalFlows ?? []).forEach((group) => {
+    if (!includedNodeIds.has(group.conditionNodeId) || !includedNodeIds.has(group.controlNodeId)) {
+      return;
+    }
+    outgoing.get(group.conditionNodeId)?.push(group.controlNodeId);
+    inDegree.set(group.controlNodeId, (inDegree.get(group.controlNodeId) ?? 0) + 1);
   });
 
   const queue = workspace.nodes.filter((node) => includedNodeIds.has(node.id) && (inDegree.get(node.id) ?? 0) === 0);
@@ -685,6 +716,9 @@ function validateSurfaceConnections(
   surface.edges.forEach((edge) => {
     const sourceNode = surfaceNode(surface, edge.source);
     const targetNode = surfaceNode(surface, edge.target);
+    if (targetNode?.type === 'LogicalFlow' && edge.targetHandle === 'condition') {
+      return;
+    }
     const sourcePort = sourceNode ? getEffectivePortDefinition(sourceNode, 'output', edge.sourceHandle) : null;
     const targetPort = targetNode ? getEffectivePortDefinition(targetNode, 'input', edge.targetHandle) : null;
 
@@ -796,18 +830,29 @@ function validateContentBlockerWorkspace(workspace: WorkspaceFileV2): WorkspaceV
       ...CONTENT_BLOCKER_CHALLENGE_BLOCKS,
       'ChallengeComplete',
       'Logical',
+      'LogicalFlow',
       'Math',
       'Constant',
       'ConditionSelect',
-      'LogicalFlow',
+      'Convert',
+      'TextSplitJoin',
+      'UrlQuery',
+      'DataStructure',
+      'DictGet',
+      'DictOperation',
+      'ListOperation',
+      'AddStringToList',
       'CustomBlock',
       'RandomNumber',
+      'SaveLoad',
+      'SharedState',
+      'Declarations',
       'Substitution',
       'TextTransform',
     ]);
     validateSurfaceConnections(challenge, allowedChallengeBlocks, errors, invalidEdgeIds, risk);
     if (!challenge.nodes.some((node) => node.type === 'ChallengeComplete')) {
-      errors.push('Challenge Page requires a Challenge Complete block.');
+      errors.push('Challenge Page requires a Challenge Result block.');
     }
     if (!challenge.nodes.some((node) => CONTENT_BLOCKER_CHALLENGE_BLOCKS.has(node.type))) {
       errors.push('Challenge Page requires at least one Timer, Typer, Clicker, Confirm Choice, or Reason Prompt block.');
@@ -905,7 +950,7 @@ function validateWorkspace(workspace: WorkspaceFileV2): WorkspaceValidationState
     }
   });
 
-  workspace.edges.forEach((edge) => {
+  visibleWorkspaceEdges(workspace).forEach((edge) => {
     const sourceNode = findNode(workspace, edge.source);
     const targetNode = findNode(workspace, edge.target);
     const sourcePort = sourceNode ? getEffectivePortDefinition(sourceNode, 'output', edge.sourceHandle) : null;
@@ -945,7 +990,7 @@ function validateWorkspace(workspace: WorkspaceFileV2): WorkspaceValidationState
     }
   });
 
-  const edgesByTarget = new Map(workspace.edges.map((edge) => [`${edge.target}:${edge.targetHandle}`, edge]));
+  const edgesByTarget = new Map(visibleWorkspaceEdges(workspace).map((edge) => [`${edge.target}:${edge.targetHandle}`, edge]));
   const declaredVariableTypes = collectDeclaredVariableTypes(workspace, edgesByTarget);
   if (!hasRunnableTerminalNode(workspace, edgesByTarget)) {
     errors.push('Add a URL output, data output, storage write, overlay action, or other terminal side-effect before building an Action Pack.');
@@ -1117,6 +1162,16 @@ function isGlobalScope(scopeRegex?: string): boolean {
 }
 
 function graphValueFromPlain(value: unknown, preferredType: GraphDataType = 'Any'): GraphValue {
+  if (preferredType === 'list') {
+    if (Array.isArray(value)) {
+      return { type: 'list', value: value.flatMap((entry) => Array.isArray(entry) ? entry : [entry]).map((entry) => String(entry)).filter(Boolean) };
+    }
+    if (typeof value === 'string') {
+      return { type: 'list', value: value.replace(/\r\n?/g, '\n').split('\n').map((entry) => entry.trim()).filter(Boolean) };
+    }
+    return { type: 'list', value: [] };
+  }
+
   if (typeof value === 'boolean') {
     return { type: 'bool', value: value ? 1 : 0 };
   }
@@ -1156,7 +1211,19 @@ function graphValueFromPlain(value: unknown, preferredType: GraphDataType = 'Any
   return { type: preferredType, value } as GraphValue;
 }
 
-function literalGraphValue(raw: string | undefined, dataType: GraphDataType = 'string'): GraphValue {
+function normalizeUrlListEntries(entries: string[]): string[] {
+  const normalized = new Set<string>();
+  entries.forEach((entry) => {
+    try {
+      normalized.add(new URL(entry).toString());
+    } catch {
+      // URL lists intentionally drop invalid entries instead of preserving unusable values.
+    }
+  });
+  return Array.from(normalized);
+}
+
+function literalGraphValue(raw: string | undefined, dataType: GraphDataType = 'string', listType: WorkspaceNodeV2['settings']['literalListType'] = 'string'): GraphValue {
   const value = raw ?? '';
   switch (dataType) {
     case 'bool':
@@ -1173,6 +1240,10 @@ function literalGraphValue(raw: string | undefined, dataType: GraphDataType = 's
       return { type: 'URL', value };
     case 'JSON':
       return { type: 'JSON', value };
+    case 'list': {
+      const entries = value.replace(/\r\n?/g, '\n').split('\n').map((entry) => entry.trim()).filter(Boolean);
+      return { type: 'list', value: listType === 'URL' ? normalizeUrlListEntries(entries) : entries };
+    }
     case 'dict':
     case 'data':
     case 'Any':
@@ -1390,7 +1461,7 @@ function instructionForNode(
         op: 'CONSTANT',
         nodeId: node.id,
         output: symbol(node.id, 'value'),
-        value: literalGraphValue(node.settings.literalValue, node.settings.literalDataType ?? 'string'),
+        value: literalGraphValue(node.settings.literalValue, node.settings.literalDataType ?? 'string', node.settings.literalListType),
       });
       break;
     case 'Sleep':
@@ -1441,6 +1512,18 @@ function instructionForNode(
         fallbackItem: literalGraphValue(node.settings.selectTrueValue, node.settings.literalDataType ?? 'Any'),
       });
       break;
+    case 'AddStringToList':
+      instructions.push({
+        op: 'ADD_STRING_TO_LIST',
+        nodeId: node.id,
+        list: connectedInput(edgesByTarget, node.id, 'list'),
+        item: connectedInput(edgesByTarget, node.id, 'item'),
+        output: symbol(node.id, 'result'),
+        fallbackList: literalGraphValue(node.settings.literalValue, 'list', node.settings.literalListType),
+        fallbackItem: literalGraphValue(node.settings.selectTrueValue, 'string'),
+        variableName: node.settings.listVariableName ?? '',
+      });
+      break;
     case 'ConditionSelect':
       instructions.push({
         op: 'SELECT',
@@ -1457,7 +1540,7 @@ function instructionForNode(
       instructions.push({
         op: 'BRANCH',
         nodeId: node.id,
-        condition: connectedInput(edgesByTarget, node.id, 'condition'),
+        condition: logicalFlowConditionSymbol(workspace, node.id) ?? connectedInput(edgesByTarget, node.id, 'condition'),
         input: connectedInput(edgesByTarget, node.id, 'input'),
         trueOutput: symbol(node.id, 'trueValue'),
         falseOutput: symbol(node.id, 'falseValue'),
@@ -1586,6 +1669,18 @@ function instructionForNode(
         output: symbol(node.id, 'decision'),
       });
       break;
+    case 'CheckListForUrl':
+      instructions.push({
+        op: 'CHECK_LIST_FOR_URL',
+        nodeId: node.id,
+        url: connectedInput(edgesByTarget, node.id, 'url'),
+        list: connectedInput(edgesByTarget, node.id, 'list'),
+        output: symbol(node.id, 'decision'),
+        fallbackUrl: node.settings.urlQueryValue ?? '',
+        fallbackList: literalGraphValue(node.settings.literalValue, 'list', 'URL'),
+        matchDecision: node.settings.contentBlockerMatchDecision === 1 ? 1 : 2,
+      });
+      break;
     case 'SaveStringToLog':
       instructions.push({
         op: 'LOG',
@@ -1640,10 +1735,11 @@ function instructionForNode(
         op: 'COMPARE',
         nodeId: node.id,
         input: connectedInput(edgesByTarget, node.id, 'input'),
+        compareInput: connectedInput(edgesByTarget, node.id, 'compare'),
         output: symbol(node.id, 'result'),
         operator: node.settings.operator ?? 'EQ',
         compareValue: node.settings.compareValue ?? '1',
-        booleanOutput: node.settings.booleanOutput ?? true,
+        booleanOutput: true,
       });
       break;
     case 'Math':
@@ -1676,7 +1772,7 @@ function instructionForNode(
           nodeId: node.id,
           name: normalizeVariableName(node.settings.variableName),
           value: connectedInput(edgesByTarget, node.id, 'value'),
-          fallbackValue: literalGraphValue(node.settings.literalValue, node.settings.literalDataType ?? 'string'),
+          fallbackValue: literalGraphValue(node.settings.literalValue, node.settings.literalDataType ?? 'string', node.settings.literalListType),
         });
       }
       break;
@@ -1785,7 +1881,7 @@ function requiredPermissionsForInstructions(instructions: GraphVmInstruction[]):
 
 function deriveInputSources(workspace: WorkspaceFileV2, reachable: Set<string>): WorkspaceInputSource[] {
   const sources = new Set<WorkspaceInputSource>();
-  workspace.edges.forEach((edge) => {
+  visibleWorkspaceEdges(workspace).forEach((edge) => {
     if (!reachable.has(edge.source) || !reachable.has(edge.target)) {
       return;
     }
@@ -1982,7 +2078,7 @@ function validateConditionNodes(workspace: WorkspaceFileV2, includedNodeIds: Set
     }
   });
 
-  workspace.edges.forEach((edge) => {
+  visibleWorkspaceEdges(workspace).forEach((edge) => {
     if (!includedNodeIds.has(edge.source) || !includedNodeIds.has(edge.target)) {
       return;
     }
@@ -1997,7 +2093,7 @@ function validateConditionNodes(workspace: WorkspaceFileV2, includedNodeIds: Set
 }
 
 function compileConditionProgram(workspace: WorkspaceFileV2): { ok: true; result: ConditionCompileResult; risk: CompiledRiskSummary; instructions: GraphVmInstruction[] } | { ok: false; errors: string[] } {
-  const edgesByTarget = new Map(workspace.edges.map((edge) => [`${edge.target}:${edge.targetHandle}`, edge]));
+  const edgesByTarget = new Map(visibleWorkspaceEdges(workspace).map((edge) => [`${edge.target}:${edge.targetHandle}`, edge]));
   const terminals = workspace.nodes.filter((node) => node.type === 'ConditionOut' && edgesByTarget.has(`${node.id}:condition`));
   if (terminals.length !== 1) {
     return { ok: false, errors: ['Conditional Run requires exactly one connected Condition Out block in the selected condition workspace.'] };
@@ -2091,7 +2187,7 @@ function compileDecisionSurfaceProgram(
   options: CompileOptions,
 ): { ok: true; program: ContentBlockerDecisionProgram; risk: CompiledRiskSummary; instructions: GraphVmInstruction[] } | { ok: false; errors: string[] } {
   const surfaceWorkspace = workspaceForSurface(workspace, surface);
-  const edgesByTarget = new Map(surfaceWorkspace.edges.map((edge) => [`${edge.target}:${edge.targetHandle}`, edge]));
+  const edgesByTarget = new Map(visibleWorkspaceEdges(surfaceWorkspace).map((edge) => [`${edge.target}:${edge.targetHandle}`, edge]));
   const terminals = surfaceWorkspace.nodes.filter((node) => node.type === 'DecisionOut' && edgesByTarget.has(`${node.id}:decision`));
   if (terminals.length !== 1) {
     return { ok: false, errors: [`${surface.label} requires exactly one connected Decision Out block.`] };
@@ -2431,7 +2527,7 @@ export function compileWorkspace(workspace: WorkspaceFileV2, options: CompileOpt
     };
   }
 
-  const edgesByTarget = new Map(workspace.edges.map((edge) => [`${edge.target}:${edge.targetHandle}`, edge]));
+  const edgesByTarget = new Map(visibleWorkspaceEdges(workspace).map((edge) => [`${edge.target}:${edge.targetHandle}`, edge]));
   const branchGuards = logicalFlowGuards(workspace, edgesByTarget);
   const eventHandlers = Object.fromEntries(
     EVENT_HANDLERS.map((handler) => [

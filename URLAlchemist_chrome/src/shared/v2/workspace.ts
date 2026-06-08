@@ -110,12 +110,14 @@ export function createDefaultWorkspace(): WorkspaceFileV2 {
 export function createDefaultContentBlockerWorkspace(): WorkspaceFileV2 {
   const now = Date.now();
   const pageInput = createWorkspaceNode('ContentDataIn', { x: 0, y: 120 });
-  const allow = createWorkspaceNode('Constant', { x: 360, y: 120 }, {
-    literalDataType: 'number',
-    literalValue: '0',
-    label: 'Allow',
+  const blockedList = createWorkspaceNode('Constant', { x: 320, y: 250 }, {
+    literalDataType: 'list',
+    literalListType: 'URL',
+    literalValue: '',
+    label: 'Blocked URL List',
   });
-  const pageDecision = createWorkspaceNode('DecisionOut', { x: 720, y: 120 });
+  const checkList = createWorkspaceNode('CheckListForUrl', { x: 640, y: 120 });
+  const pageDecision = createWorkspaceNode('DecisionOut', { x: 980, y: 120 });
   const challengeTimer = createWorkspaceNode('ChallengeTimer', { x: 0, y: 120 });
   const challengeComplete = createWorkspaceNode('ChallengeComplete', { x: 360, y: 120 });
 
@@ -144,8 +146,12 @@ export function createDefaultContentBlockerWorkspace(): WorkspaceFileV2 {
       {
         id: 'page-load',
         label: 'Page Load Decision',
-        nodes: [pageInput, allow, pageDecision],
-        edges: [createEdge(allow.id, 'value', pageDecision.id, 'decision')],
+        nodes: [pageInput, blockedList, checkList, pageDecision],
+        edges: [
+          createEdge(pageInput.id, 'url', checkList.id, 'url'),
+          createEdge(blockedList.id, 'value', checkList.id, 'list'),
+          createEdge(checkList.id, 'decision', pageDecision.id, 'decision'),
+        ],
         viewport: { x: 0, y: 0, zoom: 1 },
       },
       {

@@ -26,7 +26,7 @@ import {
   SUPPORTED_ACTION_PACK_SCHEMA_VERSIONS,
 } from './types';
 
-const GRAPH_DATA_TYPES = ['bool', 'number', 'floatingPoint', 'string', 'URL', 'JSON', 'data', 'dict', 'asset', 'Any'] as const;
+const GRAPH_DATA_TYPES = ['bool', 'number', 'floatingPoint', 'string', 'URL', 'JSON', 'data', 'list', 'dict', 'asset', 'Any'] as const;
 const RISK_LEVELS = ['safe', 'extended', 'high'] as const;
 const COMPARE_OPERATORS = ['LT', 'LTE', 'EQ', 'NEQ', 'GT', 'GTE'] as const;
 const MATH_OPERATIONS = ['ADD', 'SUBTRACT', 'MULTIPLY', 'DIVIDE', 'MODULO'] as const;
@@ -35,6 +35,7 @@ const CONVERT_MODES = [
   'STRING_TO_URL',
   'DICT_TO_JSON',
   'JSON_TO_DICT',
+  'NUMBER_TO_BOOL',
   'NUMBER_TO_STRING',
   'DATA_TO_STRING',
 ] as const;
@@ -69,6 +70,8 @@ const CONDITION_VM_OPS = new Set<GraphVmInstruction['op']>([
   'DICT_SET',
   'DICT_GET',
   'LIST_OP',
+  'ADD_STRING_TO_LIST',
+  'CHECK_LIST_FOR_URL',
   'SELECT',
   'SAVELOAD',
   'SHARED_STATE',
@@ -263,6 +266,12 @@ function validateGraphValue(value: unknown, prefix: string, errors: string[], de
     case 'JSON':
       if (!isString(value.value)) {
         addError(errors, prefix, `${value.type} graph value must be a string`);
+        return false;
+      }
+      return true;
+    case 'list':
+      if (!Array.isArray(value.value) || !value.value.every(isString)) {
+        addError(errors, prefix, 'list graph value must be an array of strings');
         return false;
       }
       return true;
@@ -897,12 +906,13 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'COMPARE': {
-      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'output', 'operator', 'compareValue', 'booleanOutput'], ['input'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'output', 'operator', 'compareValue', 'booleanOutput'], ['input', 'compareInput'])) {
         addError(errors, prefix, 'COMPARE instruction has invalid keys');
         return null;
       }
 
       assertReference(errors, symbolTable, instruction.input, `${prefix}.input`);
+      assertReference(errors, symbolTable, instruction.compareInput, `${prefix}.compareInput`);
       assertReference(errors, symbolTable, instruction.output, `${prefix}.output`, true);
 
       if (!isEnumValue(COMPARE_OPERATORS, instruction.operator)) {
@@ -1108,6 +1118,22 @@ function validateInstruction(
 
       validateGraphValue(instruction.fallbackList, `${prefix}.fallbackList`, errors);
       validateGraphValue(instruction.fallbackItem, `${prefix}.fallbackItem`, errors);
+      return instruction as GraphVmInstruction;
+    }
+    case 'ADD_STRING_TO_LIST': {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'output', 'fallbackList', 'fallbackItem', 'variableName'], ['list', 'item'])) {
+        addError(errors, prefix, 'ADD_STRING_TO_LIST instruction has invalid keys');
+        return null;
+      }
+
+      assertReference(errors, symbolTable, instruction.list, `${prefix}.list`);
+      assertReference(errors, symbolTable, instruction.item, `${prefix}.item`);
+      assertReference(errors, symbolTable, instruction.output, `${prefix}.output`, true);
+      validateGraphValue(instruction.fallbackList, `${prefix}.fallbackList`, errors);
+      validateGraphValue(instruction.fallbackItem, `${prefix}.fallbackItem`, errors);
+      if (!isString(instruction.variableName) || instruction.variableName.length > 128) {
+        addError(errors, prefix, 'variableName must be a string of 128 characters or less');
+      }
       return instruction as GraphVmInstruction;
     }
     case 'SELECT': {
@@ -1321,6 +1347,24 @@ function validateInstruction(
 
       assertReference(errors, symbolTable, instruction.decision, `${prefix}.decision`);
       assertReference(errors, symbolTable, instruction.output, `${prefix}.output`, true);
+      return instruction as GraphVmInstruction;
+    }
+    case 'CHECK_LIST_FOR_URL': {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'output', 'fallbackUrl', 'fallbackList', 'matchDecision'], ['url', 'list'])) {
+        addError(errors, prefix, 'CHECK_LIST_FOR_URL instruction has invalid keys');
+        return null;
+      }
+
+      assertReference(errors, symbolTable, instruction.url, `${prefix}.url`);
+      assertReference(errors, symbolTable, instruction.list, `${prefix}.list`);
+      assertReference(errors, symbolTable, instruction.output, `${prefix}.output`, true);
+      if (!isString(instruction.fallbackUrl) || instruction.fallbackUrl.length > 4000) {
+        addError(errors, prefix, 'fallbackUrl must be a string of 4000 characters or less');
+      }
+      if (instruction.matchDecision !== 1 && instruction.matchDecision !== 2) {
+        addError(errors, prefix, 'matchDecision must be 1 or 2');
+      }
+      validateGraphValue(instruction.fallbackList, `${prefix}.fallbackList`, errors);
       return instruction as GraphVmInstruction;
     }
     case 'LOG': {

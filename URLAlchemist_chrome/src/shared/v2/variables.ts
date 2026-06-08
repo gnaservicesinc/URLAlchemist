@@ -273,7 +273,8 @@ export function getVariableFieldSpecs(node: WorkspaceNodeV2): VariableFieldSpec[
       return [{
         setting: 'compareValue',
         label: 'Compare value',
-        expectedType: 'number',
+        expectedType: literalDataType(node, 'Any'),
+        inputHandle: 'compare',
         numericMode: 'forbidden',
       }];
     case 'Math':
@@ -336,6 +337,7 @@ export function variableTypeMatches(actual: GraphDataType, expected: GraphDataTy
   }
 
   return (
+    (actual === 'list' && (expected === 'string' || expected === 'data')) ||
     (actual === 'number' || actual === 'floatingPoint') &&
     (expected === 'number' || expected === 'floatingPoint')
   );
