@@ -2371,7 +2371,7 @@ function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITION
     handleDeleteNodes(Array.from(removedIds));
   }, [handleDeleteNodes, workspace]);
 
-  const handleNodeDragStop = useCallback((_event: ReactMouseEvent, node: Node, draggedNodes: Node[]): void => {
+  const handleNodeDragStop = useCallback((_event: MouseEvent | TouchEvent, node: Node, draggedNodes: Node[]): void => {
     const movedNodes = draggedNodes.length > 0 ? draggedNodes : [node];
     const positions = new Map(movedNodes.map((candidate) => [candidate.id, candidate.position]));
     const primaryMove = movedNodes.find((candidate) => workspace.nodes.some((workspaceNode) => workspaceNode.id === candidate.id));

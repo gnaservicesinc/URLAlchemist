@@ -10,6 +10,7 @@ run() {
 }
 
 cd "/opt/URLAlchemist/Repo/URLAlchemist"
+npm --prefix "/opt/URLAlchemist/Repo/URLAlchemist/URLAlchemist_chrome" run generate:bundled && npm --prefix "/opt/URLAlchemist/Repo/URLAlchemist/URLAlchemist_Firefox" run generate:bundled
 run npm --prefix "/opt/URLAlchemist/Repo/URLAlchemist/URLAlchemist_chrome" run generate:bundled
 run npm --prefix "/opt/URLAlchemist/Repo/URLAlchemist/URLAlchemist_Firefox" run generate:bundled
 run npm --prefix "/opt/URLAlchemist/Repo/URLAlchemist/URLAlchemist_chrome" run build
