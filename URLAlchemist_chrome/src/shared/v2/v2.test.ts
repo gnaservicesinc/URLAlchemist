@@ -424,7 +424,7 @@ describe('v2 workspace compiler and VM', () => {
       ok: true,
       json: async () => ({
         models: [
-          { name: 'llama3.2:latest', model: 'llama3.2:latest', modified_at: '2026-06-01T00:00:00Z', size: 1234, digest: 'abc' },
+          { name: 'phi4-mini:latest', model: 'phi4-mini:latest', modified_at: '2026-06-01T00:00:00Z', size: 1234, digest: 'abc' },
           { model: 'mistral:latest' },
         ],
       }),
@@ -437,7 +437,7 @@ describe('v2 workspace compiler and VM', () => {
     });
 
     expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:11434/api/tags', expect.objectContaining({ method: 'GET' }));
-    expect(models.map((model) => model.name)).toEqual(['llama3.2:latest', 'mistral:latest']);
+    expect(models.map((model) => model.name)).toEqual(['phi4-mini:latest', 'mistral:latest']);
     vi.unstubAllGlobals();
   });
 
@@ -2141,7 +2141,7 @@ describe('v2 workspace compiler and VM', () => {
     expect(BUNDLED_ACTION_PACK_EXAMPLES.some((example) => example.slug === 'screen-time')).toBe(false);
     expect(BUNDLED_ACTION_PACK_EXAMPLES.map((example) => example.slug)).toContain('break-reminder');
     expect(workspaces.length).toBeGreaterThanOrEqual(13);
-    expect(packs).toHaveLength(workspaces.length);
+    expect(packs).toHaveLength(BUNDLED_ACTION_PACK_EXAMPLES.filter((example) => example.actionPackPath).length);
 
     workspaces.forEach((workspace) => {
       const compiled = compileWorkspace(workspace);
@@ -2378,14 +2378,18 @@ describe('v2 workspace compiler and VM', () => {
 
     for (const example of BUNDLED_ACTION_PACK_EXAMPLES) {
       const workspaceBytes = new Uint8Array(await readFile(resolve(projectRoot, 'public', example.workspacePath)));
-      const actionPackBytes = new Uint8Array(await readFile(resolve(projectRoot, 'public', example.actionPackPath)));
       const workspace = await importWorkspaceBinary(workspaceBytes);
-      const pack = await importCompiledActionPackV2Binary(actionPackBytes);
 
       expect(workspace.workspace.metadata.id).toBe(example.id);
       expect(workspace.workspace.metadata.compatibility?.firefox?.status).toBe('supported');
       expect(workspace.workspace.metadata.compatibility?.firefoxAndroid?.status).toBe('source-only');
-      expect(pack.pack.manifest.id).toBe(example.id);
+      if (example.actionPackPath) {
+        const actionPackBytes = new Uint8Array(await readFile(resolve(projectRoot, 'public', example.actionPackPath)));
+        const pack = await importCompiledActionPackV2Binary(actionPackBytes);
+        expect(pack.pack.manifest.id).toBe(example.id);
+      } else {
+        expect(workspace.workspace.workspaceType).toBe('custom-block');
+      }
     }
   });
 

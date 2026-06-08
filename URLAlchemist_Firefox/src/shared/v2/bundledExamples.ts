@@ -6,8 +6,8 @@ import type { BlockKind, CompiledActionPackV2, WorkspaceBlockSettings, Workspace
 export const BUNDLED_EXAMPLE_BUILD_TIME_UTC = 1_778_755_200;
 export const BUNDLED_EXAMPLE_BUILDER_UUID = '11111111-1111-4111-8111-111111111111';
 export const BUNDLED_EXAMPLE_CREATED_AT = BUNDLED_EXAMPLE_BUILD_TIME_UTC * 1000;
-export const BUNDLED_EXAMPLE_CHROME_VERSION = '2.5.0';
-export const BUNDLED_EXAMPLE_FIREFOX_VERSION = '2.5.0';
+export const BUNDLED_EXAMPLE_CHROME_VERSION = '2.6.0';
+export const BUNDLED_EXAMPLE_FIREFOX_VERSION = '2.6.0';
 export const BUNDLED_EXAMPLE_FIREFOX_ANDROID_VERSION = '142.0';
 const EMBEDDED_BREAK_IMAGE_BASE64 = 'PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxNjAgOTAiPjxyZWN0IHdpZHRoPSIxNjAiIGhlaWdodD0iOTAiIGZpbGw9IiNmZWYzYzciLz48Y2lyY2xlIGN4PSI4MCIgY3k9IjQ1IiByPSIzMCIgZmlsbD0iI2ZmZiIgc3Ryb2tlPSIjMGY3NjZlIiBzdHJva2Utd2lkdGg9IjYiLz48cGF0aCBkPSJNODAgMjV2MjJsMTYgMTAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2M3NmExYSIgc3Ryb2tlLXdpZHRoPSI2IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48dGV4dCB4PSI4MCIgeT0iODIiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxMCIgZmlsbD0iIzE3MjAzMyI+UXVpY2sgYnJlYWs8L3RleHQ+PC9zdmc+';
 const EMBEDDED_BREAK_TONE_BASE64 = 'UklGRgYEAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgATElTVBoAAABJTkZPSVNGVA4AAABMYXZmNjIuMTUuMTAwAGRhdGHAAwAAgomPjYV6cnB1fomPjoZ8c3B0fYiPjod9c3BzfYeOj4h+dHBzfIaOj4l+dXBye4WOj4qAdXBxeoSNj4qBdnBxeYOMj4uCd3BxeIKMj4yCeHFwd4KLj4yDeXFwdoGKj42EenFwdYCKj46Fe3JwdX6Jj46GfHNwdH2Ij46HfXNwc3yHjo+IfXRwc3yGjo+JfnVwcnuFjo+KgHVwcXqEjY+KgXZwcXmDjI+LgndwcXiCjJCMg3hxcHeCi4+Mg3lxcHaBio+NhHpxcHWAio+OhXtycHV+iY+OhnxzcHR9iI+Oh31zcHN9h46PiH10cHN8ho6PiX51cHJ7hY6PioB1cHF6hI2PioF2cHF5g4yPi4J3cHF4g4yPjIN4cXB3gouPjIN5cXB2gYqPjYR6cXB1f4qPjoV7cnB1fomPjoZ8c3B0fYiPjod9c3BzfYeOj4h9dHBzfIaOj4l/dXBye4WOj4qAdXBxeoSNj4qBdnBxeYOMj4uCd3BxeIKMj4yDeHFwd4KLj4yDeXFwdoGKj42EenFwdYCKj46Fe3JwdX6Jj46GfHNwdH2Ij46HfXNwc32Hjo+IfnRwc3yGjo+JfnVwcnuFjo+KgHVwcXqEjY+KgXZwcXmDjI+LgndwcXiCjI+MgnhxcHeCi4+Mg3lxcHaBio+NhHpxcHWAio+OhXtycHV+iY+OhnxzcHR9iI+Oh31zcHN8h46PiH10cHN8ho6PiX51cHJ7hY6PioB1cHF6hI2PioF2cHF5g4yPi4J3cHF4goyQjIN4cXB3gouPjIN5cXB2gYqPjYR6cXB1gIqPjoV7cnB1fomPjoZ8c3B0fYiPjod9c3BzfYeOj4h9dHBzfIaOj4l+dXBye4WOj4qAdXBxeoSNj4qBdnBxeYOMj4uCd3BxeIOMj4yDeHFwd4KLj4yDeXFwdoGKj42EenFwdX+Kj46Fe3JwdX6Jj46GfHNwdH2Ij46HfXNwc32Hjo+IfXRwc3yGjo+Jf3VwcnuFjo+KgHVwcXqEjY+KgXZwcXmDjI+LgndwcXiCjI+Mg3hxcHeCi4+Mg3lxcHaBio+NhHpxcHWAio+OhXtycHV+iY+OhnxzcHR9iI+Oh31zcHN9h46PiH50cHN8ho6PiX51cHJ7hY6PioB1cHF6hI2PioF2cHF5g4yPi4J3cHF4goyPjIJ4cXB3gouPjIN5cXB2gYqPjYR6cXB1gIqPjoV7cnB1fomPjoZ8c3B0fYiPjod9c3BzfIeOj4h9dHBzfIaOj4l+dXBye4WOj4qAdXBxeoSNj4uA';
@@ -18,12 +18,13 @@ export interface BundledActionPackExample {
   name: string;
   slug: string;
   description: string;
-  category: 'URL cleanup' | 'Search' | 'Storage' | 'Remote data' | 'Page tools' | 'Media' | 'Interactive';
+  category: 'URL cleanup' | 'Search' | 'Storage' | 'Remote data' | 'Page tools' | 'Media' | 'Interactive' | 'Logic' | 'Custom';
   trigger: string;
   risk: 'safe' | 'extended' | 'high';
   features: string[];
   workspacePath: string;
-  actionPackPath: string;
+  actionPackPath?: string;
+  kind?: 'action-pack' | 'custom-block-source';
 }
 
 export const BUNDLED_ACTION_PACK_EXAMPLES: BundledActionPackExample[] = [
@@ -182,6 +183,30 @@ export const BUNDLED_ACTION_PACK_EXAMPLES: BundledActionPackExample[] = [
     features: ['Declarations', 'Logic and loop blocks', 'Math conversion to clipboard'],
     workspacePath: 'bundled-actionpacks/workspaces/uppercase-selection-clipboard.workspace',
     actionPackPath: 'bundled-actionpacks/action-packs/uppercase-selection-clipboard.actionpack',
+  },
+  {
+    id: '906f8bd9-8101-43fd-bab3-7ee6558d2601',
+    name: 'Logical Flow Branch Demo',
+    slug: 'logical-flow-branch-demo',
+    description: 'Shows if/else-style branch execution: only the selected Logical Flow branch can reach its output blocks.',
+    category: 'Logic',
+    trigger: 'INPUT_DATA',
+    risk: 'safe',
+    features: ['Logical Flow', 'True branch execution', 'Missing else branch allowed'],
+    workspacePath: 'bundled-actionpacks/workspaces/logical-flow-branch-demo.workspace',
+    actionPackPath: 'bundled-actionpacks/action-packs/logical-flow-branch-demo.actionpack',
+  },
+  {
+    id: '4d962803-b2b6-4f34-b29a-5ad0ed6fa1e0',
+    name: 'Normalize Text Custom Block Source',
+    slug: 'normalize-text-custom-block-source',
+    description: 'A Custom Block source workspace that trims and normalizes text through a typed input and output interface.',
+    category: 'Custom',
+    trigger: 'CUSTOM_BLOCK',
+    risk: 'safe',
+    features: ['Custom Block source', 'Typed input', 'Typed output', 'Compile to install'],
+    workspacePath: 'bundled-actionpacks/workspaces/normalize-text-custom-block-source.workspace',
+    kind: 'custom-block-source',
   },
   {
     id: '0f6b6d50-9d44-4a86-9d0f-80a9e8200009',
@@ -1005,6 +1030,135 @@ function uppercaseSelectionClipboard(): WorkspaceFileV2 {
   );
 }
 
+function logicalFlowBranchDemo(): WorkspaceFileV2 {
+  const slug = 'logical-flow-branch-demo';
+  const flowGroupId = `${slug}:flow`;
+  const input = node(slug, 'input', 'DataFlowIn', { x: 0, y: 160 }, { locked: true });
+  const one = node(slug, 'one', 'Constant', { x: 280, y: 40 }, {
+    label: 'Always true',
+    literalDataType: 'number',
+    literalValue: '1',
+  });
+  const condition = node(slug, 'condition', 'Logical', { x: 560, y: 20 }, {
+    label: 'Logic',
+    operator: 'EQ',
+    compareValue: '1',
+    locked: true,
+    logicalFlowGroupId: flowGroupId,
+    logicalFlowRole: 'condition',
+  });
+  const flow = node(slug, 'flow', 'LogicalFlow', { x: 560, y: 240 }, {
+    label: 'Logical Flow',
+    locked: true,
+    logicalFlowGroupId: flowGroupId,
+    logicalFlowRole: 'control',
+  });
+  const trueTrim = node(slug, 'true-trim', 'TextTransform', { x: 980, y: 120 }, {
+    label: 'True branch trim',
+    textTransformMode: 'TRIM',
+  });
+  const toUrl = node(slug, 'to-url', 'Convert', { x: 1260, y: 120 }, {
+    label: 'String to URL',
+    convertMode: 'STRING_TO_URL',
+  });
+  const output = node(slug, 'output', 'DataFlowOut', { x: 1540, y: 120 }, { locked: true });
+
+  return {
+    ...baseWorkspace(
+      getExample(slug),
+      [input, one, condition, flow, trueTrim, toUrl, output],
+      [
+        edge(one, 'value', condition, 'input'),
+        edge(input, 'url', flow, 'input'),
+        edge(condition, 'result', flow, 'condition'),
+        edge(flow, 'trueValue', trueTrim, 'input'),
+        edge(trueTrim, 'result', toUrl, 'input'),
+        edge(toUrl, 'result', output, 'url'),
+      ],
+      {
+        type: 'INPUT_DATA',
+        hotkey: 'Ctrl+Shift+L',
+        inputSources: ['url'],
+        sourceFilters: [{ source: 'url', pattern: '^https?://' }],
+      },
+    ),
+    logicalFlows: [{
+      id: flowGroupId,
+      conditionNodeId: condition.id,
+      controlNodeId: flow.id,
+      depth: 0,
+      locked: true,
+    }],
+  };
+}
+
+function normalizeTextCustomBlockSource(): WorkspaceFileV2 {
+  const slug = 'normalize-text-custom-block-source';
+  const example = getExample(slug);
+  const input = node(slug, 'input', 'CustomBlockInput', { x: 0, y: 120 }, {
+    label: 'Text',
+    locked: true,
+    customPortId: 'text',
+    customPortLabel: 'Text',
+    customPortDataType: 'string',
+  });
+  const normalize = node(slug, 'normalize', 'TextTransform', { x: 320, y: 120 }, {
+    label: 'Normalize whitespace',
+    textTransformMode: 'COLLAPSE_WHITESPACE',
+  });
+  const output = node(slug, 'output', 'CustomBlockOutput', { x: 680, y: 120 }, {
+    label: 'Result',
+    locked: true,
+    customPortId: 'result',
+    customPortLabel: 'Result',
+    customPortDataType: 'string',
+  });
+
+  return {
+    kind: 'workspace.v2',
+    schemaVersion: WORKSPACE_SCHEMA_VERSION,
+    workspaceType: 'custom-block',
+    metadata: {
+      id: example.id,
+      name: example.name,
+      version: 1,
+      author: 'URL Alchemist',
+      description: example.description,
+      compatibility: {
+        chrome: { version: BUNDLED_EXAMPLE_CHROME_VERSION, status: 'supported' },
+        firefox: { version: BUNDLED_EXAMPLE_FIREFOX_VERSION, status: 'supported' },
+        firefoxAndroid: { version: BUNDLED_EXAMPLE_FIREFOX_ANDROID_VERSION, status: 'source-only' },
+      },
+      created_at: BUNDLED_EXAMPLE_CREATED_AT,
+      updated_at: BUNDLED_EXAMPLE_CREATED_AT,
+    },
+    trigger: {
+      type: 'NEVER',
+      hotkey: 'Ctrl+Shift+U',
+      inputSources: ['url'],
+      sourceFilters: [],
+    },
+    nodes: [input, normalize, output],
+    edges: [
+      edge(input, 'value', normalize, 'input'),
+      edge(normalize, 'result', output, 'value'),
+    ],
+    viewport: { x: 0, y: 0, zoom: 0.82 },
+    customBlock: {
+      blockId: 'normalize-text',
+      label: 'Normalize Text',
+      version: 1,
+      category: 'custom',
+      visibleWorkspaceTypes: ['data-modifier', 'content-blocker'],
+      description: 'Trims repeated whitespace and returns normalized text.',
+      tips: ['Compile this source workspace to install the Custom Block in the picker.'],
+      inputs: [{ id: 'text', label: 'Text', dataType: 'string', tooltip: 'Text to normalize.' }],
+      outputs: [{ id: 'result', label: 'Result', dataType: 'string', tooltip: 'Normalized text.' }],
+      fields: [],
+    },
+  };
+}
+
 function remoteTextFetchPreview(): WorkspaceFileV2 {
   const slug = 'remote-text-fetch-preview';
   const input = node(slug, 'input', 'DataFlowIn', { x: 0, y: 160 }, { locked: true });
@@ -1757,6 +1911,8 @@ export function createBundledExampleWorkspaces(): WorkspaceFileV2[] {
     debugPageLogger(),
     researchNoteSnapshot(),
     uppercaseSelectionClipboard(),
+    logicalFlowBranchDemo(),
+    normalizeTextCustomBlockSource(),
     remoteTextFetchPreview(),
     remotePostSnapshot(),
     cleanWords(),
@@ -1770,7 +1926,7 @@ export function createBundledExampleWorkspaces(): WorkspaceFileV2[] {
 
 export function createBundledExampleActionPacks(): CompiledActionPackV2[] {
   const workspaces = createBundledExampleWorkspaces();
-  return workspaces.map((workspace) => {
+  return workspaces.filter((workspace) => workspace.workspaceType !== 'custom-block').map((workspace) => {
     const compiled = compileWorkspace(workspace, {
       builderUuid: BUNDLED_EXAMPLE_BUILDER_UUID,
       buildTimeUtc: BUNDLED_EXAMPLE_BUILD_TIME_UTC,

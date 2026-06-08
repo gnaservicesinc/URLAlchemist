@@ -22,6 +22,7 @@ import {
   updateSettings,
   updateWorkspaceV2Viewport,
   upsertActionPackV2,
+  upsertCustomBlockV2,
   upsertWorkspaceV2,
 } from '../shared/storage';
 import type { ActionPack, GlobalSettings, StoredState } from '../shared/types';
@@ -35,8 +36,8 @@ import { listOllamaModels, requestOllamaWorkspaceDraft, validateOllamaEndpoint, 
 import { inferAssetKind, listResources, putResourceBytes, resourceToAssetRef } from '../shared/v2/resources';
 import { executeCompiledActionPackV2, type GraphRuntime } from '../shared/v2/vm';
 import { createSandboxGraphRuntime } from '../shared/v2/sandboxRuntime';
-import type { ActionPackLockLevel, ActionPackLockState, AssetRef, CompiledActionPackV2, WorkspaceFileV2, WorkspaceMetadata, WorkspaceType } from '../shared/v2/types';
-import { createDefaultContentBlockerWorkspace, createDefaultWorkspace, workspaceFromLegacyPack } from '../shared/v2/workspace';
+import type { ActionPackLockLevel, ActionPackLockState, AssetRef, CompiledActionPackV2, CompiledCustomBlockV2, WorkspaceEmbeddedCustomBlock, WorkspaceFileV2, WorkspaceMetadata, WorkspaceType } from '../shared/v2/types';
+import { createDefaultContentBlockerWorkspace, createDefaultCustomBlockWorkspace, createDefaultWorkspace, workspaceFromLegacyPack } from '../shared/v2/workspace';
 import { URL_ALCHEMIST_VERSION } from '../shared/v2/buildInfo';
 import {
   importCompiledActionPackV2Binary,
@@ -88,7 +89,7 @@ const OPTIONS_TABS: Array<{ id: OptionsTab; label: string }> = [
 ];
 
 const ALLOWED_BUNDLED_ARTIFACT_PATHS = new Set(
-  BUNDLED_ACTION_PACK_EXAMPLES.flatMap((example) => [example.workspacePath, example.actionPackPath]),
+  BUNDLED_ACTION_PACK_EXAMPLES.flatMap((example) => [example.workspacePath, example.actionPackPath].filter((path): path is string => Boolean(path))),
 );
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -192,6 +193,9 @@ async function loadBundledIndex(): Promise<BundledArtifactIndex> {
 
 async function fetchVerifiedBundledArtifact(example: BundledActionPackExample, kind: 'workspace' | 'action-pack'): Promise<Uint8Array> {
   const path = kind === 'workspace' ? example.workspacePath : example.actionPackPath;
+  if (!path) {
+    throw new Error(`${example.name} does not include a compiled Action Pack.`);
+  }
   const bytes = await fetchBundledArtifact(path);
   const index = await loadBundledIndex();
   const indexEntry = index.examples.find((candidate) => candidate.id === example.id);
@@ -315,6 +319,7 @@ function App() {
   const [workspace, setWorkspace] = useState<WorkspaceFileV2>(() => createDefaultWorkspace());
   const [workspaceLoaded, setWorkspaceLoaded] = useState(false);
   const [workspaceDirty, setWorkspaceDirty] = useState(false);
+  const [undoStack, setUndoStack] = useState<WorkspaceFileV2[]>([]);
   const [workspaceMessage, setWorkspaceMessage] = useState<string | null>(null);
   const [workspaceToast, setWorkspaceToast] = useState<string | null>(null);
   const [exampleMessage, setExampleMessage] = useState<string | null>(null);
@@ -368,14 +373,178 @@ function App() {
     byId.set(workspace.metadata.id, workspace);
     return Array.from(byId.values());
   }, [state.workspacesV2, workspace]);
+
+  function workspaceWithEmbeddedCustomBlocks(targetWorkspace: WorkspaceFileV2): WorkspaceFileV2 {
+    const nodes = [
+      ...targetWorkspace.nodes,
+      ...(targetWorkspace.surfaces ?? []).flatMap((surface) => surface.nodes),
+    ];
+    const referencedIds = Array.from(new Set(nodes
+      .filter((node) => node.type === 'CustomBlock' && node.settings.customBlockId)
+      .map((node) => node.settings.customBlockId!)));
+    if (referencedIds.length === 0) {
+      return {
+        ...targetWorkspace,
+        embeddedCustomBlocks: targetWorkspace.embeddedCustomBlocks,
+      };
+    }
+
+    const existing = new Map((targetWorkspace.embeddedCustomBlocks ?? []).map((entry) => [`${entry.blockId}:${entry.version}`, entry]));
+    const embeddedCustomBlocks: WorkspaceEmbeddedCustomBlock[] = referencedIds.flatMap((blockId): WorkspaceEmbeddedCustomBlock[] => {
+      const workspaceLocal = (targetWorkspace.embeddedCustomBlocks ?? []).filter((entry) => entry.blockId === blockId && entry.useEmbedded);
+      if (workspaceLocal.length > 0) {
+        const installed = state.customBlocksV2.find((block) => block.blockId === blockId);
+        return workspaceLocal.map((entry) => ({
+          ...entry,
+          installedVersion: installed?.version ?? entry.installedVersion,
+          useEmbedded: true,
+        }));
+      }
+      const installed = state.customBlocksV2.find((block) => block.blockId === blockId);
+      if (!installed?.sourceWorkspace) {
+        return [];
+      }
+      const key = `${installed.blockId}:${installed.version}`;
+      return [{
+        ...existing.get(key),
+        blockId: installed.blockId,
+        version: installed.version,
+        checksumHex: installed.sourceChecksumHex,
+        workspace: installed.sourceWorkspace,
+        installedVersion: installed.version,
+        useEmbedded: false,
+      }];
+    });
+
+    return {
+      ...targetWorkspace,
+      embeddedCustomBlocks,
+    };
+  }
+
+  async function installEmbeddedCustomBlocksFromWorkspace(importedWorkspace: WorkspaceFileV2): Promise<WorkspaceFileV2> {
+    const embedded = importedWorkspace.embeddedCustomBlocks ?? [];
+    if (embedded.length === 0) {
+      return importedWorkspace;
+    }
+
+    let nextWorkspace = importedWorkspace;
+    for (const entry of embedded) {
+      const installed = state.customBlocksV2.find((block) => block.blockId === entry.blockId);
+      let shouldInstall = false;
+      if (installed) {
+        if (installed.version === entry.version) {
+          continue;
+        }
+        shouldInstall = window.confirm(`Custom Block "${entry.blockId}" is installed at version ${installed.version}. Update to embedded version ${entry.version}? Cancel uses the embedded version only for this workspace.`);
+        if (!shouldInstall) {
+          nextWorkspace = {
+            ...nextWorkspace,
+            embeddedCustomBlocks: (nextWorkspace.embeddedCustomBlocks ?? []).map((candidate) => (
+              candidate.blockId === entry.blockId && candidate.version === entry.version
+                ? { ...candidate, installedVersion: installed.version, useEmbedded: true }
+                : candidate
+            )),
+          };
+          continue;
+        }
+      } else {
+        shouldInstall = window.confirm(`Install embedded Custom Block "${entry.blockId}" version ${entry.version}? The imported workspace is blocked until this block is installed.`);
+      }
+      if (!shouldInstall) {
+        continue;
+      }
+
+      const result = compileWorkspace(entry.workspace, {
+        builderUuid: state.settings.builderUuid,
+        conditionWorkspaces: [entry.workspace],
+        customBlocks: state.customBlocksV2,
+      });
+      if (result.ok && result.customBlock) {
+        await applyState(upsertWorkspaceV2(result.workspace));
+        await applyState(upsertCustomBlockV2(result.customBlock));
+        nextWorkspace = {
+          ...nextWorkspace,
+          embeddedCustomBlocks: (nextWorkspace.embeddedCustomBlocks ?? []).map((candidate) => (
+            candidate.blockId === entry.blockId && candidate.version === entry.version
+              ? { ...candidate, installedVersion: entry.version, useEmbedded: false }
+              : candidate
+          )),
+        };
+      } else {
+        setImportError(result.validation.errors.join('\n') || `Embedded Custom Block "${entry.blockId}" did not compile.`);
+      }
+    }
+
+    return nextWorkspace;
+  }
+
+  const customBlocksForWorkspace = useCallback((targetWorkspace: WorkspaceFileV2): { customBlocks: CompiledCustomBlockV2[]; errors: string[] } => {
+    const byId = new Map(state.customBlocksV2.map((block) => [block.blockId, block]));
+    const pending = [...(targetWorkspace.embeddedCustomBlocks ?? []).filter((entry) => entry.useEmbedded)];
+    const errors = new Map<string, string>();
+
+    while (pending.length > 0) {
+      let progressed = false;
+      for (let index = pending.length - 1; index >= 0; index -= 1) {
+        const entry = pending[index];
+        const result = compileWorkspace(entry.workspace, {
+          builderUuid: state.settings.builderUuid,
+          conditionWorkspaces: [...conditionWorkspaces, entry.workspace],
+          customBlocks: Array.from(byId.values()),
+        });
+        if (result.ok && result.customBlock) {
+          byId.set(result.customBlock.blockId, {
+            ...result.customBlock,
+            sourceChecksumHex: entry.checksumHex ?? result.customBlock.sourceChecksumHex,
+          });
+          pending.splice(index, 1);
+          errors.delete(`${entry.blockId}:${entry.version}`);
+          progressed = true;
+        } else {
+          errors.set(`${entry.blockId}:${entry.version}`, result.validation.errors.join('; ') || `Embedded Custom Block "${entry.blockId}" did not compile.`);
+        }
+      }
+
+      if (!progressed) {
+        break;
+      }
+    }
+
+    return {
+      customBlocks: Array.from(byId.values()),
+      errors: Array.from(errors.values()),
+    };
+  }, [conditionWorkspaces, state.customBlocksV2, state.settings.builderUuid]);
+
   const compileWithConditions = useCallback((targetWorkspace: WorkspaceFileV2) => {
     const byId = new Map(conditionWorkspaces.map((candidate) => [candidate.metadata.id, candidate]));
     byId.set(targetWorkspace.metadata.id, targetWorkspace);
-    return compileWorkspace(targetWorkspace, {
+    const localCustomBlocks = customBlocksForWorkspace(targetWorkspace);
+    const result = compileWorkspace(targetWorkspace, {
       builderUuid: state.settings.builderUuid,
       conditionWorkspaces: Array.from(byId.values()),
+      customBlocks: localCustomBlocks.customBlocks,
     });
-  }, [conditionWorkspaces, state.settings.builderUuid]);
+    if (localCustomBlocks.errors.length === 0) {
+      return result;
+    }
+    const validation = {
+      ...result.validation,
+      valid: false,
+      errors: Array.from(new Set([...result.validation.errors, ...localCustomBlocks.errors])),
+    };
+    return {
+      ...result,
+      ok: false as const,
+      workspace: {
+        ...result.workspace,
+        validationState: validation,
+      },
+      validation,
+    };
+  }, [conditionWorkspaces, customBlocksForWorkspace, state.settings.builderUuid]);
+  const workspaceScopedCustomBlocks = useMemo(() => customBlocksForWorkspace(workspace).customBlocks, [customBlocksForWorkspace, workspace]);
   const compiledWorkspace = useMemo(
     () => compileWithConditions(workspace),
     [compileWithConditions, workspace],
@@ -423,6 +592,7 @@ function App() {
       if (draft && window.confirm(`Restore unsaved workspace draft "${draft.metadata.name}"?`)) {
         setWorkspace(draft);
         setWorkspaceDirty(true);
+        setUndoStack([]);
         setWorkspaceMessage('Restored temporary open workspace draft.');
       } else {
         if (draft) {
@@ -430,6 +600,7 @@ function App() {
         }
         setWorkspace(state.workspacesV2[0] ?? createDefaultWorkspace());
         setWorkspaceDirty(false);
+        setUndoStack([]);
       }
       setWorkspaceLoaded(true);
     })();
@@ -529,6 +700,27 @@ function App() {
     setState(nextState);
   }
 
+  function pushUndoSnapshot(snapshot: WorkspaceFileV2): void {
+    const limit = Math.max(0, Math.min(10_000, Math.trunc(state.settings.undoHistoryLimit ?? 100)));
+    if (limit <= 0) {
+      return;
+    }
+    const copy = structuredClone(snapshot);
+    setUndoStack((current) => [...current, copy].slice(-limit));
+  }
+
+  function undoWorkspaceChange(): void {
+    const previous = undoStack[undoStack.length - 1];
+    if (!previous) {
+      return;
+    }
+    setUndoStack((current) => current.slice(0, -1));
+    setWorkspace(previous);
+    setWorkspaceDirty(true);
+    setWorkspaceMessage('Undid the last workspace edit.');
+    void saveOpenWorkspaceDraft(previous);
+  }
+
   function handleWorkspaceChange(nextWorkspace: WorkspaceFileV2, options: WorkspaceChangeOptions = {}): void {
     setWorkspace(nextWorkspace);
     setWorkspaceMessage(null);
@@ -543,6 +735,9 @@ function App() {
       return;
     }
 
+    if (nextWorkspace !== workspace) {
+      pushUndoSnapshot(workspace);
+    }
     setWorkspaceDirty(true);
   }
 
@@ -562,6 +757,7 @@ function App() {
 
     setWorkspace(savedWorkspace);
     setWorkspaceDirty(false);
+    setUndoStack([]);
     setWorkspaceMessage(`Opened workspace "${savedWorkspace.metadata.name}".`);
     void clearOpenWorkspaceDraft();
   }
@@ -571,10 +767,15 @@ function App() {
       return;
     }
 
-    const nextWorkspace = type === 'content-blocker' ? createDefaultContentBlockerWorkspace() : createDefaultWorkspace();
+    const nextWorkspace = type === 'content-blocker'
+      ? createDefaultContentBlockerWorkspace()
+      : type === 'custom-block'
+        ? createDefaultCustomBlockWorkspace()
+        : createDefaultWorkspace();
     setWorkspace(nextWorkspace);
     setWorkspaceDirty(false);
-    setWorkspaceMessage(`Started a new ${type === 'content-blocker' ? 'Content Blocker' : 'Data Modifier'} workspace.`);
+    setUndoStack([]);
+    setWorkspaceMessage(`Started a new ${type === 'content-blocker' ? 'Content Blocker' : type === 'custom-block' ? 'Custom Block' : 'Data Modifier'} workspace.`);
     void clearOpenWorkspaceDraft();
   }
 
@@ -595,6 +796,7 @@ function App() {
     await applyState(upsertWorkspaceV2(savedWorkspace));
     setWorkspace(savedWorkspace);
     setWorkspaceDirty(false);
+    setUndoStack([]);
     await clearOpenWorkspaceDraft();
     setWorkspaceMessage(`Saved workspace "${workspace.metadata.name}".`);
   }
@@ -611,6 +813,7 @@ function App() {
 
   async function uploadWorkspaceResource(file: File): Promise<AssetRef> {
     const asset = await storeLocalResource(file);
+    pushUndoSnapshot(workspace);
     setWorkspace((current) => ({
       ...current,
       assets: [
@@ -682,13 +885,29 @@ function App() {
   }
 
   async function buildActionPackFromWorkspace(targetWorkspace: WorkspaceFileV2): Promise<void> {
-    const result = compileWithConditions(targetWorkspace);
-    if (!result.ok || !result.pack) {
-      setWorkspaceMessage('Fix workspace validation before building an Action Pack.');
+    const buildWorkspace = workspaceWithEmbeddedCustomBlocks(targetWorkspace);
+    const result = compileWithConditions(buildWorkspace);
+    if (!result.ok || (!result.pack && !result.customBlock)) {
+      setWorkspaceMessage(targetWorkspace.workspaceType === 'custom-block' ? 'Fix custom block validation before installing it.' : 'Fix workspace validation before building an Action Pack.');
+      return;
+    }
+
+    if (targetWorkspace.workspaceType === 'custom-block' && result.customBlock) {
+      await applyState(upsertWorkspaceV2(result.workspace));
+      await applyState(upsertCustomBlockV2(result.customBlock));
+      setWorkspace(result.workspace);
+      setWorkspaceDirty(false);
+      await clearOpenWorkspaceDraft();
+      setWorkspaceMessage(`Installed Custom Block "${result.customBlock.label}".`);
+      setWorkspaceToast(`Installed Custom Block "${result.customBlock.label}".`);
       return;
     }
 
     try {
+      if (!result.pack) {
+        setWorkspaceMessage('Fix workspace validation before building an Action Pack.');
+        return;
+      }
       const isContentBlocker = result.workspace.workspaceType === 'content-blocker' || isContentBlockerActionPack(result.pack);
       const existingPack = state.actionPacksV2.find((candidate) => candidate.manifest.id === result.pack!.manifest.id);
       let allowLockedOverwrite = false;
@@ -731,7 +950,11 @@ function App() {
 
   async function runOllamaBuilder(): Promise<void> {
     if (!state.settings.ollamaEnabled) {
-      setOllamaMessage('Enable Local Ollama Builder in Settings first.');
+      setOllamaMessage('Enable AI Connectors in Settings first.');
+      return;
+    }
+    if (!state.settings.ollamaModel || !ollamaModels.some((model) => model.name === state.settings.ollamaModel)) {
+      setOllamaMessage('Refresh AI Connectors and choose an installed Ollama model before drafting.');
       return;
     }
     if (!ollamaPrompt.trim()) {
@@ -745,9 +968,9 @@ function App() {
     try {
       const draft = await requestOllamaWorkspaceDraft(state.settings, ollamaPrompt, workspace);
       setPendingOllamaDraft(draft);
-      setOllamaMessage('Local Ollama draft is ready for review.');
+      setOllamaMessage('AI Connectors draft is ready for review.');
     } catch (error) {
-      setOllamaMessage(error instanceof Error ? error.message : 'Local Ollama builder failed.');
+      setOllamaMessage(error instanceof Error ? error.message : 'AI Connectors drafting failed.');
     } finally {
       setOllamaBusy(false);
     }
@@ -759,7 +982,19 @@ function App() {
     try {
       const models = await listOllamaModels(state.settings);
       setOllamaModels(models);
-      setOllamaModelsMessage(models.length > 0 ? `Found ${models.length} installed Ollama model${models.length === 1 ? '' : 's'}.` : 'No installed Ollama models were returned by the local server.');
+      if (models.length > 0) {
+        const modelNames = models.map((model) => model.name);
+        const nextModel = modelNames.includes(state.settings.ollamaModel) ? state.settings.ollamaModel : modelNames[0];
+        if (nextModel !== state.settings.ollamaModel) {
+          await applyState(updateSettings({ ollamaModel: nextModel }));
+        }
+        setOllamaModelsMessage(`Found ${models.length} installed Ollama model${models.length === 1 ? '' : 's'}.`);
+      } else {
+        if (state.settings.ollamaModel) {
+          await applyState(updateSettings({ ollamaModel: '' }));
+        }
+        setOllamaModelsMessage('No installed Ollama models were returned by the local server. Drafting is disabled until a model is installed.');
+      }
     } catch (error) {
       setOllamaModels([]);
       setOllamaModelsMessage(error instanceof Error ? error.message : 'Unable to reach the local Ollama server.');
@@ -774,17 +1009,19 @@ function App() {
     }
 
     const nextWorkspace = workspaceFromOllamaDraft(pendingOllamaDraft, workspace);
+    pushUndoSnapshot(workspace);
     setWorkspace(nextWorkspace);
     setWorkspaceDirty(true);
     setPendingOllamaDraft(null);
-    setOllamaMessage('Applied local Ollama draft to the open workspace.');
+    setOllamaMessage('Applied AI Connectors draft to the open workspace.');
   }
 
   async function exportWorkspaceFile(targetWorkspace = workspace): Promise<void> {
-    const result = compileWithConditions(targetWorkspace);
+    const exportWorkspace = workspaceWithEmbeddedCustomBlocks(targetWorkspace);
+    const result = compileWithConditions(exportWorkspace);
     await downloadBytes(
-      await exportWorkspaceBinary({ ...targetWorkspace, validationState: result.validation }),
-      `workspaces/${slugify(targetWorkspace.metadata.name) || 'workspace'}.workspace`,
+      await exportWorkspaceBinary({ ...exportWorkspace, validationState: result.validation }),
+      `workspaces/${slugify(exportWorkspace.metadata.name) || 'workspace'}.workspace`,
     );
   }
 
@@ -793,8 +1030,12 @@ function App() {
       setWorkspaceMessage('Content Blocker Action Packs install locally. Export the .workspace source and compile it locally instead.');
       return;
     }
+    if (targetWorkspace.workspaceType === 'custom-block') {
+      setWorkspaceMessage('Custom Blocks install locally from workspace source. Export the .workspace source instead.');
+      return;
+    }
 
-    const result = compileWithConditions(targetWorkspace);
+    const result = compileWithConditions(workspaceWithEmbeddedCustomBlocks(targetWorkspace));
     if (!result.ok || !result.pack) {
       setWorkspaceMessage('Fix workspace validation before exporting an Action Pack.');
       return;
@@ -872,6 +1113,7 @@ function App() {
       const imported = await importWorkspaceBinary(await fetchVerifiedBundledArtifact(example, 'workspace'));
       setWorkspace(imported.workspace);
       setWorkspaceDirty(false);
+      setUndoStack([]);
       await applyState(upsertWorkspaceV2(imported.workspace));
       await clearOpenWorkspaceDraft();
       setActiveTab('workspace-editor');
@@ -951,12 +1193,14 @@ function App() {
       const artifact = await importAnyArtifact(bytes);
 
       if (artifact.kind === 'workspace') {
-        setWorkspace(artifact.workspace);
+        const importedWorkspace = await installEmbeddedCustomBlocksFromWorkspace(artifact.workspace);
+        setWorkspace(importedWorkspace);
         setWorkspaceDirty(false);
-        await applyState(upsertWorkspaceV2(artifact.workspace));
+        setUndoStack([]);
+        await applyState(upsertWorkspaceV2(importedWorkspace));
         await clearOpenWorkspaceDraft();
         setActiveTab('workspace-editor');
-        setWorkspaceMessage(`Opened workspace "${artifact.workspace.metadata.name}".`);
+        setWorkspaceMessage(`Opened workspace "${importedWorkspace.metadata.name}".`);
         return;
       }
 
@@ -974,6 +1218,7 @@ function App() {
       const result = compileWithConditions(convertedWorkspace);
       setWorkspace(result.workspace);
       setWorkspaceDirty(false);
+      setUndoStack([]);
       await applyState(upsertWorkspaceV2(result.workspace));
       setActiveTab('workspace-editor');
       if (result.pack) {
@@ -1074,6 +1319,7 @@ function App() {
     if (workspace.metadata.id === workspaceId) {
       setWorkspace(createDefaultWorkspace());
       setWorkspaceDirty(false);
+      setUndoStack([]);
       await clearOpenWorkspaceDraft();
     }
   }
@@ -1241,6 +1487,12 @@ function App() {
     await applyState(updateSettings(settings));
   }
 
+  async function updateUndoHistoryLimit(value: number): Promise<void> {
+    const undoHistoryLimit = Math.max(0, Math.min(10_000, Math.trunc(value)));
+    await applyState(updateSettings({ undoHistoryLimit }));
+    setUndoStack((current) => current.slice(-undoHistoryLimit));
+  }
+
   async function exportBackup(): Promise<void> {
     if (state.actionPacksV2.some(isActionPackLocked)) {
       setBuilderUuidMessage('Unlock locked Action Packs before exporting or restoring a full backup.');
@@ -1280,6 +1532,7 @@ function App() {
     const result = compileWithConditions(convertedWorkspace);
     setWorkspace(result.workspace);
     setWorkspaceDirty(true);
+    setUndoStack([]);
     setActiveTab('workspace-editor');
     if (result.pack) {
       setStagedPack(result.pack);
@@ -1400,6 +1653,7 @@ function App() {
           onOpenWorkspace={(targetWorkspace) => {
             setWorkspace(targetWorkspace);
             setWorkspaceDirty(false);
+            setUndoStack([]);
             setActiveTab('workspace-editor');
             setWorkspaceMessage(`Opened workspace "${targetWorkspace.metadata.name}".`);
             void clearOpenWorkspaceDraft();
@@ -1427,10 +1681,10 @@ function App() {
             <section className="panel-shell reveal-panel">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
-                  <p className="eyebrow">Local Builder</p>
+                  <p className="eyebrow">AI Connectors</p>
                   <h2 className="mt-2 text-xl font-semibold text-slate-900">Ollama workspace draft</h2>
                 </div>
-                <span className="risk-badge risk-badge-soft">{state.settings.ollamaModel}</span>
+                <span className="risk-badge risk-badge-soft">{state.settings.ollamaModel || 'No installed model selected'}</span>
               </div>
               <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto]">
                 <textarea
@@ -1460,6 +1714,8 @@ function App() {
           <WorkspaceEditor
             advancedModeEnabled={state.settings.advancedModeEnabled}
             allWorkspaces={state.workspacesV2}
+            canUndo={undoStack.length > 0}
+            customBlocks={workspaceScopedCustomBlocks}
             isDirty={workspaceDirty}
             resourceAssets={resourceAssets}
             workspace={workspace}
@@ -1469,6 +1725,7 @@ function App() {
             onNewWorkspace={newWorkspace}
             onSaveWorkspace={() => void saveWorkspace()}
             onSwitchWorkspace={switchWorkspace}
+            onUndo={undoWorkspaceChange}
             onUploadResource={(file) => uploadWorkspaceResource(file)}
             onWorkspaceChange={handleWorkspaceChange}
           />
@@ -1516,6 +1773,7 @@ function App() {
           onRequestClipboardPermission={() => void requestClipboardPermission()}
           onRestoreBuilderUuid={() => void restoreBuilderUuid(builderUuidInput)}
           onSyncEnabledToggle={() => void toggleSyncEnabled()}
+          onUndoHistoryLimitChange={(value) => void updateUndoHistoryLimit(value)}
           onUiScaleChange={(value) => void updateHardening({ uiScale: normalizeUiScale(value) })}
         />
       ) : null}

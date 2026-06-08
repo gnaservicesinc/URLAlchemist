@@ -13,7 +13,8 @@ import {
   normalizeHardeningRegexTimeoutMs,
   normalizeUiScale,
 } from './hardening';
-import { SUPPORTED_ACTION_PACK_SCHEMA_VERSIONS } from './v2/types';
+import type { CompiledCustomBlockV2 } from './v2/types';
+import { ACTION_PACK_SCHEMA_VERSION, SUPPORTED_ACTION_PACK_SCHEMA_VERSIONS } from './v2/types';
 import type { CompiledActionPackV2 } from './v2/types';
 import { validateCompiledActionPackV2 } from './v2/actionPackValidator';
 import { migratedStoredInstallMetadata } from './v2/installMetadata';
@@ -46,7 +47,7 @@ const PACK_KEYS = ['id', 'name', 'version', 'enabled', 'metadata', 'trigger', 'a
 const METADATA_KEYS = ['author', 'description', 'created_at'];
 const TRIGGER_KEYS = ['type', 'hotkey', 'scope_regex'];
 const CONDITION_KEYS = ['type', 'value', 'target'];
-const STORED_STATE_KEYS = ['settings', 'packs', 'actionPacksV2', 'workspacesV2', 'traceEntries', 'actionPackLogs'];
+const STORED_STATE_KEYS = ['settings', 'packs', 'actionPacksV2', 'customBlocksV2', 'workspacesV2', 'traceEntries', 'actionPackLogs'];
 const ACTION_PACK_LOG_KINDS = ['run', 'message'] as const;
 const ACTION_PACK_LOG_SEVERITIES = ['debug', 'info', 'warn', 'error'] as const;
 const SETTINGS_KEYS = [
@@ -63,6 +64,7 @@ const SETTINGS_KEYS = [
   'hardeningMaxInstructions',
   'hardeningMaxRecursion',
   'hardeningRegexTimeoutMs',
+  'undoHistoryLimit',
   'builderUuid',
 ];
 
@@ -337,7 +339,8 @@ export function validateStoredState(candidate: unknown): ValidationResult<Valida
     (candidate.settings.hardeningMaxInstructions !== undefined && !isFiniteNumber(candidate.settings.hardeningMaxInstructions)) ||
     (candidate.settings.hardeningMaxRecursion !== undefined && !isFiniteNumber(candidate.settings.hardeningMaxRecursion)) ||
     (candidate.settings.hardeningRegexTimeoutMs !== undefined && !isFiniteNumber(candidate.settings.hardeningRegexTimeoutMs)) ||
-    (candidate.settings.ollamaTimeoutMs !== undefined && !isFiniteNumber(candidate.settings.ollamaTimeoutMs))
+    (candidate.settings.ollamaTimeoutMs !== undefined && !isFiniteNumber(candidate.settings.ollamaTimeoutMs)) ||
+    (candidate.settings.undoHistoryLimit !== undefined && !isFiniteNumber(candidate.settings.undoHistoryLimit))
   ) {
     return { ok: false, errors: ['Stored numeric settings must be finite numbers'] };
   }
@@ -348,6 +351,7 @@ export function validateStoredState(candidate: unknown): ValidationResult<Valida
 
   const packs: ActionPack[] = [];
   const actionPacksV2: CompiledActionPackV2[] = [];
+  const customBlocksV2: CompiledCustomBlockV2[] = [];
   const workspacesV2: StoredState['workspacesV2'] = [];
   const traceEntries: StoredState['traceEntries'] = [];
   const actionPackLogs: StoredState['actionPackLogs'] = [];
@@ -392,6 +396,30 @@ export function validateStoredState(candidate: unknown): ValidationResult<Valida
       }
     } else {
       warnings.push(`Dropped Action Pack at index ${index}: missing required fields or wrong kind/schemaVersion.`);
+    }
+  });
+
+  if (candidate.customBlocksV2 !== undefined && !Array.isArray(candidate.customBlocksV2)) {
+    warnings.push('Stored Custom Blocks were not an array; resetting to empty.');
+  }
+
+  const candidateCustomBlocksV2 = Array.isArray(candidate.customBlocksV2) ? candidate.customBlocksV2 : [];
+  candidateCustomBlocksV2.forEach((block: unknown, index: number) => {
+    if (
+      isRecord(block) &&
+      block.kind === 'custom-block.v2' &&
+      typeof block.blockId === 'string' &&
+      typeof block.label === 'string' &&
+      Number.isInteger(block.version) &&
+      isRecord(block.vm) &&
+      Array.isArray(block.vm.instructions)
+    ) {
+      customBlocksV2.push({
+        ...(block as unknown as CompiledCustomBlockV2),
+        schemaVersion: ACTION_PACK_SCHEMA_VERSION,
+      });
+    } else {
+      warnings.push(`Dropped Custom Block at index ${index}: missing required fields.`);
     }
   });
 
@@ -466,10 +494,12 @@ export function validateStoredState(candidate: unknown): ValidationResult<Valida
       hardeningMaxInstructions: normalizeHardeningMaxInstructions(candidate.settings.hardeningMaxInstructions),
       hardeningMaxRecursion: normalizeHardeningMaxRecursion(candidate.settings.hardeningMaxRecursion),
       hardeningRegexTimeoutMs: normalizeHardeningRegexTimeoutMs(candidate.settings.hardeningRegexTimeoutMs),
+      undoHistoryLimit: Math.max(0, Math.min(10_000, Math.trunc(candidate.settings.undoHistoryLimit ?? DEFAULT_SETTINGS.undoHistoryLimit))),
       builderUuid: candidate.settings.builderUuid || crypto.randomUUID(),
     },
     packs,
     actionPacksV2,
+    customBlocksV2,
     workspacesV2,
     traceEntries,
     actionPackLogs,
@@ -495,6 +525,7 @@ export function normalizeStoredState(candidate: unknown): StoredState {
     settings: DEFAULT_SETTINGS,
     packs: [],
     actionPacksV2: [],
+    customBlocksV2: [],
     workspacesV2: [],
     traceEntries: [],
     actionPackLogs: [],

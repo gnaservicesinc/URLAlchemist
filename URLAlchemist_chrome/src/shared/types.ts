@@ -1,4 +1,4 @@
-import type { CompiledActionPackV2, WorkspaceFileV2 } from './v2/types';
+import type { CompiledActionPackV2, CompiledCustomBlockV2, WorkspaceFileV2 } from './v2/types';
 
 export const WORKSPACE_TRIGGER_TYPES = ['INPUT_DATA', 'HOTKEY', 'CONTEXT_MENU', 'INTERVAL', 'CONDITIONAL', 'NEVER'] as const;
 export const LEGACY_TRIGGER_TYPES = ['ALWAYS'] as const;
@@ -66,6 +66,7 @@ export interface GlobalSettings {
   hardeningMaxInstructions: number;
   hardeningMaxRecursion: number;
   hardeningRegexTimeoutMs: number;
+  undoHistoryLimit: number;
   builderUuid: string;
 }
 
@@ -111,6 +112,7 @@ export interface StoredState {
   settings: GlobalSettings;
   packs: ActionPack[];
   actionPacksV2: CompiledActionPackV2[];
+  customBlocksV2: CompiledCustomBlockV2[];
   workspacesV2: WorkspaceFileV2[];
   traceEntries: StoredTraceEntry[];
   actionPackLogs: StoredActionPackLogEntry[];

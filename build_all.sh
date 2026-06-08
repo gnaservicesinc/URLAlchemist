@@ -9,10 +9,12 @@ run() {
   "$@"
 }
 
-run npm --prefix "$ROOT_DIR/URLAlchemist_chrome" run generate:bundled
-run npm --prefix "$ROOT_DIR/URLAlchemist_Firefox" run generate:bundled
-run npm --prefix "$ROOT_DIR/URLAlchemist_chrome" run build
-run npm --prefix "$ROOT_DIR/URLAlchemist_Firefox" run build
-
+cd "/opt/URLAlchemist/Repo/URLAlchemist"
+run npm --prefix "/opt/URLAlchemist/Repo/URLAlchemist/URLAlchemist_chrome" run generate:bundled
+run npm --prefix "/opt/URLAlchemist/Repo/URLAlchemist/URLAlchemist_Firefox" run generate:bundled
+run npm --prefix "/opt/URLAlchemist/Repo/URLAlchemist/URLAlchemist_chrome" run build
+run npm --prefix "/opt/URLAlchemist/Repo/URLAlchemist/URLAlchemist_Firefox" run build
+/opt/URLAlchemist/Repo/URLAlchemist/URLAlchemist_chrome/reviewer-source-package.sh
 echo
 echo "All URL Alchemist targets rebuilt."
+

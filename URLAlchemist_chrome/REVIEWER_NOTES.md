@@ -57,7 +57,7 @@ Transitive open-source dependencies are resolved by npm from `package-lock.json`
 - New Action Pack installs default logging off unless the user changes the setting; migrated existing packs retain logging on.
 - Content Blocker workspaces compile into local Action Packs plus local install metadata. Locked Content Blocker packs cannot be disabled, deleted, exported, overwritten by rebuild/import, or removed by backup restore/reset until unlocked.
 - Level 1 locks use challenge text, repeated confirmation, and a delay. Level 2 locks use salted PBKDF2 through WebCrypto. Level 3 has no in-app unlock path. Extension removal or browser profile tampering remains outside what an extension can prevent.
-- The Local Ollama Builder is disabled by default, allows only loopback HTTP endpoints, previews strict JSON recipes, and never adds runtime AI instructions.
+- The AI Connectors Ollama connector is disabled by default, allows only loopback HTTP endpoints, previews strict JSON recipes, and never adds runtime AI instructions.
 - The extension does not use `eval`, `new Function`, imported scripts, or downloaded code to execute Action Pack logic.
 - Clipboard access is optional and requested only when a pack needs clipboard read or write behavior.
 - Remote data and asset blocks require HTTPS and reject credentials, local hosts, private IP ranges, and reserved network hosts.

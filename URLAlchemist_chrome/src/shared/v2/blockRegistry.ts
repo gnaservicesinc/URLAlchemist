@@ -592,6 +592,8 @@ export const BLOCK_REGISTRY: Record<BlockKind, BlockDefinition> = {
     typeId: BLOCK_TYPE_IDS.ConditionSelect,
     label: 'Condition Select',
     category: 'logic',
+    description: 'Chooses between two values from a condition. It does not decide which downstream side-effect blocks run.',
+    tips: ['Use Logical Flow when you need if/else branch execution instead of a value choice.'],
     inputs: [port('condition', 'Condition', 'bool'), port('trueValue', 'True', 'Any'), port('falseValue', 'False', 'Any')],
     outputs: [port('result', 'Result', 'Any')],
     flags: defaultFlags,
@@ -849,6 +851,66 @@ export const BLOCK_REGISTRY: Record<BlockKind, BlockDefinition> = {
     defaultSettings: { locked: true },
     risk: 'safe',
   },
+  LogicalFlow: {
+    kind: 'LogicalFlow',
+    typeId: BLOCK_TYPE_IDS.LogicalFlow,
+    label: 'Logical Flow',
+    category: 'logic',
+    description: 'Routes an input through a True or False branch. Instructions guarded by the unselected branch are skipped.',
+    tips: ['Connect a Logic block into Condition, then continue work from the True or False outputs. The else side may be left empty.'],
+    inputs: [port('input', 'Input', 'Any'), port('condition', 'Condition', 'bool', { required: true })],
+    outputs: [port('trueValue', 'True', 'Any'), port('falseValue', 'False', 'Any')],
+    flags: defaultFlags,
+    defaultSettings: {
+      logicalFlowRole: 'control',
+    },
+    risk: 'safe',
+  },
+  CustomBlock: {
+    kind: 'CustomBlock',
+    typeId: BLOCK_TYPE_IDS.CustomBlock,
+    label: 'Custom Block',
+    category: 'custom',
+    description: 'Runs a locally installed custom block compiled from a custom-block workspace.',
+    tips: ['Custom blocks are compiled from workspace source and run through the same VM safety limits as normal blocks.'],
+    inputs: [],
+    outputs: [],
+    flags: defaultFlags,
+    defaultSettings: {},
+    risk: 'safe',
+  },
+  CustomBlockInput: {
+    kind: 'CustomBlockInput',
+    typeId: BLOCK_TYPE_IDS.CustomBlockInput,
+    label: 'Custom Input',
+    category: 'custom',
+    description: 'Declares one input for a custom-block workspace.',
+    inputs: [],
+    outputs: [port('value', 'Value', 'Any')],
+    flags: defaultFlags,
+    defaultSettings: {
+      customPortId: 'input',
+      customPortLabel: 'Input',
+      customPortDataType: 'Any',
+    },
+    risk: 'safe',
+  },
+  CustomBlockOutput: {
+    kind: 'CustomBlockOutput',
+    typeId: BLOCK_TYPE_IDS.CustomBlockOutput,
+    label: 'Custom Output',
+    category: 'custom',
+    description: 'Declares one output from a custom-block workspace.',
+    inputs: [port('value', 'Value', 'Any')],
+    outputs: [],
+    flags: defaultFlags,
+    defaultSettings: {
+      customPortId: 'result',
+      customPortLabel: 'Result',
+      customPortDataType: 'Any',
+    },
+    risk: 'safe',
+  },
 };
 
 export const BLOCK_DEFINITIONS = Object.values(BLOCK_REGISTRY);
@@ -1001,6 +1063,23 @@ export function getEffectivePortDefinitions(
 
   if (node.type === 'Logical' && direction === 'output' && node.settings.booleanOutput !== false) {
     return [port('result', 'Result', 'bool')];
+  }
+
+  if (node.type === 'CustomBlock') {
+    const definitions = direction === 'input'
+      ? node.settings.customBlockInputs ?? []
+      : node.settings.customBlockOutputs ?? [];
+    return definitions.map((definition) =>
+      port(definition.id, definition.label, definition.dataType, { description: definition.tooltip }),
+    );
+  }
+
+  if (node.type === 'CustomBlockInput' && direction === 'output') {
+    return [port('value', node.settings.customPortLabel ?? 'Value', node.settings.customPortDataType ?? 'Any')];
+  }
+
+  if (node.type === 'CustomBlockOutput' && direction === 'input') {
+    return [port('value', node.settings.customPortLabel ?? 'Value', node.settings.customPortDataType ?? 'Any')];
   }
 
   const definition = getBlockDefinition(node.type);

@@ -4,7 +4,7 @@ import type { ActionPack, GlobalSettings, StoredActionPackLogEntry, StoredState,
 import { normalizeStoredState } from './validation';
 import { isActionPackLocked, withInstallMetadata } from './v2/installMetadata';
 import { validateWorkspaceFile } from './v2/workspace';
-import type { CompiledActionPackV2, WorkspaceFileV2, WorkspaceViewport } from './v2/types';
+import type { CompiledActionPackV2, CompiledCustomBlockV2, WorkspaceFileV2, WorkspaceViewport } from './v2/types';
 
 function getChromeStorageLocal(): typeof chrome.storage.local | null {
   return globalThis.chrome?.storage?.local ?? null;
@@ -43,10 +43,12 @@ function createSyncSnapshot(state: StoredState): StoredState {
     .filter((pack) => !pack.install?.lockState?.locked)
     .filter((pack) => jsonBytes(pack) <= SYNC_MAX_ITEM_BYTES);
   const workspacesV2 = state.workspacesV2.filter((workspace) => jsonBytes(workspace) <= SYNC_MAX_ITEM_BYTES);
+  const customBlocksV2 = state.customBlocksV2.filter((block) => jsonBytes(block) <= SYNC_MAX_ITEM_BYTES);
   let snapshot: StoredState = {
     settings,
     packs: [],
     actionPacksV2,
+    customBlocksV2,
     workspacesV2,
     traceEntries: [],
     actionPackLogs: [],
@@ -66,10 +68,18 @@ function createSyncSnapshot(state: StoredState): StoredState {
     };
   }
 
+  while (jsonBytes(snapshot) > SYNC_MAX_TOTAL_BYTES && snapshot.customBlocksV2.length > 0) {
+    snapshot = {
+      ...snapshot,
+      customBlocksV2: snapshot.customBlocksV2.slice(0, -1),
+    };
+  }
+
   return jsonBytes(snapshot) <= SYNC_MAX_TOTAL_BYTES ? snapshot : {
     settings,
     packs: [],
     actionPacksV2: [],
+    customBlocksV2: [],
     workspacesV2: [],
     traceEntries: [],
     actionPackLogs: [],
@@ -123,6 +133,7 @@ export function getDefaultState(): StoredState {
     settings: DEFAULT_SETTINGS,
     packs: [],
     actionPacksV2: [],
+    customBlocksV2: [],
     workspacesV2: [],
     traceEntries: [],
     actionPackLogs: [],
@@ -310,6 +321,37 @@ export async function deleteWorkspaceV2(workspaceId: string): Promise<StoredStat
     ...state,
     workspacesV2: state.workspacesV2.filter((ws) => ws.metadata.id !== workspaceId),
   };
+  await saveStoredState(nextState);
+  return nextState;
+}
+
+export async function upsertCustomBlockV2(block: CompiledCustomBlockV2): Promise<StoredState> {
+  const state = await loadStoredState();
+  const index = state.customBlocksV2.findIndex((candidate) => candidate.blockId === block.blockId);
+  const customBlocksV2 = [...state.customBlocksV2];
+
+  if (index >= 0) {
+    customBlocksV2[index] = block;
+  } else {
+    customBlocksV2.unshift(block);
+  }
+
+  const nextState = {
+    ...state,
+    customBlocksV2,
+  };
+
+  await saveStoredState(nextState);
+  return nextState;
+}
+
+export async function deleteCustomBlockV2(blockId: string): Promise<StoredState> {
+  const state = await loadStoredState();
+  const nextState = {
+    ...state,
+    customBlocksV2: state.customBlocksV2.filter((block) => block.blockId !== blockId),
+  };
+
   await saveStoredState(nextState);
   return nextState;
 }

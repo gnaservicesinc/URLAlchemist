@@ -23,6 +23,7 @@ import { URL_ALCHEMIST_VERSION } from './buildInfo';
 import type {
   BlockKind,
   CompiledActionPackV2,
+  CompiledCustomBlockV2,
   CompiledTriggerPlan,
   CompiledRiskSummary,
   GraphEventHandler,
@@ -99,6 +100,8 @@ const CONTENT_BLOCKER_DECISION_ALLOWED_BLOCKS = new Set<BlockKind>([
   'DictOperation',
   'ListOperation',
   'ConditionSelect',
+  'LogicalFlow',
+  'CustomBlock',
   'RandomNumber',
   'SaveLoad',
   'SharedState',
@@ -159,6 +162,7 @@ interface CompileOptions {
   builderUuid?: string;
   buildTimeUtc?: number;
   conditionWorkspaces?: WorkspaceFileV2[];
+  customBlocks?: CompiledCustomBlockV2[];
 }
 
 function validateRegexPattern(pattern: string): string | null {
@@ -324,6 +328,7 @@ function isTerminalNode(node: WorkspaceNodeV2): boolean {
     node.type === 'ExtendedDataOut' ||
     node.type === 'ConditionOut' ||
     node.type === 'DecisionOut' ||
+    node.type === 'CustomBlockOutput' ||
     (node.type === 'SaveLoad' && (node.settings.saveLoadMode ?? 'SAVE') === 'SAVE') ||
     SIDE_EFFECT_BLOCKS.has(node.type) ||
     (node.type === 'SharedState' && ['SET', 'DELETE'].includes(node.settings.sharedStateMode ?? 'GET'))
@@ -342,6 +347,10 @@ function hasRunnableTerminalNode(workspace: WorkspaceFileV2, edgesByTarget: Map<
 
     if (node.type === 'DecisionOut') {
       return edgesByTarget.has(`${node.id}:decision`);
+    }
+
+    if (node.type === 'CustomBlockOutput') {
+      return edgesByTarget.has(`${node.id}:value`);
     }
 
     return isTerminalNode(node);
@@ -456,6 +465,109 @@ function collectReachableNodes(workspace: WorkspaceFileV2): Set<string> {
     byHandler[handler].forEach((nodeId) => reachable.add(nodeId));
   });
   return reachable;
+}
+
+function downstreamNodeIdsFromHandle(workspace: WorkspaceFileV2, sourceId: string, sourceHandle: string): Set<string> {
+  const reachable = new Set<string>();
+  const stack = workspace.edges
+    .filter((edge) => edge.source === sourceId && edge.sourceHandle === sourceHandle)
+    .map((edge) => edge.target);
+
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    if (reachable.has(current)) {
+      continue;
+    }
+    reachable.add(current);
+    workspace.edges
+      .filter((edge) => edge.source === current)
+      .forEach((edge) => stack.push(edge.target));
+  }
+
+  return reachable;
+}
+
+function logicalFlowGuards(workspace: WorkspaceFileV2, edgesByTarget: Map<string, WorkspaceEdgeV2>): Map<string, { guard: string; expected: 0 | 1 }> {
+  const guards = new Map<string, { guard: string; expected: 0 | 1 }>();
+  workspace.nodes
+    .filter((node) => node.type === 'LogicalFlow')
+    .forEach((node) => {
+      const guard = connectedInput(edgesByTarget, node.id, 'condition');
+      if (!guard) {
+        return;
+      }
+      downstreamNodeIdsFromHandle(workspace, node.id, 'trueValue').forEach((nodeId) => {
+        guards.set(nodeId, { guard, expected: 1 });
+      });
+      downstreamNodeIdsFromHandle(workspace, node.id, 'falseValue').forEach((nodeId) => {
+        guards.set(nodeId, { guard, expected: 0 });
+      });
+    });
+  return guards;
+}
+
+function withInstructionGuard(instructions: GraphVmInstruction[], guard?: { guard: string; expected: 0 | 1 }): GraphVmInstruction[] {
+  if (!guard) {
+    return instructions;
+  }
+  return instructions.map((instruction) => ({
+    ...instruction,
+    guard: instruction.guard ?? guard.guard,
+    guardExpected: instruction.guardExpected ?? guard.expected,
+  }));
+}
+
+function customBlockInstructionReferences(instructions: GraphVmInstruction[]): string[] {
+  return instructions.flatMap((instruction) => {
+    if (instruction.op !== 'CUSTOM_BLOCK') {
+      return [];
+    }
+    return [
+      instruction.blockId,
+      ...customBlockInstructionReferences(instruction.program.instructions),
+      ...Object.values(instruction.program.eventHandlers ?? {}).flatMap((handlerInstructions) =>
+        customBlockInstructionReferences(handlerInstructions ?? []),
+      ),
+    ];
+  });
+}
+
+function installedCustomBlockReferences(block: CompiledCustomBlockV2): string[] {
+  return [
+    ...customBlockInstructionReferences(block.vm.instructions),
+    ...Object.values(block.vm.eventHandlers ?? {}).flatMap((instructions) => customBlockInstructionReferences(instructions ?? [])),
+  ];
+}
+
+function customBlockReferenceReachesTarget(blockId: string, targetBlockId: string, customBlocks: CompiledCustomBlockV2[], seen = new Set<string>()): boolean {
+  if (blockId === targetBlockId) {
+    return true;
+  }
+  if (seen.has(blockId)) {
+    return false;
+  }
+  seen.add(blockId);
+  const block = customBlocks.find((candidate) => candidate.blockId === blockId);
+  if (!block) {
+    return false;
+  }
+  return installedCustomBlockReferences(block).some((reference) => customBlockReferenceReachesTarget(reference, targetBlockId, customBlocks, seen));
+}
+
+function customBlockRecursionErrors(workspace: WorkspaceFileV2, customBlocks: CompiledCustomBlockV2[]): string[] {
+  if (workspace.workspaceType !== 'custom-block' || !workspace.customBlock) {
+    return [];
+  }
+  const targetBlockId = workspace.customBlock.blockId;
+  return workspace.nodes
+    .filter((node) => node.type === 'CustomBlock' && node.settings.customBlockId)
+    .flatMap((node) => {
+      const referencedBlockId = node.settings.customBlockId!;
+      if (customBlockReferenceReachesTarget(referencedBlockId, targetBlockId, customBlocks)) {
+        return [`Custom Block "${workspace.customBlock!.label}" cannot reference itself directly or through "${node.settings.customBlockName ?? referencedBlockId}".`];
+      }
+      return [];
+    });
 }
 
 function topologicalSort(workspace: WorkspaceFileV2, includedNodeIds: Set<string>): { ok: true; nodes: WorkspaceNodeV2[] } | { ok: false; cycleIds: string[] } {
@@ -640,6 +752,18 @@ function validateContentBlockerWorkspace(workspace: WorkspaceFileV2): WorkspaceV
     errors.push('Workspace name is required.');
   }
 
+  if (workspace.workspaceType === 'custom-block') {
+    if (!workspace.customBlock) {
+      errors.push('Custom Block workspace metadata is required.');
+    }
+    if (!workspace.nodes.some((node) => node.type === 'CustomBlockInput')) {
+      errors.push('Custom Block workspaces require at least one Custom Input block.');
+    }
+    if (!workspace.nodes.some((node) => node.type === 'CustomBlockOutput')) {
+      errors.push('Custom Block workspaces require at least one Custom Output block.');
+    }
+  }
+
   const pageLoad = contentBlockerSurface(workspace, 'page-load');
   const recurring = contentBlockerSurface(workspace, 'recurring');
   const challenge = contentBlockerSurface(workspace, 'challenge');
@@ -675,6 +799,8 @@ function validateContentBlockerWorkspace(workspace: WorkspaceFileV2): WorkspaceV
       'Math',
       'Constant',
       'ConditionSelect',
+      'LogicalFlow',
+      'CustomBlock',
       'RandomNumber',
       'Substitution',
       'TextTransform',
@@ -721,6 +847,18 @@ function validateWorkspace(workspace: WorkspaceFileV2): WorkspaceValidationState
 
   if (!workspace.metadata.name.trim()) {
     errors.push('Workspace name is required.');
+  }
+
+  if (workspace.workspaceType === 'custom-block') {
+    if (!workspace.customBlock) {
+      errors.push('Custom Block workspace metadata is required.');
+    }
+    if (!workspace.nodes.some((node) => node.type === 'CustomBlockInput')) {
+      errors.push('Custom Block workspaces require at least one Custom Input block.');
+    }
+    if (!workspace.nodes.some((node) => node.type === 'CustomBlockOutput')) {
+      errors.push('Custom Block workspaces require at least one Custom Output block.');
+    }
   }
 
   const triggerType = workspace.trigger.type === 'ALWAYS' ? 'INPUT_DATA' : workspace.trigger.type;
@@ -917,6 +1055,16 @@ function validateWorkspace(workspace: WorkspaceFileV2): WorkspaceValidationState
       }
     }
 
+    if (node.type === 'CustomBlock') {
+      if (!node.settings.customBlockId?.trim()) {
+        errors.push(`${node.settings.label || definition.label}: choose an installed Custom Block.`);
+      }
+    }
+
+    if ((node.type === 'CustomBlockInput' || node.type === 'CustomBlockOutput') && !node.settings.customPortId?.trim()) {
+      errors.push(`${node.settings.label || definition.label}: custom port id is required.`);
+    }
+
     if (node.type === 'TextTransform' && !TEXT_TRANSFORM_MODES.includes(node.settings.textTransformMode ?? 'TRIM')) {
       errors.push(`${node.settings.label || definition.label}: text transform mode is invalid.`);
     }
@@ -1054,6 +1202,7 @@ function instructionForNode(
   workspace: WorkspaceFileV2,
   edgesByTarget: Map<string, WorkspaceEdgeV2>,
   includedNodeIds: Set<string>,
+  customBlocks: CompiledCustomBlockV2[] = [],
 ): GraphVmInstruction[] {
   const instructions: GraphVmInstruction[] = [];
 
@@ -1304,6 +1453,56 @@ function instructionForNode(
         fallbackFalse: literalGraphValue(node.settings.selectFalseValue, node.settings.literalDataType ?? 'Any'),
       });
       break;
+    case 'LogicalFlow':
+      instructions.push({
+        op: 'BRANCH',
+        nodeId: node.id,
+        condition: connectedInput(edgesByTarget, node.id, 'condition'),
+        input: connectedInput(edgesByTarget, node.id, 'input'),
+        trueOutput: symbol(node.id, 'trueValue'),
+        falseOutput: symbol(node.id, 'falseValue'),
+        fallbackInput: literalGraphValue(node.settings.literalValue, node.settings.literalDataType ?? 'Any'),
+      });
+      break;
+    case 'CustomBlockInput':
+      instructions.push({
+        op: 'CUSTOM_INPUT',
+        nodeId: node.id,
+        inputId: node.settings.customPortId ?? 'input',
+        output: symbol(node.id, 'value'),
+        fallback: literalGraphValue(node.settings.literalValue, node.settings.customPortDataType ?? 'Any'),
+      });
+      break;
+    case 'CustomBlockOutput':
+      instructions.push({
+        op: 'CUSTOM_OUTPUT',
+        nodeId: node.id,
+        outputId: node.settings.customPortId ?? 'result',
+        value: connectedInput(edgesByTarget, node.id, 'value'),
+        fallback: literalGraphValue(node.settings.literalValue, node.settings.customPortDataType ?? 'Any'),
+      });
+      break;
+    case 'CustomBlock': {
+      const block = customBlocks.find((candidate) => candidate.blockId === node.settings.customBlockId);
+      if (!block) {
+        break;
+      }
+      instructions.push({
+        op: 'CUSTOM_BLOCK',
+        nodeId: node.id,
+        blockId: block.blockId,
+        version: block.version,
+        inputSymbols: Object.fromEntries(block.inputs.map((input) => [input.id, connectedInput(edgesByTarget, node.id, input.id)])),
+        outputSymbols: Object.fromEntries(block.outputs.map((output) => [output.id, symbol(node.id, output.id)])),
+        program: block.vm,
+        inputDefaults: Object.fromEntries([
+          ...block.inputs.map((input) => [input.id, literalGraphValue(node.settings.customFieldValues?.[input.id], input.dataType)] as const),
+          ...block.fields.map((field) => [field.id, literalGraphValue(node.settings.customFieldValues?.[field.id] ?? field.defaultValue, field.dataType)] as const),
+        ]),
+        outputIds: block.outputs.map((output) => output.id),
+      });
+      break;
+    }
     case 'RandomNumber':
       instructions.push({
         op: 'RANDOM_INT',
@@ -1571,6 +1770,13 @@ function requiredPermissionsForInstructions(instructions: GraphVmInstruction[]):
 
     if (instruction.op === 'OUTPUT' && ['clipboard', 'clipboardBinary'].includes(instruction.destination)) {
       permissions.add('clipboardWrite');
+    }
+
+    if (instruction.op === 'CUSTOM_BLOCK') {
+      requiredPermissionsForInstructions(instruction.program.instructions).forEach((permission) => permissions.add(permission));
+      Object.values(instruction.program.eventHandlers ?? {}).flat().forEach((nestedInstruction) => {
+        requiredPermissionsForInstructions([nestedInstruction]).forEach((permission) => permissions.add(permission));
+      });
     }
   });
 
@@ -1882,6 +2088,7 @@ function workspaceForSurface(workspace: WorkspaceFileV2, surface: WorkspaceGraph
 function compileDecisionSurfaceProgram(
   workspace: WorkspaceFileV2,
   surface: WorkspaceGraphSurface,
+  options: CompileOptions,
 ): { ok: true; program: ContentBlockerDecisionProgram; risk: CompiledRiskSummary; instructions: GraphVmInstruction[] } | { ok: false; errors: string[] } {
   const surfaceWorkspace = workspaceForSurface(workspace, surface);
   const edgesByTarget = new Map(surfaceWorkspace.edges.map((edge) => [`${edge.target}:${edge.targetHandle}`, edge]));
@@ -1896,7 +2103,13 @@ function compileDecisionSurfaceProgram(
     return { ok: false, errors: [`${surface.label} contains a cycle involving ${sorted.cycleIds.length} blocks.`] };
   }
 
-  const instructions = uniqueInstructions(sorted.nodes.flatMap((node) => instructionForNode(node, surfaceWorkspace, edgesByTarget, includedNodeIds)));
+  const branchGuards = logicalFlowGuards(surfaceWorkspace, edgesByTarget);
+  const instructions = uniqueInstructions(sorted.nodes.flatMap((node) =>
+    withInstructionGuard(
+      instructionForNode(node, surfaceWorkspace, edgesByTarget, includedNodeIds, options.customBlocks ?? []),
+      branchGuards.get(node.id),
+    ),
+  ));
   const risk = emptyRisk();
   instructions.forEach((instruction) => {
     if ('risk' in instruction && getRiskRank(instruction.risk) > 0) {
@@ -1997,7 +2210,7 @@ function compileContentBlockerWorkspace(
     return { ok: false, workspace: workspaceWithValidation, validation };
   }
 
-  const pageLoadProgram = compileDecisionSurfaceProgram(workspace, pageLoad);
+  const pageLoadProgram = compileDecisionSurfaceProgram(workspace, pageLoad, options);
   if (!pageLoadProgram.ok) {
     const nextValidation = {
       ...validation,
@@ -2007,7 +2220,7 @@ function compileContentBlockerWorkspace(
     return { ok: false, workspace: { ...workspaceWithValidation, validationState: nextValidation }, validation: nextValidation };
   }
 
-  const recurringProgram = recurring.nodes.length > 0 ? compileDecisionSurfaceProgram(workspace, recurring) : undefined;
+  const recurringProgram = recurring.nodes.length > 0 ? compileDecisionSurfaceProgram(workspace, recurring, options) : undefined;
   if (recurringProgram && !recurringProgram.ok) {
     const nextValidation = {
       ...validation,
@@ -2120,6 +2333,42 @@ export function compileWorkspace(workspace: WorkspaceFileV2, options: CompileOpt
     validationState: validation,
   };
 
+  const availableCustomBlockIds = new Set((options.customBlocks ?? []).map((block) => block.blockId));
+  const missingCustomBlocks = workspace.nodes
+    .filter((node) => node.type === 'CustomBlock' && node.settings.customBlockId && !availableCustomBlockIds.has(node.settings.customBlockId))
+    .map((node) => node.settings.customBlockName || node.settings.customBlockId || 'Custom Block');
+  const recursionErrors = customBlockRecursionErrors(workspace, options.customBlocks ?? []);
+  if (missingCustomBlocks.length > 0) {
+    const customValidation: WorkspaceValidationState = {
+      ...validation,
+      valid: false,
+      errors: [...validation.errors, ...missingCustomBlocks.map((name) => `Custom Block "${name}" is not installed or embedded for this workspace.`)],
+    };
+    return {
+      ok: false,
+      workspace: {
+        ...workspaceWithValidation,
+        validationState: customValidation,
+      },
+      validation: customValidation,
+    };
+  }
+  if (recursionErrors.length > 0) {
+    const customValidation: WorkspaceValidationState = {
+      ...validation,
+      valid: false,
+      errors: [...validation.errors, ...recursionErrors],
+    };
+    return {
+      ok: false,
+      workspace: {
+        ...workspaceWithValidation,
+        validationState: customValidation,
+      },
+      validation: customValidation,
+    };
+  }
+
   if (!validation.valid) {
     return {
       ok: false,
@@ -2132,8 +2381,16 @@ export function compileWorkspace(workspace: WorkspaceFileV2, options: CompileOpt
     return compileContentBlockerWorkspace(workspace, validation, workspaceWithValidation, options);
   }
 
-  const reachableByHandler = collectHandlerReachability(workspace);
-  const reachable = collectReachableNodes(workspace);
+  const customBlockNodeIds = new Set(workspace.nodes.map((node) => node.id));
+  const reachableByHandler = workspace.workspaceType === 'custom-block'
+    ? {
+      trigger: customBlockNodeIds,
+      keyboard: new Set<string>(),
+      mouse: new Set<string>(),
+      tick: new Set<string>(),
+    }
+    : collectHandlerReachability(workspace);
+  const reachable = workspace.workspaceType === 'custom-block' ? customBlockNodeIds : collectReachableNodes(workspace);
   const sortedByHandler = new Map<GraphEventHandler, WorkspaceNodeV2[]>();
   for (const handler of EVENT_HANDLERS) {
     const sorted = topologicalSort(workspace, reachableByHandler[handler]);
@@ -2175,10 +2432,16 @@ export function compileWorkspace(workspace: WorkspaceFileV2, options: CompileOpt
   }
 
   const edgesByTarget = new Map(workspace.edges.map((edge) => [`${edge.target}:${edge.targetHandle}`, edge]));
+  const branchGuards = logicalFlowGuards(workspace, edgesByTarget);
   const eventHandlers = Object.fromEntries(
     EVENT_HANDLERS.map((handler) => [
       handler,
-      sortedByHandler.get(handler)?.flatMap((node) => instructionForNode(node, workspace, edgesByTarget, reachableByHandler[handler])) ?? [],
+      sortedByHandler.get(handler)?.flatMap((node) =>
+        withInstructionGuard(
+          instructionForNode(node, workspace, edgesByTarget, reachableByHandler[handler], options.customBlocks ?? []),
+          branchGuards.get(node.id),
+        ),
+      ) ?? [],
     ]),
   ) as Record<GraphEventHandler, GraphVmInstruction[]>;
   const instructions = uniqueInstructions(EVENT_HANDLERS.flatMap((handler) => eventHandlers[handler]));
@@ -2277,7 +2540,55 @@ export function compileWorkspace(workspace: WorkspaceFileV2, options: CompileOpt
     if (instruction.op === 'OVERLAY_CONTROL' || instruction.op === 'OVERLAY_DRAW') {
       addRisk(risk, 'extended', 'Interactive overlay display is extended risk.', 'output');
     }
+
+    if (instruction.op === 'CUSTOM_BLOCK') {
+      const block = options.customBlocks?.find((candidate) => candidate.blockId === instruction.blockId);
+      if (block) {
+        mergeRiskSummary(risk, block.risk);
+      }
+    }
   });
+
+  if (workspace.workspaceType === 'custom-block' && workspace.customBlock) {
+    const vm: GraphVmProgram = {
+      instructions,
+      eventHandlers,
+      constants: {},
+      symbolTable: buildSymbolTable(workspace),
+      stepBudget: VM_STEP_BUDGET,
+      loopBudget: VM_LOOP_BUDGET,
+      valueByteLimit: VM_VALUE_BYTE_LIMIT,
+      safety,
+    };
+
+    return {
+      ok: true,
+      workspace: {
+        ...workspace,
+        validationState: validation,
+      },
+      validation,
+      customBlock: {
+        kind: 'custom-block.v2',
+        schemaVersion: ACTION_PACK_SCHEMA_VERSION,
+        blockId: workspace.customBlock.blockId,
+        label: workspace.customBlock.label || workspace.metadata.name,
+        version: workspace.customBlock.version,
+        category: workspace.customBlock.category,
+        description: workspace.customBlock.description,
+        tips: workspace.customBlock.tips,
+        visibleWorkspaceTypes: workspace.customBlock.visibleWorkspaceTypes,
+        inputs: workspace.customBlock.inputs,
+        outputs: workspace.customBlock.outputs,
+        fields: workspace.customBlock.fields,
+        sourceWorkspaceId: workspace.metadata.id,
+        sourceWorkspace: workspace,
+        vm,
+        risk,
+        installedAt: Date.now(),
+      },
+    };
+  }
 
   const pack: CompiledActionPackV2 = {
     kind: 'action-pack.v2',
@@ -2291,6 +2602,7 @@ export function compileWorkspace(workspace: WorkspaceFileV2, options: CompileOpt
         author: workspace.metadata.author,
         description: workspace.metadata.description,
         created_at: workspace.metadata.created_at,
+        workspaceType: workspace.workspaceType,
       },
       trigger: {
         ...workspace.trigger,
@@ -2322,6 +2634,7 @@ export function compileWorkspace(workspace: WorkspaceFileV2, options: CompileOpt
       valueByteLimit: VM_VALUE_BYTE_LIMIT,
       safety,
     },
+    embeddedCustomBlocks: workspace.embeddedCustomBlocks,
   };
 
   return {

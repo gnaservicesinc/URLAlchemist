@@ -154,6 +154,10 @@ function hasExactKeys(record: Record<string, unknown>, requiredKeys: string[], o
   return keys.every((key) => allowed.has(key)) && requiredKeys.every((key) => Object.prototype.hasOwnProperty.call(record, key));
 }
 
+function hasExactInstructionKeys(record: Record<string, unknown>, requiredKeys: string[], optionalKeys: string[] = []): boolean {
+  return hasExactKeys(record, requiredKeys, [...optionalKeys, 'guard', 'guardExpected']);
+}
+
 function hasNoDangerousKeys(record: Record<string, unknown>): boolean {
   return Object.keys(record).every((key) => !DANGEROUS_RECORD_KEYS.has(key));
 }
@@ -470,6 +474,13 @@ function deriveRequiredPermissions(instructions: GraphVmInstruction[]): string[]
     if (instruction.op === 'OUTPUT' && ['clipboard', 'clipboardBinary'].includes(instruction.destination)) {
       permissions.add('clipboardWrite');
     }
+
+    if (instruction.op === 'CUSTOM_BLOCK') {
+      deriveRequiredPermissions(instruction.program.instructions).forEach((permission) => permissions.add(permission));
+      Object.values(instruction.program.eventHandlers ?? {}).flat().forEach((nestedInstruction) => {
+        deriveRequiredPermissions([nestedInstruction]).forEach((permission) => permissions.add(permission));
+      });
+    }
   });
 
   return Array.from(permissions);
@@ -591,9 +602,16 @@ function validateInstruction(
     return null;
   }
 
+  if (instruction.guard !== undefined) {
+    assertReference(errors, symbolTable, instruction.guard, `${prefix}.guard`);
+    if (instruction.guardExpected !== 0 && instruction.guardExpected !== 1) {
+      addError(errors, prefix, 'guardExpected must be 0 or 1');
+    }
+  }
+
   switch (instruction.op) {
     case 'SOURCE': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'source', 'output', 'dataType', 'risk'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'source', 'output', 'dataType', 'risk'])) {
         addError(errors, prefix, 'SOURCE instruction has invalid keys');
         return null;
       }
@@ -618,7 +636,7 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'CONSTANT': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'value'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'output', 'value'])) {
         addError(errors, prefix, 'CONSTANT instruction has invalid keys');
         return null;
       }
@@ -628,7 +646,7 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'REGEX_TRANSFORM': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'pattern', 'action', 'matchMode', 'payload', 'payloadVars'], ['input', 'payloadInput', 'nthOccurrence'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'output', 'pattern', 'action', 'matchMode', 'payload', 'payloadVars'], ['input', 'payloadInput', 'nthOccurrence'])) {
         addError(errors, prefix, 'REGEX_TRANSFORM instruction has invalid keys');
         return null;
       }
@@ -674,7 +692,7 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'FETCH_GET': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'fallbackUrl', 'outputDataType', 'timeoutMs', 'maxBytes'], ['url'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'output', 'fallbackUrl', 'outputDataType', 'timeoutMs', 'maxBytes'], ['url'])) {
         addError(errors, prefix, 'FETCH_GET instruction has invalid keys');
         return null;
       }
@@ -702,7 +720,7 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'HTTP_REQUEST': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'method', 'fallbackUrl', 'outputDataType', 'timeoutMs', 'maxBytes'], ['url', 'body'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'output', 'method', 'fallbackUrl', 'outputDataType', 'timeoutMs', 'maxBytes'], ['url', 'body'])) {
         addError(errors, prefix, 'HTTP_REQUEST instruction has invalid keys');
         return null;
       }
@@ -735,7 +753,7 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'SYSTEM_DATA': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'mode'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'output', 'mode'])) {
         addError(errors, prefix, 'SYSTEM_DATA instruction has invalid keys');
         return null;
       }
@@ -748,7 +766,7 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'USER_INTERACTION': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'interaction', 'message'], ['messageInput', 'placeholder', 'defaultValue', 'minValue', 'maxValue'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'output', 'interaction', 'message'], ['messageInput', 'placeholder', 'defaultValue', 'minValue', 'maxValue'])) {
         addError(errors, prefix, 'USER_INTERACTION instruction has invalid keys');
         return null;
       }
@@ -784,7 +802,7 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'GET_ASSET': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'fallbackUrl', 'kind', 'timeoutMs', 'maxBytes'], ['url', 'embedded'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'output', 'fallbackUrl', 'kind', 'timeoutMs', 'maxBytes'], ['url', 'embedded'])) {
         addError(errors, prefix, 'GET_ASSET instruction has invalid keys');
         return null;
       }
@@ -826,7 +844,7 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'DISPLAY': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'displayType', 'message', 'mode'], ['input', 'titleInput', 'asset', 'output', 'title', 'stopMode', 'timeoutMs', 'captureKeyboard', 'captureMouse'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'displayType', 'message', 'mode'], ['input', 'titleInput', 'asset', 'output', 'title', 'stopMode', 'timeoutMs', 'captureKeyboard', 'captureMouse'])) {
         addError(errors, prefix, 'DISPLAY instruction has invalid keys');
         return null;
       }
@@ -879,7 +897,7 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'COMPARE': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'operator', 'compareValue', 'booleanOutput'], ['input'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'output', 'operator', 'compareValue', 'booleanOutput'], ['input'])) {
         addError(errors, prefix, 'COMPARE instruction has invalid keys');
         return null;
       }
@@ -902,7 +920,7 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'MATH': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'operation', 'fallbackLeft', 'fallbackRight'], ['left', 'right'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'output', 'operation', 'fallbackLeft', 'fallbackRight'], ['left', 'right'])) {
         addError(errors, prefix, 'MATH instruction has invalid keys');
         return null;
       }
@@ -922,7 +940,7 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'CONVERT': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'mode'], ['input', 'rounding', 'ord'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'output', 'mode'], ['input', 'rounding', 'ord'])) {
         addError(errors, prefix, 'CONVERT instruction has invalid keys');
         return null;
       }
@@ -945,7 +963,7 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'DECLARE': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'name', 'fallbackValue'], ['value'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'name', 'fallbackValue'], ['value'])) {
         addError(errors, prefix, 'DECLARE instruction has invalid keys');
         return null;
       }
@@ -961,7 +979,7 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'SAVELOAD': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'mode', 'fallbackKey'], ['key', 'value', 'output'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'mode', 'fallbackKey'], ['key', 'value', 'output'])) {
         addError(errors, prefix, 'SAVELOAD instruction has invalid keys');
         return null;
       }
@@ -982,7 +1000,7 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'DICT_SET': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'fallbackDictName', 'fallbackKey'], ['dict', 'key', 'value'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'output', 'fallbackDictName', 'fallbackKey'], ['dict', 'key', 'value'])) {
         addError(errors, prefix, 'DICT_SET instruction has invalid keys');
         return null;
       }
@@ -999,7 +1017,7 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'LOOP': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'loopLimit'], ['input', 'count'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'output', 'loopLimit'], ['input', 'count'])) {
         addError(errors, prefix, 'LOOP instruction has invalid keys');
         return null;
       }
@@ -1015,7 +1033,7 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'SLEEP': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'fallbackMs'], ['duration', 'enabled', 'output'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'fallbackMs'], ['duration', 'enabled', 'output'])) {
         addError(errors, prefix, 'SLEEP instruction has invalid keys');
         return null;
       }
@@ -1031,7 +1049,7 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'SHARED_STATE': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'mode', 'fallbackKey', 'fallbackValue'], ['key', 'value', 'enabled', 'output', 'fallbackRaw'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'mode', 'fallbackKey', 'fallbackValue'], ['key', 'value', 'enabled', 'output', 'fallbackRaw'])) {
         addError(errors, prefix, 'SHARED_STATE instruction has invalid keys');
         return null;
       }
@@ -1057,7 +1075,7 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'DICT_GET': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'fallbackKey', 'fallbackValue'], ['dict', 'key'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'output', 'fallbackKey', 'fallbackValue'], ['dict', 'key'])) {
         addError(errors, prefix, 'DICT_GET instruction has invalid keys');
         return null;
       }
@@ -1074,7 +1092,7 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'LIST_OP': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'operation', 'fallbackList', 'fallbackItem'], ['list', 'item', 'index'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'output', 'operation', 'fallbackList', 'fallbackItem'], ['list', 'item', 'index'])) {
         addError(errors, prefix, 'LIST_OP instruction has invalid keys');
         return null;
       }
@@ -1093,7 +1111,7 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'SELECT': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'fallbackTrue', 'fallbackFalse'], ['condition', 'trueValue', 'falseValue'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'output', 'fallbackTrue', 'fallbackFalse'], ['condition', 'trueValue', 'falseValue'])) {
         addError(errors, prefix, 'SELECT instruction has invalid keys');
         return null;
       }
@@ -1106,8 +1124,79 @@ function validateInstruction(
       validateGraphValue(instruction.fallbackFalse, `${prefix}.fallbackFalse`, errors);
       return instruction as GraphVmInstruction;
     }
+    case 'BRANCH': {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'trueOutput', 'falseOutput', 'fallbackInput'], ['condition', 'input'])) {
+        addError(errors, prefix, 'BRANCH instruction has invalid keys');
+        return null;
+      }
+
+      assertReference(errors, symbolTable, instruction.condition, `${prefix}.condition`);
+      assertReference(errors, symbolTable, instruction.input, `${prefix}.input`);
+      assertReference(errors, symbolTable, instruction.trueOutput, `${prefix}.trueOutput`, true);
+      assertReference(errors, symbolTable, instruction.falseOutput, `${prefix}.falseOutput`, true);
+      validateGraphValue(instruction.fallbackInput, `${prefix}.fallbackInput`, errors);
+      return instruction as GraphVmInstruction;
+    }
+    case 'CUSTOM_INPUT': {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'inputId', 'output', 'fallback'])) {
+        addError(errors, prefix, 'CUSTOM_INPUT instruction has invalid keys');
+        return null;
+      }
+
+      if (!isString(instruction.inputId) || !instruction.inputId.trim()) {
+        addError(errors, prefix, 'inputId is required');
+      }
+      assertReference(errors, symbolTable, instruction.output, `${prefix}.output`, true);
+      validateGraphValue(instruction.fallback, `${prefix}.fallback`, errors);
+      return instruction as GraphVmInstruction;
+    }
+    case 'CUSTOM_OUTPUT': {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'outputId', 'fallback'], ['value'])) {
+        addError(errors, prefix, 'CUSTOM_OUTPUT instruction has invalid keys');
+        return null;
+      }
+
+      if (!isString(instruction.outputId) || !instruction.outputId.trim()) {
+        addError(errors, prefix, 'outputId is required');
+      }
+      assertReference(errors, symbolTable, instruction.value, `${prefix}.value`);
+      validateGraphValue(instruction.fallback, `${prefix}.fallback`, errors);
+      return instruction as GraphVmInstruction;
+    }
+    case 'CUSTOM_BLOCK': {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'blockId', 'version', 'inputSymbols', 'outputSymbols', 'program', 'inputDefaults', 'outputIds'])) {
+        addError(errors, prefix, 'CUSTOM_BLOCK instruction has invalid keys');
+        return null;
+      }
+
+      if (!isString(instruction.blockId) || !instruction.blockId.trim() || !isPositiveInteger(instruction.version)) {
+        addError(errors, prefix, 'custom block id/version is invalid');
+      }
+      if (!isRecord(instruction.inputSymbols) || !isRecord(instruction.outputSymbols) || !isRecord(instruction.inputDefaults) || !Array.isArray(instruction.outputIds)) {
+        addError(errors, prefix, 'custom block maps are invalid');
+        return null;
+      }
+      Object.entries(instruction.inputSymbols).forEach(([key, value]) => {
+        if (!isString(key) || (value !== undefined && value !== null && !isString(value))) {
+          addError(errors, prefix, 'inputSymbols entries are invalid');
+        }
+        assertReference(errors, symbolTable, value, `${prefix}.inputSymbols.${key}`);
+      });
+      Object.entries(instruction.outputSymbols).forEach(([key, value]) => {
+        if (!isString(key) || !isString(value)) {
+          addError(errors, prefix, 'outputSymbols entries are invalid');
+        }
+        assertReference(errors, symbolTable, value, `${prefix}.outputSymbols.${key}`, true);
+      });
+      Object.entries(instruction.inputDefaults).forEach(([key, value]) => validateGraphValue(value, `${prefix}.inputDefaults.${key}`, errors));
+      if (!instruction.outputIds.every(isString)) {
+        addError(errors, prefix, 'outputIds entries must be strings');
+      }
+      validateVm(instruction.program, errors);
+      return instruction as GraphVmInstruction;
+    }
     case 'RANDOM_INT': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'fallbackMin', 'fallbackMax'], ['min', 'max'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'output', 'fallbackMin', 'fallbackMax'], ['min', 'max'])) {
         addError(errors, prefix, 'RANDOM_INT instruction has invalid keys');
         return null;
       }
@@ -1123,7 +1212,7 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'SUBSTITUTE': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'template', 'values'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'output', 'template', 'values'])) {
         addError(errors, prefix, 'SUBSTITUTE instruction has invalid keys');
         return null;
       }
@@ -1146,7 +1235,7 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'TEXT_TRANSFORM': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'mode'], ['input'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'output', 'mode'], ['input'])) {
         addError(errors, prefix, 'TEXT_TRANSFORM instruction has invalid keys');
         return null;
       }
@@ -1160,7 +1249,7 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'TEXT_SPLIT_JOIN': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'mode', 'separator'], ['input'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'output', 'mode', 'separator'], ['input'])) {
         addError(errors, prefix, 'TEXT_SPLIT_JOIN instruction has invalid keys');
         return null;
       }
@@ -1177,7 +1266,7 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'URL_QUERY': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'mode', 'fallbackKey', 'fallbackValue', 'fallbackParams'], ['input', 'key', 'value'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'output', 'mode', 'fallbackKey', 'fallbackValue', 'fallbackParams'], ['input', 'key', 'value'])) {
         addError(errors, prefix, 'URL_QUERY instruction has invalid keys');
         return null;
       }
@@ -1196,7 +1285,7 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'DICT_OP': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output', 'mode', 'fallbackKey'], ['dict', 'other', 'key'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'output', 'mode', 'fallbackKey'], ['dict', 'other', 'key'])) {
         addError(errors, prefix, 'DICT_OP instruction has invalid keys');
         return null;
       }
@@ -1215,7 +1304,7 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'CONDITION_OUT': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output'], ['condition'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'output'], ['condition'])) {
         addError(errors, prefix, 'CONDITION_OUT instruction has invalid keys');
         return null;
       }
@@ -1225,7 +1314,7 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'DECISION_OUT': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'output'], ['decision'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'output'], ['decision'])) {
         addError(errors, prefix, 'DECISION_OUT instruction has invalid keys');
         return null;
       }
@@ -1235,7 +1324,7 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'LOG': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'severity', 'fallbackMessage'], ['message', 'output'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'severity', 'fallbackMessage'], ['message', 'output'])) {
         addError(errors, prefix, 'LOG instruction has invalid keys');
         return null;
       }
@@ -1254,7 +1343,7 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'ABORT': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'message'], ['condition', 'output'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'message'], ['condition', 'output'])) {
         addError(errors, prefix, 'ABORT instruction has invalid keys');
         return null;
       }
@@ -1268,7 +1357,7 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'OVERLAY_CONTROL': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'action', 'message', 'width', 'height', 'cellSize', 'tickMs', 'background'], ['enabled', 'messageInput', 'output'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'action', 'message', 'width', 'height', 'cellSize', 'tickMs', 'background'], ['enabled', 'messageInput', 'output'])) {
         addError(errors, prefix, 'OVERLAY_CONTROL instruction has invalid keys');
         return null;
       }
@@ -1301,7 +1390,7 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'OVERLAY_DRAW': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'width', 'height', 'cellSize', 'background'], ['enabled', 'cells', 'text', 'output'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'width', 'height', 'cellSize', 'background'], ['enabled', 'cells', 'text', 'output'])) {
         addError(errors, prefix, 'OVERLAY_DRAW instruction has invalid keys');
         return null;
       }
@@ -1327,7 +1416,7 @@ function validateInstruction(
       return instruction as GraphVmInstruction;
     }
     case 'OUTPUT': {
-      if (!hasExactKeys(instruction, ['op', 'nodeId', 'input', 'destination', 'dataType', 'risk'])) {
+      if (!hasExactInstructionKeys(instruction, ['op', 'nodeId', 'input', 'destination', 'dataType', 'risk'])) {
         addError(errors, prefix, 'OUTPUT instruction has invalid keys');
         return null;
       }
@@ -2045,7 +2134,7 @@ export function validateCompiledActionPackV2(candidate: unknown): ValidationResu
   const errors: string[] = [];
   candidate = migrateCompiledActionPackV2Candidate(candidate);
 
-  if (!isRecord(candidate) || !hasExactKeys(candidate, ['kind', 'schemaVersion', 'manifest', 'builder', 'risk', 'triggerPlan', 'requiredPermissions', 'vm'], ['sourceWorkspaceId', 'checksumHex', 'traceEnabledUntil', 'install'])) {
+  if (!isRecord(candidate) || !hasExactKeys(candidate, ['kind', 'schemaVersion', 'manifest', 'builder', 'risk', 'triggerPlan', 'requiredPermissions', 'vm'], ['sourceWorkspaceId', 'checksumHex', 'traceEnabledUntil', 'install', 'embeddedCustomBlocks'])) {
     return { ok: false, errors: ['The file is not a valid Action Pack'] };
   }
 
@@ -2092,6 +2181,7 @@ export function validateCompiledActionPackV2(candidate: unknown): ValidationResu
           triggerPlan: triggerPlanValidation.plan,
           requiredPermissions,
           vm: vmValidation.vm,
+          embeddedCustomBlocks: Array.isArray(candidate.embeddedCustomBlocks) ? candidate.embeddedCustomBlocks as CompiledActionPackV2['embeddedCustomBlocks'] : undefined,
           traceEnabledUntil: isNonNegativeInteger(candidate.traceEnabledUntil) ? candidate.traceEnabledUntil : undefined,
           install,
         },

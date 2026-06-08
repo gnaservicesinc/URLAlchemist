@@ -113,7 +113,8 @@ export function BundledExamplesPanel({
 
       <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {visibleExamples.map((example) => {
-          const installed = installedPackIds.has(example.id);
+          const hasActionPack = Boolean(example.actionPackPath);
+          const installed = hasActionPack && installedPackIds.has(example.id);
           const savedWorkspace = savedWorkspaceIds.has(example.id);
 
           return (
@@ -144,15 +145,19 @@ export function BundledExamplesPanel({
               </div>
 
               <div className="mt-auto flex flex-wrap gap-2 pt-5">
-                <button className="primary-button" type="button" onClick={() => onInstallActionPack(example)}>
-                  {installed ? 'Reinstall Action Pack' : 'Install Action Pack'}
-                </button>
+                {hasActionPack ? (
+                  <button className="primary-button" type="button" onClick={() => onInstallActionPack(example)}>
+                    {installed ? 'Reinstall Action Pack' : 'Install Action Pack'}
+                  </button>
+                ) : null}
                 <button className="secondary-button" type="button" onClick={() => onOpenWorkspace(example)}>
                   {savedWorkspace ? 'Restore Workspace' : 'Open Workspace'}
                 </button>
-                <button className="ghost-button" type="button" onClick={() => onDownloadActionPack(example)}>
-                  Export Pack
-                </button>
+                {hasActionPack ? (
+                  <button className="ghost-button" type="button" onClick={() => onDownloadActionPack(example)}>
+                    Export Pack
+                  </button>
+                ) : null}
                 {installed ? (
                   <button className="ghost-button" type="button" onClick={() => onDeleteInstalledActionPack(example)}>
                     Delete Installed Action Pack

@@ -34,29 +34,31 @@ for (const example of BUNDLED_ACTION_PACK_EXAMPLES) {
   const workspace = workspaceById.get(example.id);
   const pack = packById.get(example.id);
 
-  if (!workspace || !pack) {
+  if (!workspace || (example.actionPackPath && !pack)) {
     throw new Error(`Missing generated artifact for ${example.name}`);
   }
 
   await writeBytes(example.workspacePath, await exportWorkspaceBinary(workspace));
-  await writeBytes(example.actionPackPath, await exportCompiledActionPackV2Binary(pack));
+  if (example.actionPackPath && pack) {
+    await writeBytes(example.actionPackPath, await exportCompiledActionPackV2Binary(pack));
+  }
 }
 
 const artifactsByExample = await Promise.all(BUNDLED_ACTION_PACK_EXAMPLES.map(async (example) => {
   const workspace = workspaceById.get(example.id);
   const pack = packById.get(example.id);
-  if (!workspace || !pack) {
+  if (!workspace || (example.actionPackPath && !pack)) {
     throw new Error(`Missing generated artifact for ${example.name}`);
   }
   const workspaceBytes = await exportWorkspaceBinary(workspace);
-  const actionPackBytes = await exportCompiledActionPackV2Binary(pack);
+  const actionPackBytes = example.actionPackPath && pack ? await exportCompiledActionPackV2Binary(pack) : null;
   const collection = ['URL cleanup', 'Search', 'Storage'].includes(example.category) ? 'bundled' : 'examples';
   return {
     ...example,
     collection,
     artifactHashes: {
       workspaceSha256: sha256Hex(workspaceBytes),
-      actionPackSha256: sha256Hex(actionPackBytes),
+      actionPackSha256: actionPackBytes ? sha256Hex(actionPackBytes) : undefined,
     },
   };
 }));

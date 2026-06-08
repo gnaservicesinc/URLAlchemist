@@ -115,6 +115,7 @@ interface VmState {
   issues: EngineIssue[];
   trace: GraphTraceEntry[];
   outputs: Map<string, GraphValue>;
+  customInputs: Map<string, GraphValue>;
   aborted: boolean;
   exitCode: number;
 }
@@ -176,6 +177,7 @@ function createVmState(event?: OverlayRuntimeEvent): VmState {
     issues: [],
     trace: [],
     outputs: new Map(),
+    customInputs: new Map(),
     aborted: false,
     exitCode: 0,
   };
@@ -911,13 +913,20 @@ async function executeInstructionList(
 ): Promise<void> {
   const stepBudget = effectiveVmInstructionLimit(settings, program.stepBudget);
   for (const [index, instruction] of instructions.entries()) {
+    if (instruction.guard) {
+      const expected = instruction.guardExpected === 1;
+      if (truthy(getValue(state, instruction.guard)) !== expected) {
+        continue;
+      }
+    }
+
     if (index >= stepBudget) {
       state.issues.push(issue('VM step budget exceeded; pack execution was aborted'));
       break;
     }
 
     const issueCount = state.issues.length;
-    await executeInstruction(instruction, state, runtime, pack, program, inputUrl, event);
+    await executeInstruction(instruction, state, runtime, pack, program, settings, inputUrl, event);
     if (state.aborted || (state.issues.length > issueCount && program.safety.abortOnFailure)) {
       break;
     }
@@ -930,6 +939,7 @@ async function executeInstruction(
   runtime: GraphRuntime,
   pack: CompiledActionPackV2,
   program: GraphVmProgram,
+  settings: GlobalSettings,
   inputUrl: string,
   event: OverlayRuntimeEvent | undefined,
 ): Promise<void> {
@@ -1339,6 +1349,57 @@ async function executeInstruction(
         : getValue(state, instruction.falseValue) ?? instruction.fallbackFalse;
       setValue(state, instruction.output, selected, program.valueByteLimit);
       trace(state, instruction, 'Selected value', selected);
+      break;
+    }
+    case 'BRANCH': {
+      const selected = truthy(getValue(state, instruction.condition));
+      const value = getValue(state, instruction.input) ?? instruction.fallbackInput;
+      setValue(state, selected ? instruction.trueOutput : instruction.falseOutput, value, program.valueByteLimit);
+      trace(state, instruction, selected ? 'Selected true branch' : 'Selected false branch', value);
+      break;
+    }
+    case 'CUSTOM_INPUT': {
+      const value = state.customInputs.get(instruction.inputId) ?? instruction.fallback;
+      setValue(state, instruction.output, value, program.valueByteLimit);
+      trace(state, instruction, `Read custom input ${instruction.inputId}`, value);
+      break;
+    }
+    case 'CUSTOM_OUTPUT': {
+      const value = getValue(state, instruction.value) ?? instruction.fallback;
+      state.outputs.set(instruction.outputId, value);
+      trace(state, instruction, `Wrote custom output ${instruction.outputId}`, value);
+      break;
+    }
+    case 'CUSTOM_BLOCK': {
+      const subState = createVmState(event);
+      instruction.outputIds.forEach((outputId) => {
+        subState.outputs.delete(outputId);
+      });
+      Object.entries(instruction.inputDefaults).forEach(([inputId, value]) => {
+        subState.customInputs.set(inputId, value);
+      });
+      Object.entries(instruction.inputSymbols).forEach(([inputId, symbolId]) => {
+        const value = getValue(state, symbolId);
+        if (value) {
+          subState.customInputs.set(inputId, value);
+        }
+      });
+      const nestedInstructions = instruction.program.eventHandlers?.trigger ?? instruction.program.instructions;
+      await executeInstructionList(nestedInstructions, instruction.program, subState, runtime, pack, settings, inputUrl, event);
+      state.issues.push(...subState.issues);
+      state.trace.push(...subState.trace);
+      instruction.outputIds.forEach((outputId) => {
+        const value = subState.outputs.get(outputId);
+        const symbolId = instruction.outputSymbols[outputId];
+        if (value && symbolId) {
+          setValue(state, symbolId, value, program.valueByteLimit);
+        }
+      });
+      if (subState.aborted) {
+        state.aborted = true;
+        state.exitCode = subState.exitCode;
+      }
+      trace(state, instruction, `Ran custom block ${instruction.blockId}`);
       break;
     }
     case 'RANDOM_INT': {

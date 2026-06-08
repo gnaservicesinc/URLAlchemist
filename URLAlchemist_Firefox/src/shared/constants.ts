@@ -30,11 +30,12 @@ export const DEFAULT_SETTINGS: GlobalSettings = {
   defaultActionPackLoggingEnabled: false,
   ollamaEnabled: false,
   ollamaEndpoint: 'http://127.0.0.1:11434',
-  ollamaModel: 'llama3.2',
+  ollamaModel: '',
   ollamaTimeoutMs: 30_000,
   uiScale: 100,
   hardeningMaxInstructions: DEFAULT_VM_INSTRUCTION_LIMIT,
   hardeningMaxRecursion: MAX_REDIRECT_DEPTH,
   hardeningRegexTimeoutMs: REGEX_TIMEOUT_MS,
+  undoHistoryLimit: 100,
   builderUuid: crypto.randomUUID(),
 };

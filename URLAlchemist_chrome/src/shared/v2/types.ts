@@ -1,12 +1,14 @@
 import type { ActionPack, ActionPackLogSeverity, ActionType, MatchMode, WorkspaceTriggerType } from '../types';
 
-export const WORKSPACE_SCHEMA_VERSION = 8;
+export const WORKSPACE_SCHEMA_VERSION = 9;
+export const PREVIOUS_WORKSPACE_SCHEMA_VERSION = 8;
 export const LEGACY_WORKSPACE_SCHEMA_VERSION = 7;
 export const OLDER_WORKSPACE_SCHEMA_VERSION = 6;
 export const ANCIENT_WORKSPACE_SCHEMA_VERSION = 5;
 export const EARLIEST_WORKSPACE_SCHEMA_VERSION = 4;
 export const PRE_V2_WORKSPACE_SCHEMA_VERSION = 3;
-export const ACTION_PACK_SCHEMA_VERSION = 8;
+export const ACTION_PACK_SCHEMA_VERSION = 9;
+export const PREVIOUS_ACTION_PACK_SCHEMA_VERSION = 8;
 export const LEGACY_ACTION_PACK_SCHEMA_VERSION = 7;
 export const OLDER_ACTION_PACK_SCHEMA_VERSION = 6;
 export const ANCIENT_ACTION_PACK_SCHEMA_VERSION = 5;
@@ -14,6 +16,7 @@ export const EARLIEST_ACTION_PACK_SCHEMA_VERSION = 4;
 export const PRE_V2_ACTION_PACK_SCHEMA_VERSION = 3;
 export const SUPPORTED_WORKSPACE_SCHEMA_VERSIONS = [
   WORKSPACE_SCHEMA_VERSION,
+  PREVIOUS_WORKSPACE_SCHEMA_VERSION,
   LEGACY_WORKSPACE_SCHEMA_VERSION,
   OLDER_WORKSPACE_SCHEMA_VERSION,
   ANCIENT_WORKSPACE_SCHEMA_VERSION,
@@ -22,6 +25,7 @@ export const SUPPORTED_WORKSPACE_SCHEMA_VERSIONS = [
 ] as const;
 export const SUPPORTED_ACTION_PACK_SCHEMA_VERSIONS = [
   ACTION_PACK_SCHEMA_VERSION,
+  PREVIOUS_ACTION_PACK_SCHEMA_VERSION,
   LEGACY_ACTION_PACK_SCHEMA_VERSION,
   OLDER_ACTION_PACK_SCHEMA_VERSION,
   ANCIENT_ACTION_PACK_SCHEMA_VERSION,
@@ -136,6 +140,10 @@ export const BLOCK_TYPE_IDS = {
   ChallengeConfirm: 53,
   ChallengeReason: 54,
   ChallengeComplete: 55,
+  LogicalFlow: 56,
+  CustomBlock: 57,
+  CustomBlockInput: 58,
+  CustomBlockOutput: 59,
 } as const;
 
 export type BlockKind = keyof typeof BLOCK_TYPE_IDS;
@@ -161,7 +169,15 @@ export interface BlockDefinition {
   kind: BlockKind;
   typeId: BlockTypeId;
   label: string;
-  category: 'flow' | 'logic' | 'regex' | 'math' | 'storage' | 'convert' | 'data' | 'interaction' | 'media' | 'debug' | 'content-blocker';
+  category: 'flow' | 'logic' | 'regex' | 'math' | 'storage' | 'convert' | 'data' | 'interaction' | 'media' | 'debug' | 'content-blocker' | 'custom';
+  description?: string;
+  tips?: string[];
+  custom?: {
+    blockId: string;
+    version: number;
+    sourceWorkspaceId?: string;
+  };
+  visibleWorkspaceTypes?: WorkspaceType[];
   inputs: GraphPortDefinition[];
   outputs: GraphPortDefinition[];
   flags: BlockFlags;
@@ -287,7 +303,7 @@ export type UrlQueryMode =
   | 'SORT_PARAMS'
   | 'REBUILD';
 export type DictOperationMode = 'MERGE' | 'DELETE_KEY' | 'HAS_KEY' | 'KEYS' | 'VALUES';
-export type WorkspaceType = 'data-modifier' | 'content-blocker';
+export type WorkspaceType = 'data-modifier' | 'content-blocker' | 'custom-block';
 export type ContentBlockerSurfaceId = 'page-load' | 'recurring' | 'challenge';
 export type ContentBlockerChallengeTaskKind = 'timer' | 'typer' | 'clicker' | 'confirm' | 'reason';
 
@@ -412,6 +428,18 @@ export interface WorkspaceBlockSettings {
   challengeSeconds?: number;
   challengeText?: string;
   challengeCount?: number;
+  logicalFlowGroupId?: string;
+  logicalFlowRole?: 'condition' | 'control';
+  customBlockId?: string;
+  customBlockName?: string;
+  customBlockVersion?: number;
+  customBlockInputs?: CustomBlockPortDefinition[];
+  customBlockOutputs?: CustomBlockPortDefinition[];
+  customBlockFields?: CustomBlockFieldDefinition[];
+  customPortId?: string;
+  customPortLabel?: string;
+  customPortDataType?: GraphDataType;
+  customFieldValues?: Record<string, string>;
 }
 
 export interface WorkspaceNodeV2 {
@@ -457,6 +485,54 @@ export interface ContentBlockerWorkspaceConfig {
   challengePageMessage: string;
 }
 
+export type CustomBlockFieldVisibility = 'visible' | 'advanced' | 'hidden';
+
+export interface CustomBlockFieldDefinition {
+  id: string;
+  label: string;
+  dataType: GraphDataType;
+  defaultValue?: string;
+  tooltip?: string;
+  visibility?: CustomBlockFieldVisibility;
+}
+
+export interface CustomBlockPortDefinition {
+  id: string;
+  label: string;
+  dataType: GraphDataType;
+  tooltip?: string;
+}
+
+export interface WorkspaceCustomBlockDefinition {
+  blockId: string;
+  label: string;
+  version: number;
+  category: BlockDefinition['category'];
+  visibleWorkspaceTypes: WorkspaceType[];
+  description?: string;
+  tips?: string[];
+  inputs: CustomBlockPortDefinition[];
+  outputs: CustomBlockPortDefinition[];
+  fields: CustomBlockFieldDefinition[];
+}
+
+export interface WorkspaceEmbeddedCustomBlock {
+  blockId: string;
+  version: number;
+  checksumHex?: string;
+  workspace: WorkspaceFileV2;
+  installedVersion?: number;
+  useEmbedded?: boolean;
+}
+
+export interface WorkspaceLogicalFlowGroup {
+  id: string;
+  conditionNodeId: string;
+  controlNodeId: string;
+  depth: number;
+  locked?: boolean;
+}
+
 export interface WorkspaceValidationState {
   valid: boolean;
   errors: string[];
@@ -477,6 +553,9 @@ export interface WorkspaceFileV2 {
   contentBlocker?: ContentBlockerWorkspaceConfig;
   assets?: AssetRef[];
   viewport: WorkspaceViewport;
+  logicalFlows?: WorkspaceLogicalFlowGroup[];
+  customBlock?: WorkspaceCustomBlockDefinition;
+  embeddedCustomBlocks?: WorkspaceEmbeddedCustomBlock[];
   validationState?: WorkspaceValidationState;
 }
 
@@ -559,8 +638,8 @@ export interface CompiledBuilderMetadataV2 {
   builderUuid: string;
 }
 
-export type GraphVmInstruction =
-  | {
+export type GraphVmInstruction = (
+  {
       op: 'SOURCE';
       nodeId: string;
       source: string;
@@ -766,6 +845,15 @@ export type GraphVmInstruction =
 	      fallbackTrue: GraphValue;
 	      fallbackFalse: GraphValue;
 	    }
+  | {
+      op: 'BRANCH';
+      nodeId: string;
+      condition?: string;
+      input?: string;
+      trueOutput: string;
+      falseOutput: string;
+      fallbackInput: GraphValue;
+    }
 	  | {
 	      op: 'RANDOM_INT';
 	      nodeId: string;
@@ -872,6 +960,31 @@ export type GraphVmInstruction =
 	      cellSize: number;
 	      background: string;
 	    }
+  | {
+      op: 'CUSTOM_INPUT';
+      nodeId: string;
+      inputId: string;
+      output: string;
+      fallback: GraphValue;
+    }
+  | {
+      op: 'CUSTOM_OUTPUT';
+      nodeId: string;
+      outputId: string;
+      value?: string;
+      fallback: GraphValue;
+    }
+  | {
+      op: 'CUSTOM_BLOCK';
+      nodeId: string;
+      blockId: string;
+      version: number;
+      inputSymbols: Record<string, string | undefined>;
+      outputSymbols: Record<string, string>;
+      program: GraphVmProgram;
+      inputDefaults: Record<string, GraphValue>;
+      outputIds: string[];
+    }
 	  | {
 	      op: 'OUTPUT';
 	      nodeId: string;
@@ -879,7 +992,11 @@ export type GraphVmInstruction =
       destination: string;
       dataType: GraphDataType;
       risk: RiskLevel;
-    };
+    }
+) & {
+  guard?: string;
+  guardExpected?: 0 | 1;
+};
 
 export interface GraphVmSafetyRule {
   nodeId: string;
@@ -909,6 +1026,27 @@ export interface GraphVmProgram {
   safety: GraphVmSafetyPolicy;
 }
 
+export interface CompiledCustomBlockV2 {
+  kind: 'custom-block.v2';
+  schemaVersion: typeof ACTION_PACK_SCHEMA_VERSION;
+  blockId: string;
+  label: string;
+  version: number;
+  category: BlockDefinition['category'];
+  description?: string;
+  tips?: string[];
+  visibleWorkspaceTypes: WorkspaceType[];
+  inputs: CustomBlockPortDefinition[];
+  outputs: CustomBlockPortDefinition[];
+  fields: CustomBlockFieldDefinition[];
+  sourceWorkspaceId: string;
+  sourceWorkspace?: WorkspaceFileV2;
+  sourceChecksumHex?: string;
+  vm: GraphVmProgram;
+  risk: CompiledRiskSummary;
+  installedAt: number;
+}
+
 export interface CompiledActionPackV2 {
   kind: 'action-pack.v2';
   schemaVersion: typeof ACTION_PACK_SCHEMA_VERSION;
@@ -919,6 +1057,7 @@ export interface CompiledActionPackV2 {
   triggerPlan: CompiledTriggerPlan;
   requiredPermissions: string[];
   vm: GraphVmProgram;
+  embeddedCustomBlocks?: WorkspaceEmbeddedCustomBlock[];
   checksumHex?: string;
   traceEnabledUntil?: number;
   install?: ActionPackInstallMetadata;
@@ -971,6 +1110,7 @@ export interface GraphCompileResult {
   workspace: WorkspaceFileV2;
   validation: WorkspaceValidationState;
   pack?: CompiledActionPackV2;
+  customBlock?: CompiledCustomBlockV2;
 }
 
 export type ImportedV2Artifact =

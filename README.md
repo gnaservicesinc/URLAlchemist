@@ -35,7 +35,7 @@ URL Alchemist stores data locally by default. Profile sync is optional and best-
 
 Build the browser workflows you actually need, inspect what they do, and keep control over how your tabs, URLs, page data, and overlays behave.
 
-Version 2.5.0 focuses on trust-oriented cleanup, large local resources, Focus Guard content blocking, extension-local locks, per-pack logging controls, and local-only Ollama workspace drafting.
+Version 2.6.0 adds AI Connectors model discovery, editor undo, Logical Flow branching, and Custom Block workspaces while preserving V1 import and V2 migration paths.
 - Updated workspace and Action Pack schema to 7 while preserving V1 `.urlpack` import/conversion and older V2 migrations.
 - Removed version-file export/update metadata from workspace and Action Pack metadata; old fields are stripped during migration and export.
 - Added local-only install metadata for trust source, review status, logging, locks, install timestamps, checksums, and Focus Guard statistics.

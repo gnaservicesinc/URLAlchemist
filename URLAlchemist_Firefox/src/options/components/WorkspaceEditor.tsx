@@ -44,7 +44,26 @@ import { formatEventHandler, formatRunType } from '../../shared/v2/labels';
 import { createSandboxGraphRuntime } from '../../shared/v2/sandboxRuntime';
 import { createWorkspaceBlockClipboard, pasteWorkspaceBlockClipboard, type WorkspaceBlockClipboard } from '../../shared/v2/workspaceClipboard';
 import { createDefaultContentBlockerWorkspace, createEdge, createWorkspaceNode } from '../../shared/v2/workspace';
-import type { AssetRef, BlockDefinition, BlockKind, ContentBlockerSurfaceId, GraphEventHandler, GraphPortDefinition, GraphValue, RiskLevel, WorkspaceBlockSettings, WorkspaceFileV2, WorkspaceGraphSurface, WorkspaceNodeV2, WorkspaceType } from '../../shared/v2/types';
+import type {
+  AssetRef,
+  BlockDefinition,
+  BlockKind,
+  CompiledCustomBlockV2,
+  ContentBlockerSurfaceId,
+  CustomBlockFieldDefinition,
+  CustomBlockPortDefinition,
+  GraphDataType,
+  GraphEventHandler,
+  GraphPortDefinition,
+  GraphValue,
+  RiskLevel,
+  WorkspaceBlockSettings,
+  WorkspaceFileV2,
+  WorkspaceGraphSurface,
+  WorkspaceLogicalFlowGroup,
+  WorkspaceNodeV2,
+  WorkspaceType,
+} from '../../shared/v2/types';
 import { extractVariableReferences, normalizeVariableName, validateVariableName, variableDrivenInputHandles } from '../../shared/v2/variables';
 import { executeCompiledActionPackV2 } from '../../shared/v2/vm';
 import { toActivityDraft, updateActivityDraft, type ActivityDraft } from '../drafts';
@@ -69,9 +88,12 @@ interface WorkspaceEditorProps {
   onWorkspaceChange: (workspace: WorkspaceFileV2, options?: WorkspaceChangeOptions) => void;
   onUploadResource: (file: File) => Promise<AssetRef>;
   onBuildActionPack: () => void;
+  canUndo: boolean;
+  customBlocks: CompiledCustomBlockV2[];
   onExportActionPack: () => void;
   onExportWorkspace: () => void;
   onSaveWorkspace: () => void;
+  onUndo: () => void;
 }
 
 interface WorkspaceBlockData {
@@ -102,6 +124,19 @@ interface DeclaredVariable {
 
 type WorkspaceFlowNode = Node<WorkspaceBlockData, 'workspaceBlock'>;
 
+interface FlowContainerData {
+  [key: string]: unknown;
+  branch: 'true' | 'false';
+  count: number;
+  depth: number;
+  height: number;
+  label: string;
+  width: number;
+}
+
+type LogicalFlowContainerNode = Node<FlowContainerData, 'logicalFlowContainer'>;
+type WorkspaceCanvasNode = WorkspaceFlowNode | LogicalFlowContainerNode;
+
 const DATA_TYPE_COLORS: Record<string, string> = {
   bool: '#2563eb',
   number: '#0f766e',
@@ -115,6 +150,13 @@ const DATA_TYPE_COLORS: Record<string, string> = {
   Any: '#334155',
 };
 
+const LOGICAL_FLOW_BRANCH_COLORS = [
+  { border: '#0f766e', background: 'rgba(15, 118, 110, 0.12)', text: '#0f766e' },
+  { border: '#7c3aed', background: 'rgba(124, 58, 237, 0.12)', text: '#6d28d9' },
+  { border: '#b45309', background: 'rgba(180, 83, 9, 0.13)', text: '#92400e' },
+  { border: '#0369a1', background: 'rgba(3, 105, 161, 0.12)', text: '#075985' },
+];
+
 const CATEGORY_LABELS: Record<BlockDefinition['category'], string> = {
   convert: 'Convert',
   data: 'Data',
@@ -127,7 +169,10 @@ const CATEGORY_LABELS: Record<BlockDefinition['category'], string> = {
   media: 'Media',
   regex: 'Regex',
   storage: 'Storage',
+  custom: 'Custom',
 };
+
+const DATA_TYPE_OPTIONS: GraphDataType[] = ['bool', 'number', 'floatingPoint', 'string', 'URL', 'JSON', 'data', 'dict', 'asset', 'Any'];
 
 const EVENT_LANE_DEFINITIONS = [
   { id: 'trigger', label: 'Trigger', sourceTypes: new Set<BlockKind>(['DataFlowIn', 'ContentDataIn', 'ExtendedDataIn', 'OnTriggerEvent']) },
@@ -157,6 +202,93 @@ function categoryLabel(category: BlockDefinition['category']): string {
   return CATEGORY_LABELS[category] ?? category;
 }
 
+function graphPortFromCustomPort(portDefinition: CustomBlockPortDefinition): GraphPortDefinition {
+  return {
+    id: portDefinition.id,
+    label: portDefinition.label,
+    dataType: portDefinition.dataType,
+    description: portDefinition.tooltip,
+  };
+}
+
+function customBlockDefinition(block: CompiledCustomBlockV2): BlockDefinition {
+  const base = getBlockDefinition('CustomBlock');
+  return {
+    ...base,
+    label: block.label,
+    category: 'custom',
+    description: block.description ?? 'Runs a locally installed custom block.',
+    tips: block.tips,
+    custom: {
+      blockId: block.blockId,
+      version: block.version,
+      sourceWorkspaceId: block.sourceWorkspaceId,
+    },
+    visibleWorkspaceTypes: block.visibleWorkspaceTypes,
+    inputs: block.inputs.map(graphPortFromCustomPort),
+    outputs: block.outputs.map(graphPortFromCustomPort),
+    defaultSettings: {
+      ...base.defaultSettings,
+      label: block.label,
+      customBlockId: block.blockId,
+      customBlockName: block.label,
+      customBlockVersion: block.version,
+      customBlockInputs: block.inputs,
+      customBlockOutputs: block.outputs,
+      customBlockFields: block.fields,
+      customFieldValues: Object.fromEntries(block.fields.map((field) => [field.id, field.defaultValue ?? ''])),
+    },
+  };
+}
+
+function availableBlockDefinitions(workspaceType: WorkspaceType, customBlocks: CompiledCustomBlockV2[], baseDefinitions: BlockDefinition[] = BLOCK_DEFINITIONS): BlockDefinition[] {
+  const staticDefinitions = baseDefinitions.filter((definition) => {
+    if (definition.kind === 'CustomBlock') {
+      return false;
+    }
+    if (workspaceType !== 'custom-block' && (definition.kind === 'CustomBlockInput' || definition.kind === 'CustomBlockOutput')) {
+      return false;
+    }
+    if (definition.visibleWorkspaceTypes && !definition.visibleWorkspaceTypes.includes(workspaceType)) {
+      return false;
+    }
+    return true;
+  });
+  const generatedDefinitions = customBlocks
+    .filter((block) => block.visibleWorkspaceTypes.includes(workspaceType))
+    .map(customBlockDefinition);
+  return [...staticDefinitions, ...generatedDefinitions];
+}
+
+function blockPickerKey(definition: BlockDefinition): string {
+  return definition.custom?.blockId ? `${definition.kind}:${definition.custom.blockId}` : definition.kind;
+}
+
+function settingsForDefinition(definition: BlockDefinition): Partial<WorkspaceBlockSettings> {
+  if (definition.kind !== 'CustomBlock' || !definition.custom) {
+    return definition.defaultSettings;
+  }
+
+  return {
+    ...definition.defaultSettings,
+    customBlockId: definition.custom.blockId,
+    customBlockName: definition.label,
+    customBlockVersion: definition.custom.version,
+    customBlockInputs: definition.inputs.map((portDefinition) => ({
+      id: portDefinition.id,
+      label: portDefinition.label,
+      dataType: portDefinition.dataType,
+      tooltip: portDefinition.description,
+    })),
+    customBlockOutputs: definition.outputs.map((portDefinition) => ({
+      id: portDefinition.id,
+      label: portDefinition.label,
+      dataType: portDefinition.dataType,
+      tooltip: portDefinition.description,
+    })),
+  };
+}
+
 const BLOCK_SEARCH_TERMS: Partial<Record<BlockKind, string>> = {
   TextTransform: 'clean text trim whitespace clipboard normalize uppercase lowercase url encode decode control characters',
   TextSplitJoin: 'split join lines comma list data to string string to data clipboard',
@@ -174,9 +306,13 @@ const BLOCK_SEARCH_TERMS: Partial<Record<BlockKind, string>> = {
   ExtendedDataIn: 'clipboard page raw html high risk input',
   ExtendedDataOut: 'clipboard page mutation high risk output',
   Convert: 'data to string string to url json dict number',
+  LogicalFlow: 'if else branch flow true false condition run selected side effects',
+  CustomBlock: 'custom reusable installed workspace block',
+  CustomBlockInput: 'custom block input interface port',
+  CustomBlockOutput: 'custom block output interface port',
 };
 
-const DEFAULT_QUICK_BLOCK_KINDS: BlockKind[] = ['TextTransform', 'UrlQuery', 'Substitution', 'Logical', 'ConditionOut', 'SaveStringToLog', 'Abort', 'SharedState', 'OverlayControl', 'OverlayDraw'];
+const DEFAULT_QUICK_BLOCK_KINDS: BlockKind[] = ['TextTransform', 'UrlQuery', 'Substitution', 'Logical', 'LogicalFlow', 'ConditionOut', 'SaveStringToLog', 'Abort', 'SharedState', 'OverlayControl', 'OverlayDraw'];
 const CONTENT_BLOCKER_DECISION_BLOCK_KINDS: BlockKind[] = ['ContentDataIn', 'Constant', 'Logical', 'Math', 'ConditionSelect', 'TextTransform', 'UrlQuery', 'RegExpression', 'DecisionOut', 'SaveStringToLog'];
 const CONTENT_BLOCKER_CHALLENGE_BLOCK_KINDS: BlockKind[] = ['ChallengeTimer', 'ChallengeTyper', 'ChallengeClicker', 'ChallengeConfirm', 'ChallengeReason', 'ChallengeComplete', 'Constant', 'Math', 'Logical', 'ConditionSelect', 'TextTransform', 'Substitution'];
 const CONTENT_BLOCKER_SURFACE_META: Array<{ id: ContentBlockerSurfaceId; label: string; description: string }> = [
@@ -1080,6 +1216,9 @@ function renderBlockSettings(
     case 'ConditionSelect':
       return (
         <div className="mt-3 grid gap-2">
+          <p className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] leading-5 text-amber-800">
+            Condition Select chooses between values. It does not control which downstream side-effect blocks run. Use Logical Flow for if/else branch execution.
+          </p>
           <SettingField help="Fallback parser for the True and False literal values." label="Fallback type">
             <select className={inputClass} value={node.settings.literalDataType ?? 'number'} onChange={(event) => onSettingsChange({ literalDataType: event.target.value as WorkspaceBlockSettings['literalDataType'] })}>
               <option value="bool">Bool</option>
@@ -1096,6 +1235,69 @@ function renderBlockSettings(
           {!isConnected('falseValue') ? <SettingField help="Used when the False input is not connected." label="False value">
             <input className={inputClass} value={settingText(node.settings.selectFalseValue)} onChange={(event) => onSettingsChange({ selectFalseValue: event.target.value })} />
           </SettingField> : connectedNote('False value')}
+        </div>
+      );
+    case 'LogicalFlow':
+      return (
+        <div className="mt-3 grid gap-2">
+          <p className="rounded-lg border border-teal-200 bg-teal-50 px-2 py-1 text-[11px] leading-5 text-teal-800">
+            Only the selected branch runs. Side-effect blocks in the other branch are skipped by the VM.
+          </p>
+          {!isConnected('input') ? (
+            <SettingField help="Fallback value passed into the selected branch when Input is not connected." label="Fallback input">
+              <input className={inputClass} value={settingText(node.settings.literalValue)} onChange={(event) => onSettingsChange({ literalValue: event.target.value })} />
+            </SettingField>
+          ) : connectedNote('Input')}
+          <SettingField help="Parser for the fallback input value." label="Fallback type">
+            <select className={inputClass} value={node.settings.literalDataType ?? 'Any'} onChange={(event) => onSettingsChange({ literalDataType: event.target.value as WorkspaceBlockSettings['literalDataType'] })}>
+              {DATA_TYPE_OPTIONS.filter((type) => type !== 'asset').map((type) => (
+                <option key={type} value={type}>{type}</option>
+              ))}
+            </select>
+          </SettingField>
+        </div>
+      );
+    case 'CustomBlock':
+      return (
+        <div className="mt-3 grid gap-2">
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] leading-5 text-slate-600">
+            <span className="font-semibold text-slate-800">Custom</span>
+            {node.settings.customBlockName ? ` · ${node.settings.customBlockName}` : ''}
+            {node.settings.customBlockVersion ? ` v${node.settings.customBlockVersion}` : ''}
+          </div>
+          {(node.settings.customBlockFields ?? []).filter((field) => field.visibility !== 'hidden').map((field) => (
+            <SettingField key={field.id} help={field.tooltip} label={field.label}>
+              <input
+                className={inputClass}
+                value={settingText(node.settings.customFieldValues?.[field.id] ?? field.defaultValue)}
+                onChange={(event) => onSettingsChange({
+                  customFieldValues: {
+                    ...(node.settings.customFieldValues ?? {}),
+                    [field.id]: event.target.value,
+                  },
+                })}
+              />
+            </SettingField>
+          ))}
+        </div>
+      );
+    case 'CustomBlockInput':
+    case 'CustomBlockOutput':
+      return (
+        <div className="mt-3 grid gap-2">
+          <SettingField help="Stable interface port id used by Custom Block callers." label="Port id">
+            <input className={inputClass} value={settingText(node.settings.customPortId)} onChange={(event) => onSettingsChange({ customPortId: event.target.value })} />
+          </SettingField>
+          <SettingField help="User-facing interface port label." label="Port label">
+            <input className={inputClass} value={settingText(node.settings.customPortLabel)} onChange={(event) => onSettingsChange({ customPortLabel: event.target.value })} />
+          </SettingField>
+          <SettingField help="The value type for this Custom Block interface port." label="Port type">
+            <select className={inputClass} value={node.settings.customPortDataType ?? 'Any'} onChange={(event) => onSettingsChange({ customPortDataType: event.target.value as GraphDataType })}>
+              {DATA_TYPE_OPTIONS.map((type) => (
+                <option key={type} value={type}>{type}</option>
+              ))}
+            </select>
+          </SettingField>
         </div>
       );
     case 'RandomNumber':
@@ -1424,8 +1626,28 @@ const WorkspaceBlockNode = memo(function WorkspaceBlockNode({ data, selected }: 
   );
 });
 
+const LogicalFlowContainerNode = memo(function LogicalFlowContainerNode({ data }: NodeProps<LogicalFlowContainerNode>) {
+  return (
+    <div
+      className="rounded-xl border-2 border-dashed px-4 py-3 text-xs font-semibold"
+      style={{ height: data.height, width: data.width }}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <span>{data.label}</span>
+        <span className="rounded-full bg-white/65 px-2 py-0.5 font-mono text-[10px]">{data.count}</span>
+      </div>
+      {data.count === 0 ? (
+        <div className="mt-10 flex h-20 items-center justify-center rounded-lg border border-dashed border-current bg-white/25 text-center text-[10px] uppercase tracking-[0.16em] opacity-70">
+          Add block here
+        </div>
+      ) : null}
+    </div>
+  );
+});
+
 const nodeTypes = {
   workspaceBlock: WorkspaceBlockNode,
+  logicalFlowContainer: LogicalFlowContainerNode,
 };
 
 function regexActivityFromNode(node: WorkspaceNodeV2): Activity {
@@ -1488,6 +1710,138 @@ function buildDownstreamNodeIds(workspace: WorkspaceFileV2, sourceTypes: Set<Blo
   }
 
   return visited;
+}
+
+function downstreamNodeIdsFromOutput(workspace: WorkspaceFileV2, sourceId: string, sourceHandle: string): Set<string> {
+  const visited = new Set<string>();
+  const queue = workspace.edges
+    .filter((edge) => edge.source === sourceId && edge.sourceHandle === sourceHandle)
+    .map((edge) => edge.target);
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (visited.has(current)) {
+      continue;
+    }
+    visited.add(current);
+    workspace.edges
+      .filter((edge) => edge.source === current)
+      .forEach((edge) => queue.push(edge.target));
+  }
+
+  return visited;
+}
+
+function logicalFlowGroupForNode(workspace: WorkspaceFileV2, nodeId: string): WorkspaceLogicalFlowGroup | null {
+  const directGroupId = workspace.nodes.find((node) => node.id === nodeId)?.settings.logicalFlowGroupId;
+  const directGroup = directGroupId ? workspace.logicalFlows?.find((group) => group.id === directGroupId) : undefined;
+  if (directGroup) {
+    return directGroup;
+  }
+
+  return workspace.logicalFlows?.find((group) => logicalFlowUnitNodeIds(workspace, group).has(nodeId)) ?? null;
+}
+
+function logicalFlowUnitNodeIds(workspace: WorkspaceFileV2, group: WorkspaceLogicalFlowGroup): Set<string> {
+  const ids = new Set<string>([group.conditionNodeId, group.controlNodeId]);
+  downstreamNodeIdsFromOutput(workspace, group.controlNodeId, 'trueValue').forEach((id) => ids.add(id));
+  downstreamNodeIdsFromOutput(workspace, group.controlNodeId, 'falseValue').forEach((id) => ids.add(id));
+  return ids;
+}
+
+function expandLogicalFlowDeletion(workspace: WorkspaceFileV2, requestedNodeIds: Set<string>): Set<string> {
+  const expanded = new Set(requestedNodeIds);
+  requestedNodeIds.forEach((nodeId) => {
+    const group = logicalFlowGroupForNode(workspace, nodeId);
+    if (!group) {
+      return;
+    }
+    logicalFlowUnitNodeIds(workspace, group).forEach((id) => expanded.add(id));
+  });
+  return expanded;
+}
+
+function pruneLogicalFlowGroups(workspace: WorkspaceFileV2, removedIds: Set<string>): WorkspaceLogicalFlowGroup[] | undefined {
+  const groups = (workspace.logicalFlows ?? []).filter((group) => !removedIds.has(group.conditionNodeId) && !removedIds.has(group.controlNodeId));
+  return groups.length > 0 ? groups : undefined;
+}
+
+function buildLogicalFlowUnit(workspace: WorkspaceFileV2, x: number, y: number): WorkspaceFileV2 {
+  const groupId = crypto.randomUUID();
+  const maxDepth = workspace.logicalFlows?.reduce((max, group) => Math.max(max, group.depth), 0) ?? 0;
+  const condition = createWorkspaceNode('Logical', { x, y }, {
+    label: 'Logic',
+    locked: true,
+    logicalFlowGroupId: groupId,
+    logicalFlowRole: 'condition',
+  });
+  const control = createWorkspaceNode('LogicalFlow', { x, y: y + 210 }, {
+    label: 'Logical Flow',
+    locked: true,
+    logicalFlowGroupId: groupId,
+    logicalFlowRole: 'control',
+  });
+  const group: WorkspaceLogicalFlowGroup = {
+    id: groupId,
+    conditionNodeId: condition.id,
+    controlNodeId: control.id,
+    depth: maxDepth + 1,
+    locked: true,
+  };
+
+  return {
+    ...workspace,
+    metadata: { ...workspace.metadata, updated_at: Date.now() },
+    nodes: [...workspace.nodes, condition, control],
+    edges: [...workspace.edges, createEdge(condition.id, 'result', control.id, 'condition')],
+    logicalFlows: [...(workspace.logicalFlows ?? []), group],
+  };
+}
+
+function createLogicalFlowContainerNodes(workspace: WorkspaceFileV2): LogicalFlowContainerNode[] {
+  return (workspace.logicalFlows ?? []).flatMap((group) => {
+    const control = workspace.nodes.find((node) => node.id === group.controlNodeId);
+    if (!control) {
+      return [];
+    }
+
+    return (['true', 'false'] as const).map((branch) => {
+      const nodeIds = downstreamNodeIdsFromOutput(workspace, group.controlNodeId, branch === 'true' ? 'trueValue' : 'falseValue');
+      const branchNodes = workspace.nodes.filter((node) => nodeIds.has(node.id));
+      const color = LOGICAL_FLOW_BRANCH_COLORS[group.depth % LOGICAL_FLOW_BRANCH_COLORS.length];
+      const fallbackX = control.position.x + 370;
+      const fallbackY = control.position.y + (branch === 'true' ? -130 : 170);
+      const minX = branchNodes.length > 0 ? Math.min(...branchNodes.map((node) => node.position.x)) - 48 : fallbackX;
+      const minY = branchNodes.length > 0 ? Math.min(...branchNodes.map((node) => node.position.y)) - 54 : fallbackY;
+      const maxX = branchNodes.length > 0 ? Math.max(...branchNodes.map((node) => node.position.x + 300)) + 48 : fallbackX + 350;
+      const maxY = branchNodes.length > 0 ? Math.max(...branchNodes.map((node) => node.position.y + 230)) + 54 : fallbackY + 210;
+
+      return {
+        id: `logical-flow-${group.id}-${branch}`,
+        type: 'logicalFlowContainer',
+        position: { x: minX, y: minY },
+        selectable: false,
+        draggable: false,
+        data: {
+          branch,
+          count: branchNodes.length,
+          depth: group.depth,
+          height: Math.max(190, maxY - minY),
+          label: branch === 'true' ? 'True branch' : 'False branch',
+          width: Math.max(340, maxX - minX),
+        },
+        style: {
+          borderColor: color.border,
+          backgroundColor: color.background,
+          color: color.text,
+          height: Math.max(190, maxY - minY),
+          pointerEvents: 'none',
+          width: Math.max(340, maxX - minX),
+          zIndex: 0,
+        },
+      } satisfies LogicalFlowContainerNode;
+    });
+  });
 }
 
 function buildEventLaneTargets(workspace: WorkspaceFileV2): Record<EventLaneId, Set<string>> {
@@ -1711,8 +2065,10 @@ function applyConnectionQuickFix(workspace: WorkspaceFileV2, fix: ConnectionQuic
 interface WorkspaceFlowProps {
   advancedModeEnabled: boolean;
   availableBlocks?: BlockDefinition[];
+  canUndo?: boolean;
   workspace: WorkspaceFileV2;
   resourceAssets: AssetRef[];
+  onUndo?: () => void;
   onUploadResource: (file: File) => Promise<AssetRef>;
   onWorkspaceChange: (workspace: WorkspaceFileV2, options?: WorkspaceChangeOptions) => void;
   invalidEdgeIds: Set<string>;
@@ -1720,7 +2076,7 @@ interface WorkspaceFlowProps {
   heightClassName?: string;
 }
 
-function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITIONS, workspace, resourceAssets, onUploadResource, onWorkspaceChange, invalidEdgeIds, focusRequest, heightClassName = 'h-[720px]' }: WorkspaceFlowProps) {
+function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITIONS, canUndo = false, workspace, resourceAssets, onUndo, onUploadResource, onWorkspaceChange, invalidEdgeIds, focusRequest, heightClassName = 'h-[720px]' }: WorkspaceFlowProps) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const pendingSelectionRef = useRef<Set<string> | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; flowX: number; flowY: number } | null>(null);
@@ -1749,6 +2105,25 @@ function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITION
         return;
       }
 
+      const group = logicalFlowGroupForNode(workspace, nodeId);
+      if (group) {
+        const unitNodeIds = logicalFlowUnitNodeIds(workspace, group);
+        const nextLocked = !node.settings.locked;
+        onWorkspaceChange({
+          ...workspace,
+          metadata: { ...workspace.metadata, updated_at: Date.now() },
+          logicalFlows: (workspace.logicalFlows ?? []).map((candidate) => candidate.id === group.id ? { ...candidate, locked: nextLocked } : candidate),
+          nodes: workspace.nodes.map((candidate) => unitNodeIds.has(candidate.id) ? {
+            ...candidate,
+            settings: {
+              ...candidate.settings,
+              locked: nextLocked,
+            },
+          } : candidate),
+        });
+        return;
+      }
+
       onWorkspaceChange(updateNodeSettings(workspace, nodeId, { locked: !node.settings.locked }));
     },
     [onWorkspaceChange, workspace],
@@ -1768,8 +2143,9 @@ function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITION
 
   const handleDeleteNodes = useCallback(
     (nodeIds: string[]): void => {
+      const requestedIds = expandLogicalFlowDeletion(workspace, new Set(nodeIds));
       const removedIds = new Set(
-        nodeIds.filter((nodeId) => {
+        Array.from(requestedIds).filter((nodeId) => {
           const node = workspace.nodes.find((candidate) => candidate.id === nodeId);
           return node && getBlockDefinition(node.type).flags.canDelete && !node.settings.locked;
         }),
@@ -1784,6 +2160,7 @@ function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITION
         metadata: { ...workspace.metadata, updated_at: Date.now() },
         nodes: workspace.nodes.filter((node) => !removedIds.has(node.id)),
         edges: workspace.edges.filter((edge) => !removedIds.has(edge.source) && !removedIds.has(edge.target)),
+        logicalFlows: pruneLogicalFlowGroups(workspace, removedIds),
       });
     },
     [onWorkspaceChange, workspace],
@@ -1793,9 +2170,11 @@ function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITION
     handleDeleteNodes([nodeId]);
   }, [handleDeleteNodes]);
 
-  const workspaceNodes = useMemo<WorkspaceFlowNode[]>(
+  const workspaceNodes = useMemo<WorkspaceCanvasNode[]>(
     () =>
-      workspace.nodes.map((node) => {
+      [
+      ...createLogicalFlowContainerNodes(workspace),
+      ...workspace.nodes.map((node) => {
         const definition = getBlockDefinition(node.type);
         const inputs = getEffectivePortDefinitions(node, 'input');
         const outputs = getEffectivePortDefinitions(node, 'output');
@@ -1830,8 +2209,10 @@ function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITION
           },
           deletable: definition.flags.canDelete && !node.settings.locked,
           draggable: !node.settings.locked,
-        };
+          zIndex: 10,
+        } satisfies WorkspaceFlowNode;
       }),
+      ],
     [workspace, invalidEdgeIds, resourceAssets, declaredVariables, handleCollapseToggle, handleDeleteNode, handleLockToggle, handleSettingsChange, onUploadResource],
   );
 
@@ -1854,7 +2235,7 @@ function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITION
   const laneTargets = useMemo(() => buildEventLaneTargets(workspace), [workspace]);
   const collapsedCount = workspace.nodes.filter((node) => node.settings.collapsed).length;
 
-  const [flowNodes, setFlowNodes] = useState<WorkspaceFlowNode[]>(workspaceNodes);
+  const [flowNodes, setFlowNodes] = useState<WorkspaceCanvasNode[]>(workspaceNodes);
   const [flowEdges, setFlowEdges] = useState<Edge[]>(workspaceEdges);
 
   useEffect(() => {
@@ -1934,6 +2315,14 @@ function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITION
       }
 
       const key = event.key.toLowerCase();
+      if (key === 'z') {
+        if (!canUndo || !onUndo) {
+          return;
+        }
+        event.preventDefault();
+        onUndo();
+      }
+
       if (key === 'c') {
         if (selectedNodeIds.size === 0) {
           return;
@@ -1953,25 +2342,29 @@ function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITION
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [copiedBlocks, selectedNodeIds, workspace]);
+  }, [canUndo, copiedBlocks, onUndo, selectedNodeIds, workspace]);
 
   const handleNodeChanges = useCallback((changes: NodeChange[]): void => {
-    const allowedChanges = changes.filter((change) => {
+    const workNodeChanges = changes.filter((change) => !('id' in change) || !String(change.id).startsWith('logical-flow-'));
+    const allowedChanges = workNodeChanges.filter((change) => {
       if (change.type !== 'remove') {
         return true;
       }
 
+      if (!('id' in change)) {
+        return false;
+      }
       const node = workspace.nodes.find((candidate) => candidate.id === change.id);
       return Boolean(node && getBlockDefinition(node.type).flags.canDelete && !node.settings.locked);
     });
     const removedIds = new Set(
       allowedChanges
-        .filter((change) => change.type === 'remove')
+        .filter((change): change is Extract<NodeChange, { type: 'remove' }> => change.type === 'remove')
         .map((change) => change.id)
     );
 
     if (removedIds.size === 0) {
-      setFlowNodes((currentNodes) => applyReactFlowNodeChanges(allowedChanges, currentNodes) as WorkspaceFlowNode[]);
+      setFlowNodes((currentNodes) => applyReactFlowNodeChanges(allowedChanges, currentNodes as Node[]) as WorkspaceCanvasNode[]);
       return;
     }
 
@@ -1981,8 +2374,27 @@ function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITION
   const handleNodeDragStop = useCallback((_event: ReactMouseEvent, node: Node, draggedNodes: Node[]): void => {
     const movedNodes = draggedNodes.length > 0 ? draggedNodes : [node];
     const positions = new Map(movedNodes.map((candidate) => [candidate.id, candidate.position]));
+    const primaryMove = movedNodes.find((candidate) => workspace.nodes.some((workspaceNode) => workspaceNode.id === candidate.id));
+    const primaryOriginal = primaryMove ? workspace.nodes.find((candidate) => candidate.id === primaryMove.id) : undefined;
+    const primaryGroup = primaryMove ? logicalFlowGroupForNode(workspace, primaryMove.id) : null;
+    const primaryDelta = primaryMove && primaryOriginal ? {
+      x: primaryMove.position.x - primaryOriginal.position.x,
+      y: primaryMove.position.y - primaryOriginal.position.y,
+    } : null;
+    const unitNodeIds = primaryGroup && primaryDelta ? logicalFlowUnitNodeIds(workspace, primaryGroup) : null;
     let changed = false;
     const nodes = workspace.nodes.map((candidate) => {
+      if (unitNodeIds?.has(candidate.id) && primaryDelta && !candidate.settings.locked) {
+        changed = true;
+        return {
+          ...candidate,
+          position: {
+            x: candidate.position.x + primaryDelta.x,
+            y: candidate.position.y + primaryDelta.y,
+          },
+        };
+      }
+
       const position = positions.get(candidate.id);
       if (!position || candidate.settings.locked) {
         return candidate;
@@ -2083,12 +2495,17 @@ function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITION
     });
   }
 
-  function addBlock(kind: WorkspaceNodeV2['type'], x = 360, y = 220): void {
+  function addBlock(definition: BlockDefinition, x = 360, y = 220): void {
     setContextMenu(null);
+    if (definition.kind === 'LogicalFlow') {
+      onWorkspaceChange(buildLogicalFlowUnit(workspace, x, y));
+      return;
+    }
+
     onWorkspaceChange({
       ...workspace,
       metadata: { ...workspace.metadata, updated_at: Date.now() },
-      nodes: [...workspace.nodes, createWorkspaceNode(kind, { x, y })],
+      nodes: [...workspace.nodes, createWorkspaceNode(definition.kind, { x, y }, settingsForDefinition(definition))],
     });
   }
 
@@ -2159,7 +2576,7 @@ function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITION
         isValidConnection={canConnect}
         multiSelectionKeyCode="Shift"
         nodeTypes={nodeTypes}
-        nodes={flowNodes}
+        nodes={flowNodes as Node[]}
         onlyRenderVisibleElements
         onConnect={connect}
         onEdgeContextMenu={(event, edge) => {
@@ -2180,7 +2597,7 @@ function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITION
           const flowPosition = flowInstance?.screenToFlowPosition({ x: event.clientX, y: event.clientY }) ?? { x: 360, y: 220 };
           setContextMenu({ x: event.clientX, y: event.clientY, flowX: flowPosition.x, flowY: flowPosition.y });
         }}
-        onSelectionChange={({ nodes }) => updateSelectedNodeIds(new Set(nodes.map((node) => node.id)))}
+        onSelectionChange={({ nodes }) => updateSelectedNodeIds(new Set(nodes.map((node) => node.id).filter((id) => workspace.nodes.some((workspaceNode) => workspaceNode.id === id))))}
         selectionKeyCode="Shift"
         selectionOnDrag
         selectNodesOnDrag={false}
@@ -2192,6 +2609,9 @@ function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITION
             </span>
             <button className="rounded-md border border-slate-200 px-2.5 py-1 font-semibold text-slate-700 hover:border-teal-300 hover:bg-teal-50" type="button" onClick={() => focusNodeIds(new Set(workspace.nodes.map((node) => node.id)))}>
               Fit
+            </button>
+            <button className="rounded-md border border-slate-200 px-2.5 py-1 font-semibold text-slate-700 hover:border-teal-300 hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-45" disabled={!canUndo} title="Undo (Ctrl+Z / Cmd+Z)" type="button" onClick={onUndo}>
+              Undo
             </button>
             <button className="rounded-md border border-slate-200 px-2.5 py-1 font-semibold text-slate-700 hover:border-teal-300 hover:bg-teal-50" type="button" onClick={() => setAllBlocksCollapsed(true)}>
               Compact all
@@ -2277,12 +2697,13 @@ function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITION
         >
           {availableBlocks.map((definition) => (
             <button
-              key={definition.kind}
+              key={blockPickerKey(definition)}
               className="rounded-lg px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-teal-50"
               type="button"
-              onClick={() => addBlock(definition.kind, contextMenu.flowX, contextMenu.flowY)}
+              onClick={() => addBlock(definition, contextMenu.flowX, contextMenu.flowY)}
             >
-              {definition.label}
+              <span className="block">{definition.label}</span>
+              {definition.description ? <span className="mt-1 block text-xs font-normal leading-5 text-slate-500">{definition.description}</span> : null}
             </button>
           ))}
         </div>
@@ -2326,7 +2747,7 @@ function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITION
   );
 }
 
-function BlockPicker({ definitions = BLOCK_DEFINITIONS, onAddBlock, quickBlockKinds = DEFAULT_QUICK_BLOCK_KINDS }: { definitions?: BlockDefinition[]; onAddBlock: (kind: BlockKind) => void; quickBlockKinds?: BlockKind[] }) {
+function BlockPicker({ definitions = BLOCK_DEFINITIONS, onAddBlock, quickBlockKinds = DEFAULT_QUICK_BLOCK_KINDS }: { definitions?: BlockDefinition[]; onAddBlock: (definition: BlockDefinition) => void; quickBlockKinds?: BlockKind[] }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState<BlockDefinition['category'] | 'all'>('all');
@@ -2350,6 +2771,8 @@ function BlockPicker({ definitions = BLOCK_DEFINITIONS, onAddBlock, quickBlockKi
         definition.label.toLowerCase().includes(normalizedQuery) ||
         definition.kind.toLowerCase().includes(normalizedQuery) ||
         definition.category.toLowerCase().includes(normalizedQuery) ||
+        (definition.description?.toLowerCase().includes(normalizedQuery) ?? false) ||
+        (definition.tips?.some((tip) => tip.toLowerCase().includes(normalizedQuery)) ?? false) ||
         (BLOCK_SEARCH_TERMS[definition.kind]?.includes(normalizedQuery) ?? false)
       );
     });
@@ -2370,10 +2793,11 @@ function BlockPicker({ definitions = BLOCK_DEFINITIONS, onAddBlock, quickBlockKi
         <div className="flex flex-wrap gap-1.5">
           {quickDefinitions.map((definition) => (
             <button
-              key={definition.kind}
+              key={blockPickerKey(definition)}
               className="ghost-button px-3 py-1.5 text-xs"
+              title={definition.description}
               type="button"
-              onClick={() => onAddBlock(definition.kind)}
+              onClick={() => onAddBlock(definition)}
             >
               {definition.label}
             </button>
@@ -2416,16 +2840,21 @@ function BlockPicker({ definitions = BLOCK_DEFINITIONS, onAddBlock, quickBlockKi
             <div className="grid max-h-72 gap-2 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3">
               {matchingBlocks.map((definition) => (
                 <button
-                  key={definition.kind}
+                  key={blockPickerKey(definition)}
                   className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left transition hover:border-teal-300 hover:bg-teal-50"
                   type="button"
                   onClick={() => {
-                    onAddBlock(definition.kind);
+                    onAddBlock(definition);
                     setOpen(false);
                   }}
                 >
-                  <span className="block text-sm font-semibold text-slate-900">{definition.label}</span>
+                  <span className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                    {definition.label}
+                    {definition.custom ? <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[9px] uppercase tracking-[0.14em] text-slate-600">Custom</span> : null}
+                  </span>
                   <span className="mt-1 block text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">{categoryLabel(definition.category)}</span>
+                  {definition.description ? <span className="mt-2 block text-xs font-normal leading-5 text-slate-600">{definition.description}</span> : null}
+                  {definition.tips?.[0] ? <span className="mt-1 block text-[11px] font-normal leading-5 text-slate-500">{definition.tips[0]}</span> : null}
                 </button>
               ))}
             </div>
@@ -2437,7 +2866,13 @@ function BlockPicker({ definitions = BLOCK_DEFINITIONS, onAddBlock, quickBlockKi
 }
 
 function workspaceTypeLabel(workspaceType: WorkspaceType): string {
-  return workspaceType === 'content-blocker' ? 'Content Blocker' : 'Data Modifier';
+  if (workspaceType === 'content-blocker') {
+    return 'Content Blocker';
+  }
+  if (workspaceType === 'custom-block') {
+    return 'Custom Block';
+  }
+  return 'Data Modifier';
 }
 
 function contentBlockerSurfaceFor(workspace: WorkspaceFileV2, surfaceId: ContentBlockerSurfaceId): WorkspaceGraphSurface {
@@ -2509,6 +2944,8 @@ export function WorkspaceEditor({
   isDirty,
   workspace,
   resourceAssets,
+  canUndo,
+  customBlocks,
   onWorkspaceChange,
   onNewWorkspace,
   onSwitchWorkspace,
@@ -2517,6 +2954,7 @@ export function WorkspaceEditor({
   onExportActionPack,
   onExportWorkspace,
   onSaveWorkspace,
+  onUndo,
 }: WorkspaceEditorProps) {
   const [metadataCollapsed, setMetadataCollapsed] = useState(false);
   const [isPopout, setIsPopout] = useState(false);
@@ -2542,7 +2980,7 @@ export function WorkspaceEditor({
       .sort((left, right) => left.metadata.name.localeCompare(right.metadata.name)),
     [conditionWorkspaces],
   );
-  const compileResult = useMemo(() => compileWorkspace(workspace, { conditionWorkspaces }), [conditionWorkspaces, workspace]);
+  const compileResult = useMemo(() => compileWorkspace(workspace, { conditionWorkspaces, customBlocks }), [conditionWorkspaces, customBlocks, workspace]);
   const invalidEdgeIds = useMemo(() => new Set(compileResult.validation.invalidEdgeIds), [compileResult.validation.invalidEdgeIds]);
   const connectionQuickFixes = useMemo(
     () => Array.from(invalidEdgeIds)
@@ -2552,6 +2990,7 @@ export function WorkspaceEditor({
   );
   const riskReasonGroups = useMemo(() => groupedRiskReasons(compileResult.validation.risk.reasons), [compileResult.validation.risk.reasons]);
   const isContentBlocker = workspace.workspaceType === 'content-blocker';
+  const isCustomBlock = workspace.workspaceType === 'custom-block';
   const typeLabel = workspaceTypeLabel(workspace.workspaceType);
   const hotkeyError = workspace.trigger.type === 'HOTKEY' ? getHotkeyValidationError(workspace.trigger.hotkey, []) : null;
   const urlFilter = workspace.trigger.sourceFilters?.find((filter) => filter.source === 'url')?.pattern ?? '';
@@ -2559,8 +2998,26 @@ export function WorkspaceEditor({
   const activeContentSurface = contentBlockerSurfaceFor(workspace, selectedContentSurface);
   const activeContentSurfaceMeta = CONTENT_BLOCKER_SURFACE_META.find((surface) => surface.id === selectedContentSurface) ?? CONTENT_BLOCKER_SURFACE_META[0];
   const activeContentSurfaceWorkspace = surfaceWorkspace(workspace, activeContentSurface);
-  const activeContentDefinitions = contentBlockerDefinitions(selectedContentSurface);
+  const workspaceDefinitions = useMemo(() => availableBlockDefinitions(workspace.workspaceType, customBlocks), [customBlocks, workspace.workspaceType]);
+  const activeContentDefinitions = useMemo(() => [
+    ...contentBlockerDefinitions(selectedContentSurface),
+    ...customBlocks
+      .filter((block) => block.visibleWorkspaceTypes.includes('content-blocker'))
+      .map(customBlockDefinition),
+  ], [customBlocks, selectedContentSurface]);
   const activeContentQuickKinds = contentBlockerQuickKinds(selectedContentSurface);
+  const customBlockConfig = workspace.customBlock ?? {
+    blockId: `custom-${workspace.metadata.id}`,
+    label: workspace.metadata.name,
+    version: workspace.metadata.version,
+    category: 'custom' as const,
+    visibleWorkspaceTypes: ['data-modifier'] as WorkspaceType[],
+    description: workspace.metadata.description,
+    tips: [] as string[],
+    inputs: [{ id: 'input', label: 'Input', dataType: 'Any' as GraphDataType }],
+    outputs: [{ id: 'result', label: 'Result', dataType: 'Any' as GraphDataType }],
+    fields: [],
+  };
 
   function updateWorkspace(updates: Partial<WorkspaceFileV2>): void {
     onWorkspaceChange({
@@ -2574,10 +3031,10 @@ export function WorkspaceEditor({
     });
   }
 
-  function addToolbarBlock(kind: BlockKind): void {
+  function addToolbarBlock(definition: BlockDefinition): void {
     if (isContentBlocker) {
       const surface = contentBlockerSurfaceFor(workspace, selectedContentSurface);
-      const nextNode = createWorkspaceNode(kind, { x: 320 + surface.nodes.length * 24, y: 260 + surface.nodes.length * 18 });
+      const nextNode = createWorkspaceNode(definition.kind, { x: 320 + surface.nodes.length * 24, y: 260 + surface.nodes.length * 18 }, settingsForDefinition(definition));
       onWorkspaceChange(updateContentBlockerSurface(workspace, selectedContentSurface, {
         ...surface,
         nodes: [...surface.nodes, nextNode],
@@ -2585,10 +3042,15 @@ export function WorkspaceEditor({
       return;
     }
 
+    if (definition.kind === 'LogicalFlow') {
+      onWorkspaceChange(buildLogicalFlowUnit(workspace, 320 + workspace.nodes.length * 24, 260 + workspace.nodes.length * 18));
+      return;
+    }
+
     onWorkspaceChange({
       ...workspace,
       metadata: { ...workspace.metadata, updated_at: Date.now() },
-      nodes: [...workspace.nodes, createWorkspaceNode(kind, { x: 320 + workspace.nodes.length * 24, y: 260 + workspace.nodes.length * 18 })],
+      nodes: [...workspace.nodes, createWorkspaceNode(definition.kind, { x: 320 + workspace.nodes.length * 24, y: 260 + workspace.nodes.length * 18 }, settingsForDefinition(definition))],
     });
   }
 
@@ -2598,6 +3060,133 @@ export function WorkspaceEditor({
         ...contentBlockerConfig,
         ...updates,
       },
+    });
+  }
+
+  function updateCustomBlockConfig(updates: Partial<NonNullable<WorkspaceFileV2['customBlock']>>): void {
+    updateWorkspace({
+      customBlock: {
+        ...customBlockConfig,
+        ...updates,
+      },
+    });
+  }
+
+  function updateCustomBlockPort(direction: 'input' | 'output', index: number, updates: Partial<CustomBlockPortDefinition>): void {
+    const key = direction === 'input' ? 'inputs' : 'outputs';
+    const ports = customBlockConfig[key];
+    const previous = ports[index];
+    if (!previous) {
+      return;
+    }
+    const nextPort = {
+      ...previous,
+      ...updates,
+      id: (updates.id ?? previous.id).trim() || previous.id,
+      label: (updates.label ?? previous.label).trim() || previous.label,
+    };
+    const nextPorts = ports.map((port, portIndex) => portIndex === index ? nextPort : port);
+    const nodeType = direction === 'input' ? 'CustomBlockInput' : 'CustomBlockOutput';
+    updateWorkspace({
+      customBlock: {
+        ...customBlockConfig,
+        [key]: nextPorts,
+      },
+      nodes: workspace.nodes.map((node) => node.type === nodeType && node.settings.customPortId === previous.id ? {
+        ...node,
+        settings: {
+          ...node.settings,
+          customPortId: nextPort.id,
+          customPortLabel: nextPort.label,
+          customPortDataType: nextPort.dataType,
+          label: nextPort.label,
+        },
+      } : node),
+    });
+  }
+
+  function addCustomBlockPort(direction: 'input' | 'output'): void {
+    const key = direction === 'input' ? 'inputs' : 'outputs';
+    const nodeType = direction === 'input' ? 'CustomBlockInput' : 'CustomBlockOutput';
+    const ports = customBlockConfig[key];
+    const id = `${direction}${ports.length + 1}`;
+    const label = direction === 'input' ? `Input ${ports.length + 1}` : `Output ${ports.length + 1}`;
+    const port = { id, label, dataType: 'Any' as GraphDataType };
+    updateWorkspace({
+      customBlock: {
+        ...customBlockConfig,
+        [key]: [...ports, port],
+      },
+      nodes: [
+        ...workspace.nodes,
+        createWorkspaceNode(nodeType, { x: direction === 'input' ? 0 : 760, y: 120 + ports.length * 150 }, {
+          customPortId: id,
+          customPortLabel: label,
+          customPortDataType: 'Any',
+          label,
+          locked: true,
+        }),
+      ],
+    });
+  }
+
+  function removeCustomBlockPort(direction: 'input' | 'output', index: number): void {
+    const key = direction === 'input' ? 'inputs' : 'outputs';
+    const ports = customBlockConfig[key];
+    if (ports.length <= 1) {
+      return;
+    }
+    const removed = ports[index];
+    if (!removed) {
+      return;
+    }
+    const nodeType = direction === 'input' ? 'CustomBlockInput' : 'CustomBlockOutput';
+    const removedNodeIds = new Set(workspace.nodes.filter((node) => node.type === nodeType && node.settings.customPortId === removed.id).map((node) => node.id));
+    updateWorkspace({
+      customBlock: {
+        ...customBlockConfig,
+        [key]: ports.filter((_, portIndex) => portIndex !== index),
+      },
+      nodes: workspace.nodes.filter((node) => !removedNodeIds.has(node.id)),
+      edges: workspace.edges.filter((edge) => !removedNodeIds.has(edge.source) && !removedNodeIds.has(edge.target)),
+    });
+  }
+
+  function updateCustomBlockField(index: number, updates: Partial<CustomBlockFieldDefinition>): void {
+    const field = customBlockConfig.fields[index];
+    if (!field) {
+      return;
+    }
+    const nextField = {
+      ...field,
+      ...updates,
+      id: (updates.id ?? field.id).trim() || field.id,
+      label: (updates.label ?? field.label).trim() || field.label,
+    };
+    updateCustomBlockConfig({
+      fields: customBlockConfig.fields.map((candidate, fieldIndex) => fieldIndex === index ? nextField : candidate),
+    });
+  }
+
+  function addCustomBlockField(): void {
+    const id = `field${customBlockConfig.fields.length + 1}`;
+    updateCustomBlockConfig({
+      fields: [
+        ...customBlockConfig.fields,
+        {
+          id,
+          label: `Field ${customBlockConfig.fields.length + 1}`,
+          dataType: 'string',
+          defaultValue: '',
+          visibility: 'visible',
+        },
+      ],
+    });
+  }
+
+  function removeCustomBlockField(index: number): void {
+    updateCustomBlockConfig({
+      fields: customBlockConfig.fields.filter((_, fieldIndex) => fieldIndex !== index),
     });
   }
 
@@ -2641,7 +3230,7 @@ export function WorkspaceEditor({
     setDebugTrace([]);
 
     try {
-      const result = compileWorkspace(workspace, { conditionWorkspaces });
+      const result = compileWorkspace(workspace, { conditionWorkspaces, customBlocks });
       if (!result.ok || !result.pack) {
         setDebugError(result.validation.errors.join('\n') || 'Workspace did not compile.');
         return;
@@ -2706,6 +3295,149 @@ export function WorkspaceEditor({
     };
   }, [isPopout]);
 
+  function renderCustomBlockMetadata(): ReactNode {
+    const renderPortRows = (direction: 'input' | 'output') => {
+      const ports = direction === 'input' ? customBlockConfig.inputs : customBlockConfig.outputs;
+      return (
+        <div className="rounded-lg border border-slate-200 bg-white/75 px-4 py-3">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <p className="text-sm font-semibold text-slate-900">{direction === 'input' ? 'Inputs' : 'Outputs'}</p>
+            <button className="ghost-button px-3 py-1.5 text-xs" type="button" onClick={() => addCustomBlockPort(direction)}>
+              Add {direction === 'input' ? 'Input' : 'Output'}
+            </button>
+          </div>
+          <div className="grid gap-3">
+            {ports.map((port, index) => (
+              <div key={`${direction}:${port.id}:${index}`} className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 md:grid-cols-[1fr_1fr_0.8fr_auto]">
+                <label className="field-shell">
+                  <span className="field-label">ID</span>
+                  <input className="field-input" value={port.id} onChange={(event) => updateCustomBlockPort(direction, index, { id: event.target.value })} />
+                </label>
+                <label className="field-shell">
+                  <span className="field-label">Label</span>
+                  <input className="field-input" value={port.label} onChange={(event) => updateCustomBlockPort(direction, index, { label: event.target.value })} />
+                </label>
+                <label className="field-shell">
+                  <span className="field-label">Type</span>
+                  <select className="field-select" value={port.dataType} onChange={(event) => updateCustomBlockPort(direction, index, { dataType: event.target.value as GraphDataType })}>
+                    {DATA_TYPE_OPTIONS.map((type) => (
+                      <option key={type} value={type}>{type}</option>
+                    ))}
+                  </select>
+                </label>
+                <button className="ghost-button self-end px-3 py-2 text-xs" disabled={ports.length <= 1} type="button" onClick={() => removeCustomBlockPort(direction, index)}>
+                  Remove
+                </button>
+                <label className="field-shell md:col-span-4">
+                  <span className="field-label">Tooltip</span>
+                  <input className="field-input" value={port.tooltip ?? ''} onChange={(event) => updateCustomBlockPort(direction, index, { tooltip: event.target.value })} />
+                </label>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    };
+
+    return (
+      <div className="mt-5 grid gap-4">
+        <div className="grid gap-4 rounded-lg border border-slate-200 bg-white/75 px-5 py-4 lg:grid-cols-4">
+          <label className="field-shell">
+            <span className="field-label">Block ID</span>
+            <input className="field-input" value={customBlockConfig.blockId} onChange={(event) => updateCustomBlockConfig({ blockId: event.target.value })} />
+          </label>
+          <label className="field-shell">
+            <span className="field-label">Display Name</span>
+            <input className="field-input" value={customBlockConfig.label} onChange={(event) => updateCustomBlockConfig({ label: event.target.value })} />
+          </label>
+          <label className="field-shell">
+            <span className="field-label">Custom Block Version</span>
+            <input className="field-input" min={1} type="number" value={customBlockConfig.version} onChange={(event) => updateCustomBlockConfig({ version: Math.max(1, Number.parseInt(event.target.value || '1', 10)) })} />
+          </label>
+          <label className="field-shell">
+            <span className="field-label">Category</span>
+            <select className="field-select" value={customBlockConfig.category} onChange={(event) => updateCustomBlockConfig({ category: event.target.value as BlockDefinition['category'] })}>
+              {Object.keys(CATEGORY_LABELS).map((category) => (
+                <option key={category} value={category}>{categoryLabel(category as BlockDefinition['category'])}</option>
+              ))}
+            </select>
+          </label>
+          <label className="field-shell lg:col-span-2">
+            <span className="field-label">Description</span>
+            <input className="field-input" value={customBlockConfig.description ?? ''} onChange={(event) => updateCustomBlockConfig({ description: event.target.value })} />
+          </label>
+          <label className="field-shell lg:col-span-2">
+            <span className="field-label">Tips</span>
+            <input className="field-input" placeholder="Separate tips with |" value={(customBlockConfig.tips ?? []).join(' | ')} onChange={(event) => updateCustomBlockConfig({ tips: event.target.value.split('|').map((tip) => tip.trim()).filter(Boolean) })} />
+          </label>
+          <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
+            <input checked={customBlockConfig.visibleWorkspaceTypes.includes('data-modifier')} type="checkbox" onChange={(event) => updateCustomBlockConfig({ visibleWorkspaceTypes: event.target.checked ? Array.from(new Set([...customBlockConfig.visibleWorkspaceTypes, 'data-modifier'])) : customBlockConfig.visibleWorkspaceTypes.filter((type) => type !== 'data-modifier') })} />
+            Data Modifier
+          </label>
+          <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
+            <input checked={customBlockConfig.visibleWorkspaceTypes.includes('content-blocker')} type="checkbox" onChange={(event) => updateCustomBlockConfig({ visibleWorkspaceTypes: event.target.checked ? Array.from(new Set([...customBlockConfig.visibleWorkspaceTypes, 'content-blocker'])) : customBlockConfig.visibleWorkspaceTypes.filter((type) => type !== 'content-blocker') })} />
+            Content Blocker
+          </label>
+        </div>
+        <div className="grid gap-4 lg:grid-cols-2">
+          {renderPortRows('input')}
+          {renderPortRows('output')}
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-white/75 px-4 py-3">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <p className="text-sm font-semibold text-slate-900">Configurable Fields</p>
+            <button className="ghost-button px-3 py-1.5 text-xs" type="button" onClick={addCustomBlockField}>
+              Add Field
+            </button>
+          </div>
+          <div className="grid gap-3">
+            {customBlockConfig.fields.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">No caller-configurable fields.</p>
+            ) : customBlockConfig.fields.map((field, index) => (
+              <div key={`${field.id}:${index}`} className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 md:grid-cols-[1fr_1fr_0.8fr_0.8fr_auto]">
+                <label className="field-shell">
+                  <span className="field-label">ID</span>
+                  <input className="field-input" value={field.id} onChange={(event) => updateCustomBlockField(index, { id: event.target.value })} />
+                </label>
+                <label className="field-shell">
+                  <span className="field-label">Label</span>
+                  <input className="field-input" value={field.label} onChange={(event) => updateCustomBlockField(index, { label: event.target.value })} />
+                </label>
+                <label className="field-shell">
+                  <span className="field-label">Type</span>
+                  <select className="field-select" value={field.dataType} onChange={(event) => updateCustomBlockField(index, { dataType: event.target.value as GraphDataType })}>
+                    {DATA_TYPE_OPTIONS.map((type) => (
+                      <option key={type} value={type}>{type}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field-shell">
+                  <span className="field-label">Visibility</span>
+                  <select className="field-select" value={field.visibility ?? 'visible'} onChange={(event) => updateCustomBlockField(index, { visibility: event.target.value as CustomBlockFieldDefinition['visibility'] })}>
+                    <option value="visible">Visible</option>
+                    <option value="advanced">Advanced</option>
+                    <option value="hidden">Hidden</option>
+                  </select>
+                </label>
+                <button className="ghost-button self-end px-3 py-2 text-xs" type="button" onClick={() => removeCustomBlockField(index)}>
+                  Remove
+                </button>
+                <label className="field-shell md:col-span-2">
+                  <span className="field-label">Default</span>
+                  <input className="field-input" value={field.defaultValue ?? ''} onChange={(event) => updateCustomBlockField(index, { defaultValue: event.target.value })} />
+                </label>
+                <label className="field-shell md:col-span-3">
+                  <span className="field-label">Tooltip</span>
+                  <input className="field-input" value={field.tooltip ?? ''} onChange={(event) => updateCustomBlockField(index, { tooltip: event.target.value })} />
+                </label>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   function renderDataModifierSurface(heightClassName?: string, expanded = false): ReactNode {
     return (
       <div className={expanded ? 'flex h-full min-h-0 flex-col gap-3' : 'grid gap-4'}>
@@ -2724,16 +3456,19 @@ export function WorkspaceEditor({
           ) : null}
         </div>
         <div className="shrink-0">
-          <BlockPicker onAddBlock={addToolbarBlock} />
+          <BlockPicker definitions={workspaceDefinitions} onAddBlock={addToolbarBlock} />
         </div>
         <ReactFlowProvider>
           <WorkspaceFlow
             advancedModeEnabled={advancedModeEnabled}
+            availableBlocks={workspaceDefinitions}
+            canUndo={canUndo}
             focusRequest={focusRequest}
             heightClassName={heightClassName}
             invalidEdgeIds={invalidEdgeIds}
             resourceAssets={resourceAssets}
             workspace={workspace}
+            onUndo={onUndo}
             onUploadResource={onUploadResource}
             onWorkspaceChange={onWorkspaceChange}
           />
@@ -2789,11 +3524,13 @@ export function WorkspaceEditor({
             key={activeContentSurface.id}
             advancedModeEnabled={advancedModeEnabled}
             availableBlocks={activeContentDefinitions}
+            canUndo={canUndo}
             focusRequest={focusRequest}
             heightClassName={heightClassName}
             invalidEdgeIds={invalidEdgeIds}
             resourceAssets={resourceAssets}
             workspace={activeContentSurfaceWorkspace}
+            onUndo={onUndo}
             onUploadResource={onUploadResource}
             onWorkspaceChange={updateSurfaceWorkspace}
           />
@@ -2806,6 +3543,43 @@ export function WorkspaceEditor({
     return isContentBlocker
       ? renderContentBlockerSurface(heightClassName, expanded)
       : renderDataModifierSurface(heightClassName, expanded);
+  }
+
+  function renderEmbeddedCustomBlocks(): ReactNode {
+    const embedded = workspace.embeddedCustomBlocks ?? [];
+    if (embedded.length === 0) {
+      return null;
+    }
+
+    return (
+      <div className="mt-5 rounded-lg border border-slate-200 bg-white/75 px-5 py-4">
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-slate-900">Embedded Custom Blocks</p>
+            <p className="mt-1 text-xs text-slate-500">Imported workspaces keep embedded custom-block source snapshots for version conflicts and rollback review.</p>
+          </div>
+          <span className="risk-badge risk-badge-soft">{embedded.length} embedded</span>
+        </div>
+        <div className="grid gap-2">
+          {embedded.map((entry) => {
+            const status = entry.useEmbedded
+              ? `Using embedded v${entry.version}${entry.installedVersion ? `; installed v${entry.installedVersion} unchanged` : ''}`
+              : entry.installedVersion
+                ? `Installed v${entry.installedVersion}`
+                : 'Install required';
+            return (
+              <div key={`${entry.blockId}:${entry.version}:${entry.checksumHex ?? 'no-checksum'}`} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+                <div>
+                  <p className="font-semibold text-slate-900">{entry.workspace.customBlock?.label || entry.blockId}</p>
+                  <p className="mt-1 text-xs text-slate-500">{entry.blockId} · embedded v{entry.version}</p>
+                </div>
+                <span className={`risk-badge ${entry.useEmbedded ? 'risk-badge-warn' : 'risk-badge-soft'}`}>{status}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -2832,6 +3606,11 @@ export function WorkspaceEditor({
                   return;
                 }
 
+                if (event.target.value === '__new_custom_block__') {
+                  onNewWorkspace('custom-block');
+                  return;
+                }
+
                 if (event.target.value !== '__current__') {
                   onSwitchWorkspace(event.target.value);
                 }
@@ -2840,6 +3619,7 @@ export function WorkspaceEditor({
               <option value="__current__">{workspace.metadata.name} (current draft)</option>
               <option value="__new_data_modifier__">New Data Modifier Workspace</option>
               <option value="__new_content_blocker__">New Content Blocker Workspace</option>
+              <option value="__new_custom_block__">New Custom Block Workspace</option>
               {allWorkspaces.map((savedWorkspace) => (
                 <option key={savedWorkspace.metadata.id} value={savedWorkspace.metadata.id}>
                   {savedWorkspace.metadata.name} ({workspaceTypeLabel(savedWorkspace.workspaceType)})
@@ -2857,13 +3637,16 @@ export function WorkspaceEditor({
           <button className="ghost-button" type="button" onClick={onSaveWorkspace}>
             Save Workspace
           </button>
+          <button className="ghost-button" disabled={!canUndo} title="Undo (Ctrl+Z / Cmd+Z)" type="button" onClick={onUndo}>
+            Undo
+          </button>
           <button className="ghost-button" type="button" onClick={onExportWorkspace}>
             Export Workspace
           </button>
           <button className="secondary-button" disabled={!compileResult.ok} type="button" onClick={onBuildActionPack}>
-            {isContentBlocker ? 'Compile & Install' : 'Build Action Pack'}
+            {isContentBlocker ? 'Compile & Install' : isCustomBlock ? 'Install Custom Block' : 'Build Action Pack'}
           </button>
-          {!isContentBlocker ? (
+          {!isContentBlocker && !isCustomBlock ? (
             <button className="primary-button" disabled={!compileResult.ok} type="button" onClick={onExportActionPack}>
               Export .actionpack
             </button>
@@ -2888,7 +3671,7 @@ export function WorkspaceEditor({
           <span className="field-label">Author</span>
           <input className="field-input" value={workspace.metadata.author ?? ''} onChange={(event) => updateWorkspace({ metadata: { ...workspace.metadata, author: event.target.value } })} />
         </label>
-        {!isContentBlocker ? (
+        {!isContentBlocker && !isCustomBlock ? (
           <>
             <label className="field-shell">
               <span className="field-label">Run</span>
@@ -2947,7 +3730,7 @@ export function WorkspaceEditor({
           </div>
         ) : null}
           </>
-        ) : (
+        ) : isContentBlocker ? (
           <>
             <label className="field-shell">
               <span className="field-label">Lock</span>
@@ -2986,17 +3769,20 @@ export function WorkspaceEditor({
               <input className="field-input" value={contentBlockerConfig.challengePageMessage} onChange={(event) => updateContentBlockerConfig({ challengePageMessage: event.target.value })} />
             </label>
           </>
-        )}
+        ) : null}
       </div> : (
         <div className="mt-5 rounded-lg border border-slate-200 bg-white/70 px-5 py-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm font-semibold text-slate-900">{workspace.metadata.name}</p>
             <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
-              v{workspace.metadata.version} · {isContentBlocker ? typeLabel : formatRunType(workspace.trigger.type)}
+              v{workspace.metadata.version} · {isContentBlocker || isCustomBlock ? typeLabel : formatRunType(workspace.trigger.type)}
             </p>
           </div>
         </div>
       )}
+
+      {!metadataCollapsed && isCustomBlock ? renderCustomBlockMetadata() : null}
+      {!metadataCollapsed ? renderEmbeddedCustomBlocks() : null}
 
       <div className="mt-5">
         {isPopout ? (
@@ -3006,7 +3792,7 @@ export function WorkspaceEditor({
         ) : renderSurface()}
       </div>
 
-      {!isContentBlocker ? <div className="mt-5 rounded-lg border border-slate-200 bg-white/75 px-5 py-4">
+      {!isContentBlocker && !isCustomBlock ? <div className="mt-5 rounded-lg border border-slate-200 bg-white/75 px-5 py-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-slate-900">Workspace debug run</p>

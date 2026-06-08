@@ -30,6 +30,7 @@ interface SettingsPanelProps {
   onRequestClipboardPermission: () => void;
   onRestoreBuilderUuid: () => void;
   onSyncEnabledToggle: () => void;
+  onUndoHistoryLimitChange: (value: number) => void;
   onUiScaleChange: (value: number) => void;
 }
 
@@ -76,13 +77,13 @@ export function SettingsPanel({
   onRequestClipboardPermission,
   onRestoreBuilderUuid,
   onSyncEnabledToggle,
+  onUndoHistoryLimitChange,
   onUiScaleChange,
 }: SettingsPanelProps) {
   const [pendingUiScale, setPendingUiScale] = useState(() => normalizeUiScale(settings.uiScale));
   const activeUiScale = normalizeUiScale(settings.uiScale);
   const hasPendingUiScale = pendingUiScale !== activeUiScale;
-  const ollamaModelNames = ollamaModels.map((model) => model.name);
-  const selectedOllamaModelAvailable = ollamaModelNames.includes(settings.ollamaModel);
+  const selectedOllamaModelAvailable = ollamaModels.some((model) => model.name === settings.ollamaModel);
 
   useEffect(() => {
     setPendingUiScale(activeUiScale);
@@ -202,12 +203,12 @@ export function SettingsPanel({
         <div className="rounded-lg border border-slate-200 bg-white/80 px-4 py-4 lg:col-span-2">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-sm font-semibold text-slate-900">Local Ollama Builder</p>
+              <p className="text-sm font-semibold text-slate-900">AI Connectors</p>
               <p className="mt-1 text-xs text-slate-500">
-                Uses only a local Ollama server to draft workspace changes. Runtime Action Packs do not call AI providers.
+                Ollama drafts workspace changes through a local loopback server. Runtime Action Packs do not call AI providers.
               </p>
             </div>
-            <ToggleSwitch checked={settings.ollamaEnabled} label="Local Ollama Builder" onToggle={() => onOllamaSettingsChange({ ollamaEnabled: !settings.ollamaEnabled })} />
+            <ToggleSwitch checked={settings.ollamaEnabled} label="AI Connectors" onToggle={() => onOllamaSettingsChange({ ollamaEnabled: !settings.ollamaEnabled })} />
           </div>
           <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto_220px_140px]">
             <label className="field-shell">
@@ -221,10 +222,13 @@ export function SettingsPanel({
             </div>
             <label className="field-shell">
               <span className="field-label">Model</span>
-              <select className="field-select" value={settings.ollamaModel} onChange={(event) => onOllamaSettingsChange({ ollamaModel: event.target.value })}>
-                {!selectedOllamaModelAvailable ? (
-                  <option value={settings.ollamaModel}>{settings.ollamaModel} (saved fallback)</option>
-                ) : null}
+              <select
+                className="field-select"
+                disabled={ollamaModels.length === 0}
+                value={selectedOllamaModelAvailable ? settings.ollamaModel : ''}
+                onChange={(event) => onOllamaSettingsChange({ ollamaModel: event.target.value })}
+              >
+                {ollamaModels.length === 0 ? <option value="">Refresh installed models</option> : null}
                 {ollamaModels.map((model) => (
                   <option key={model.name} value={model.name}>
                     {model.name}
@@ -240,6 +244,17 @@ export function SettingsPanel({
           {ollamaModelsMessage ? (
             <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">{ollamaModelsMessage}</p>
           ) : null}
+        </div>
+
+        <div className="rounded-lg border border-slate-200 bg-white/80 px-4 py-4 lg:col-span-2">
+          <p className="text-sm font-semibold text-slate-900">Undo history</p>
+          <p className="mt-1 text-xs text-slate-500">
+            Stored only for the open editor session. <HelpTooltip label="Undo history" text="Undo snapshots include workspace graph and block setting changes, but are not saved into backups, sync, or persistent storage." />
+          </p>
+          <label className="field-shell mt-3 max-w-xs">
+            <span className="field-label">History length</span>
+            <input className="field-input" min={0} max={10000} type="number" value={settings.undoHistoryLimit} onChange={(event) => onUndoHistoryLimitChange(Math.max(0, Math.min(10000, Number.parseInt(event.target.value || '0', 10))))} />
+          </label>
         </div>
 
         <div className="rounded-lg border border-slate-200 bg-white/80 px-4 py-4 lg:col-span-2">

@@ -83,9 +83,9 @@
 <h2>Import Safety</h2>
 <p>Imported Action Packs open in the staging gate instead of saving immediately. Review the manifest, risk badges, plain-language steps, and sandbox result before confirming import.</p>
 <p class="warning">Treat clipboard, raw page, remote request, page mutation, and overlay input behavior as sensitive. URL Alchemist surfaces these risks so you can decide before the pack is installed.</p>
-<h2>Resources And Local Builder</h2>
+<h2>Resources And AI Connectors</h2>
 <p>Large local images, video, and audio are stored once in IndexedDB and referenced by SHA-256 from workspaces and installed Action Packs. Resources are excluded from browser sync and are bundled only when exporting a workspace, Action Pack, or unlocked backup.</p>
-<p>The Local Ollama Builder sends a block catalog, current workspace context, and your prompt only to a loopback Ollama endpoint such as <code>http://127.0.0.1:11434</code>. It returns strict JSON recipes that are previewed and validated before the editor applies them. Action Packs do not call AI providers at runtime.</p>
+<p>The AI Connectors Ollama connector sends a block catalog, current workspace context, and your prompt only to a loopback Ollama endpoint such as <code>http://127.0.0.1:11434</code>. It returns strict JSON recipes that are previewed and validated before the editor applies them. Action Packs do not call AI providers at runtime.</p>
 <h2>Debugging</h2>
 <p>Manage Resources includes <strong>View Log</strong>, <strong>Export Log</strong>, and <strong>Clear Log</strong> actions for each installed Action Pack. New installs default logging off unless Settings changes the default; migrated existing packs keep logging on. Logs record run timestamps, exit codes, issues, and entries written by <strong>Save string to log</strong>.</p>
 <p>Per-pack logs rotate automatically after the newest 300 entries or about 256 KB, whichever limit is reached first.</p>
