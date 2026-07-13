@@ -39,6 +39,7 @@ Include these files and folders in the AMO source submission package:
 - `reviewer-build.sh`
 - `reviewer-source-package.sh`
 - `LICENSE`
+- `RELEASE_BUILD_TIME.txt` (added to the generated source package)
 
 The source submission package intentionally excludes `public/bundled-actionpacks/`. Those binary workspace and Action Pack artifacts are generated from `src/shared/v2/bundledExamples.ts` by `npm run generate:bundled`, which is called by `reviewer-build.sh` before the extension is built.
 
@@ -48,7 +49,7 @@ Do not treat these as source files:
 - `node_modules/` contains third-party dependencies installed by `npm ci`
 - `.tmp/` and `.vite/` are generated build caches
 
-## Creating the AMO source submission zip
+## Creating the AMO source submission archives
 
 Run this command from this directory:
 
@@ -60,18 +61,26 @@ The script creates:
 
 ```text
 ../URLAlchemist_Firefox_artifacts/URLAlchemist_Firefox_source.zip
+../URLAlchemist_Firefox_artifacts/URLAlchemist_Firefox_VERSION_source.tar.gz
 ```
 
-The source zip includes readable source, configuration, lockfile, reviewer notes, and build scripts. It excludes generated build output, installed dependencies, bundled-example binary output, local cache folders, and macOS metadata files.
+The source archives include readable source, configuration, lockfile, reviewer
+notes, build scripts, and `RELEASE_BUILD_TIME.txt`. They exclude generated build
+output, installed dependencies, bundled-example binary output, local cache
+folders, and macOS metadata files.
 
-The source-package script uses `rsync` and `zip`. On Ubuntu, install them with:
+The source-package script uses `rsync`, `zip`, and `tar`. On Ubuntu, install the
+non-default tools with:
 
 ```bash
 sudo apt-get update
 sudo apt-get install zip rsync
 ```
 
-The source-package helper was verified locally with Info-ZIP 3.0 and openrsync protocol 29 / rsync 2.6.9-compatible behavior. These tools only create the AMO source archive; the extension build output itself is produced by Node.js and npm.
+The source-package helper was verified locally with Info-ZIP 3.0 and openrsync
+protocol 29 / rsync 2.6.9-compatible behavior. These tools only create the AMO
+source archives; the extension build output itself is produced by Node.js and
+npm.
 
 ## Build environment
 
@@ -106,13 +115,16 @@ bash ./reviewer-build.sh
 The script performs these steps:
 
 ```bash
-export URL_ALCHEMIST_BUILD_TIME="${URL_ALCHEMIST_BUILD_TIME:-2026-06-07T00:00:00.000Z}"
 npm ci
 npm run generate:bundled
 npm run build
 ```
 
-The fixed `URL_ALCHEMIST_BUILD_TIME` value makes the production bundle reproducible for reviewer comparison. To intentionally produce a build with a different visible About-page build timestamp, set `URL_ALCHEMIST_BUILD_TIME` before running the script.
+Before those commands, `reviewer-build.sh` resolves one build timestamp. It uses
+an explicit `URL_ALCHEMIST_BUILD_TIME` first, then the packaged
+`RELEASE_BUILD_TIME.txt`, then `SOURCE_DATE_EPOCH`, and finally the repository
+fallback. The release pipeline writes the exact shared Chrome/Firefox timestamp
+into each source archive so a reviewer rebuild reproduces the submitted bundle.
 
 ## Build output
 
@@ -141,7 +153,7 @@ npx web-ext lint -s dist
 - `package-lock.json` is included so dependency resolution is pinned.
 - The authoritative project source is in `src/`, `public/`, and the top-level config files listed above.
 - Firefox uses an MV3 background script/page for regex, clipboard, interval, and overlay runtime services; it does not use Chrome offscreen documents.
-- Version 2.5 uses schema 8 workspace/action-pack artifacts, removes version-file export/update metadata, preserves V1 `.urlpack` conversion, stores large resources in IndexedDB by SHA-256, and strips local-only install metadata from exported `.actionpack` files.
+- Version 2.6.1 uses schema 9 workspace/action-pack artifacts, removes version-file export/update metadata, preserves V1 `.urlpack` conversion, stores large resources in IndexedDB by SHA-256, and strips local-only install metadata from exported `.actionpack` files.
 - Content Blocker workspaces compile into local Action Packs with local lock metadata. Locks are enforced inside the extension but cannot prevent add-on removal or browser profile tampering.
 - The AI Connectors Ollama connector accepts only loopback HTTP endpoints and produces previewed JSON workspace recipes; Action Packs do not contain runtime AI instructions.
 - `dist/` is generated output and should be recreated from source.

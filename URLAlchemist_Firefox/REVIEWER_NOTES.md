@@ -16,7 +16,10 @@ npm run generate:bundled
 npm run build
 ```
 
-`reviewer-build.sh` sets `URL_ALCHEMIST_BUILD_TIME=2026-06-07T00:00:00.000Z` unless the environment already provides a value. This keeps the generated bundle reproducible for source review comparison.
+`reviewer-build.sh` uses an explicit `URL_ALCHEMIST_BUILD_TIME` first, then the
+`RELEASE_BUILD_TIME.txt` stored in the source package, then `SOURCE_DATE_EPOCH`,
+and finally the repository fallback. The release pipeline records the same
+timestamp used for both browser builds, keeping reviewer output reproducible.
 
 ## Source upload package
 
@@ -26,9 +29,18 @@ From the `URLAlchemist_Firefox` directory:
 bash ./reviewer-source-package.sh
 ```
 
-The script creates `../URLAlchemist_Firefox_artifacts/URLAlchemist_Firefox_source.zip`. The archive includes readable source, `package-lock.json`, these reviewer notes, and the build scripts. It excludes `dist/`, `node_modules/`, build caches, macOS metadata, and generated bundled-example binaries under `public/bundled-actionpacks/`.
+The script creates `../URLAlchemist_Firefox_artifacts/URLAlchemist_Firefox_source.zip`
+and a versioned `URLAlchemist_Firefox_VERSION_source.tar.gz` alongside it. The
+archives include readable source, `package-lock.json`, these reviewer notes,
+the build scripts, and `RELEASE_BUILD_TIME.txt`. They exclude `dist/`,
+`node_modules/`, build caches, macOS metadata, and generated bundled-example
+binaries under `public/bundled-actionpacks/`.
 
-The source-package script uses `rsync` and `zip`. On Ubuntu, install them with `sudo apt-get install zip rsync`. The helper was verified locally with Info-ZIP 3.0 and openrsync protocol 29 / rsync 2.6.9-compatible behavior; these tools only create the AMO source archive and are not part of the extension build output.
+The source-package script uses `rsync`, `zip`, and `tar`. On Ubuntu, install the
+non-default tools with `sudo apt-get install zip rsync`. The helper was verified
+locally with Info-ZIP 3.0 and openrsync protocol 29 / rsync 2.6.9-compatible
+behavior; these tools only create the AMO source archives and are not part of
+the extension build output.
 
 After extracting the source package, run:
 
@@ -68,11 +80,11 @@ Transitive open-source dependencies are resolved by npm from `package-lock.json`
 
 ## web-ext lint note
 
-`npx web-ext lint -s dist` currently reports 2 `UNSAFE_VAR_ASSIGNMENT` warnings in the generated minified React options bundle.
+`npx web-ext lint -s dist` currently reports 4 `UNSAFE_VAR_ASSIGNMENT` warnings in the generated minified React options bundle and no errors.
 
 - These warnings are in generated `dist/assets/options-*.js` output.
-- The project source under `src/` and `public/` does not use `innerHTML` or `dangerouslySetInnerHTML`.
-- The warnings come from bundled third-party framework code in the production artifact, not from custom extension source.
+- `src/options/components/HelpPanel.tsx` parses extension-packaged help pages with `DOMParser`, removes scripts, embedded documents, event-handler attributes, JavaScript URLs, and external style-resource references, then renders the sanitized body. It never accepts remote help content.
+- The remaining generated-bundle warnings come from bundled framework code rather than downloaded or dynamically executed extension code.
 
 ## Firefox runtime note
 
@@ -82,7 +94,7 @@ This Firefox MV3 build uses a background script/page rather than a Chrome servic
 
 - Action Packs are binary files decoded and validated by the extension before installation.
 - Imported Action Packs open in a staging review flow and are not saved automatically.
-- Version 2.5 uses workspace/action-pack schema 8. Legacy V1 `.urlpack` import/conversion remains available, and older V2 schemas are migrated before validation.
+- Version 2.6.1 uses workspace/action-pack schema 9. Legacy V1 `.urlpack` import/conversion remains available, and older V2 schemas are migrated before validation.
 - Version-file update metadata/export support was removed; old version-file metadata is stripped during migration and export.
 - Large local media resources are stored in IndexedDB by SHA-256 and referenced from workspaces/installed Action Packs. They are excluded from browser sync and bundled into exported artifacts only.
 - Installed Action Packs keep local-only install metadata for trust status, logging, locks, review overrides, install time, and Content Blocker statistics. That metadata is stripped from exported `.actionpack` files.

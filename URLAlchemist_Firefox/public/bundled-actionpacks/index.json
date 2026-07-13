@@ -20,8 +20,8 @@
       "actionPackPath": "bundled-actionpacks/action-packs/clean-campaign-links.actionpack",
       "collection": "bundled",
       "artifactHashes": {
-        "workspaceSha256": "ee6462f167c0c34e965f6ae747eedc6ab3324d55c37d791aa29b84555a3f3e96",
-        "actionPackSha256": "143d35e4cfeedfa0eae8c7a73087b5ca85b6a0a7fe3f9fead81f652cc8815e82"
+        "workspaceSha256": "39bf75e072f276778c9c2ce558cc80edd28c6bc14b36901d9ad6cb4f6219169a",
+        "actionPackSha256": "7dc08a97326a4a49ef6a30cfd6aca04f494d7e1cacfb3fac6f8efe419ed2f1db"
       }
     },
     {
@@ -41,8 +41,8 @@
       "actionPackPath": "bundled-actionpacks/action-packs/keep-stable-query.actionpack",
       "collection": "bundled",
       "artifactHashes": {
-        "workspaceSha256": "d549f4900daeb5d1c4fae3221d073af44224b47ddb1e0f897cda2315fd688150",
-        "actionPackSha256": "f0dc5575ef6bebcbbdaded8bd18f27e4e8a79fbc1f06a062a9fc07f10ebabe57"
+        "workspaceSha256": "340608da7846de933e3a757e47590377e635b5595d1a0613bcc76a65332d63d6",
+        "actionPackSha256": "c1429f989f3c927f42476767453d124cbc1ef7e44337a76d1884722dd4b75da4"
       }
     },
     {
@@ -63,8 +63,8 @@
       "actionPackPath": "bundled-actionpacks/action-packs/query-param-manager.actionpack",
       "collection": "bundled",
       "artifactHashes": {
-        "workspaceSha256": "1228fea522f137dc96acefdb39744f849d528de4ce5f69c0315cda12dada5ba3",
-        "actionPackSha256": "bf8bf0c23a72b84f91519f2008eb9ae2736b424c3d6632a1510837f604760ee8"
+        "workspaceSha256": "eac04bca6abeffdcd531b823971c702f5d0e689ca0cc1b98ff94de1583bc090f",
+        "actionPackSha256": "d9a332f1ed7d5fcd8d184c93e670bed2eecc56ddcfe1d505f0efa31d5dd3d51b"
       }
     },
     {
@@ -84,8 +84,8 @@
       "actionPackPath": "bundled-actionpacks/action-packs/github-pr-files-shortcut.actionpack",
       "collection": "bundled",
       "artifactHashes": {
-        "workspaceSha256": "b713330f4d5bbedfd4b38eaaecde30106469be8dba5c69419339e054dd23cd6c",
-        "actionPackSha256": "277e510bc137c79a77411a23c1a0c9e3637c379e64ebbdcc90f5b7b382a96525"
+        "workspaceSha256": "14181f47d49eb61acbffca265f0c5fbe9e4ed3fdf294dde6637fac6544480d83",
+        "actionPackSha256": "0e08c0ca4941c86f5b118d071714a9c5792eafaf50888f72dd9c261850a2b6f5"
       }
     },
     {
@@ -105,8 +105,8 @@
       "actionPackPath": "bundled-actionpacks/action-packs/search-selected-text.actionpack",
       "collection": "bundled",
       "artifactHashes": {
-        "workspaceSha256": "e28280b73e7b128a47d5f6ee66a2da3944e8f30ed360d1333d2de01d8be4c6fe",
-        "actionPackSha256": "ee0a6eed0e500585a81a91eb02646954dca1b108a723e93bb6b0caa2b5e89ea8"
+        "workspaceSha256": "96f11829c0c981da81482b671191cc38e9c7d2ee57e0b0831c34739687be46d0",
+        "actionPackSha256": "4b604e7222c25096cef7e13f05be4d870f3103f7d49716acd86685f615d6d3b6"
       }
     },
     {
@@ -126,8 +126,8 @@
       "actionPackPath": "bundled-actionpacks/action-packs/clipboard-search-launcher.actionpack",
       "collection": "bundled",
       "artifactHashes": {
-        "workspaceSha256": "c8b504bed8b2a108435296aaaef5ef599aebec63050a08bb7f28bbfe3e6d39b4",
-        "actionPackSha256": "1936bba7420aaef5875d9897430b8ae84959d4d754e3dff8831d92168bcfb951"
+        "workspaceSha256": "df1d1fc6cf7ee7aa62feabba05a957ca632ff5b59208903bf0599f0d267c3cdf",
+        "actionPackSha256": "93589c4094dfed5dff5a6005f6bdbe3289d738b7a5b35550019e13dd50491138"
       }
     },
     {
@@ -147,8 +147,8 @@
       "actionPackPath": "bundled-actionpacks/action-packs/remember-current-page.actionpack",
       "collection": "bundled",
       "artifactHashes": {
-        "workspaceSha256": "af7bf12dd4f2cdef2bdc5e4a9775fb06d1d2ce5fd4f7a53ee65d74348b10b700",
-        "actionPackSha256": "1fa551a58b86f6b10f746bf2beee0aaadcf1383d6026115dac34cf6439ce9bc5"
+        "workspaceSha256": "9b15e9c490e098e947f401bc8b852527ad85d2bc7177d17b1844ef8eb073c584",
+        "actionPackSha256": "9344d8b32f6ad77020fccf1f69f18bd385bc705e1a05729510c9c2822a0ef769"
       }
     },
     {
@@ -169,8 +169,8 @@
       "actionPackPath": "bundled-actionpacks/action-packs/variable-use-across-runs.actionpack",
       "collection": "bundled",
       "artifactHashes": {
-        "workspaceSha256": "129bc85f9d05daf9c35641da271eec41e1981d65853335e5cbb460c70d6664a1",
-        "actionPackSha256": "493b84527e6c0f0429cdcf26e0676f31680565f5004968de35f038fe73a87ff6"
+        "workspaceSha256": "fbccb1ae35827be6072f9e2b3ed7e2bf6d7bb8b277a8de4860b52f287f3ba89e",
+        "actionPackSha256": "83da4ee7f5777ed5117b78b4b0b67e8c5ec4f1460a06a3e92c34b5b920aa76d0"
       }
     },
     {
@@ -190,8 +190,8 @@
       "actionPackPath": "bundled-actionpacks/action-packs/copy-page-title.actionpack",
       "collection": "examples",
       "artifactHashes": {
-        "workspaceSha256": "d583dd2be4b363e437b86d294a5a7dc49c1143b806a1efd30fc36d39756c9c88",
-        "actionPackSha256": "22b48a7fdf50d609943705a11245cf71e17720f914197c0c811ee5bc65c04e5a"
+        "workspaceSha256": "dfc8a3daaf6c7e7b6b62c4c2fa3d588556d7f694a284946359ede170bbef13ea",
+        "actionPackSha256": "2e384f7dbbe482fb08e1eb477ccaa77d8c796dc0e57581d5a8fc804f28f8308b"
       }
     },
     {
@@ -212,8 +212,8 @@
       "actionPackPath": "bundled-actionpacks/action-packs/clipboard-cleanup.actionpack",
       "collection": "examples",
       "artifactHashes": {
-        "workspaceSha256": "c1e55d3de8ab24c8b7192836fdbbf62ab401e768f4ba7bfe7715a0b15d64e297",
-        "actionPackSha256": "ed52b712b007133f2d17bc1f623971ef1df723f6c567184cccb7547f9df7d0d4"
+        "workspaceSha256": "aa66643bfd7693d8dde4909bf66614688f8d24911117b3cd10ff51d18d26ae05",
+        "actionPackSha256": "8c97ac4382046a0aae7ee38e7df3e5ba036ebc3554d3801e4cb60a062ef6eb57"
       }
     },
     {
@@ -233,8 +233,8 @@
       "actionPackPath": "bundled-actionpacks/action-packs/debug-page-logger.actionpack",
       "collection": "examples",
       "artifactHashes": {
-        "workspaceSha256": "a8accf32bbc61cf0c2ad9d7cd23cd8273d012438b42019b34c7228af8ed0ed46",
-        "actionPackSha256": "d9d99e23d24c996c527c693c0f2185badbafeb1f914df67b0d10ac1346088511"
+        "workspaceSha256": "0c3b074cef8913e14e51a67e2e58973945302afa5a23dc33e73aefc830936242",
+        "actionPackSha256": "e65f1be8d426c6d6bc05944fd15424e51ea94a2d69b5af4c9a7ea2de9f8dfb42"
       }
     },
     {
@@ -254,8 +254,8 @@
       "actionPackPath": "bundled-actionpacks/action-packs/research-note-snapshot.actionpack",
       "collection": "examples",
       "artifactHashes": {
-        "workspaceSha256": "06c0844353977d4a283530c9cca04578fec1390dc17f038b5762e95edd4f9add",
-        "actionPackSha256": "4dab9cca7d566dcd85c2ea29b7eed472a0b3cceba07dadeccdf2976c8397891d"
+        "workspaceSha256": "0fe104bd057f0a7667773899253c905613ea249ef06e500f411bbe692dc23893",
+        "actionPackSha256": "6938cf2a717349f7c35eb0c8869ca8335741455bb5536c38b2f36d45c1187b87"
       }
     },
     {
@@ -275,8 +275,8 @@
       "actionPackPath": "bundled-actionpacks/action-packs/uppercase-selection-clipboard.actionpack",
       "collection": "examples",
       "artifactHashes": {
-        "workspaceSha256": "d15ca4f5f9c36a60921eb23f26e81373fd3b8b77a39b768d38691ea2b2034b2e",
-        "actionPackSha256": "bf7f8a95116c52cdc8965aedb70ae32b1808a52bd0c2e666427ed7f1a720d3fc"
+        "workspaceSha256": "b883fd55b4df04afb9b199d9f4b92e61f978ffeb270d6338a9394ec966efbec9",
+        "actionPackSha256": "a76f0a4a5d1a61cc71309f55fe709d486b3c08ffa8ce56501c111b6c2466687c"
       }
     },
     {
@@ -296,8 +296,8 @@
       "actionPackPath": "bundled-actionpacks/action-packs/logical-flow-branch-demo.actionpack",
       "collection": "examples",
       "artifactHashes": {
-        "workspaceSha256": "7afcce8a2754d6438cc7a877ee4597fe17faa9ff3d42e91e9485e263329c6404",
-        "actionPackSha256": "bee919d4a6de49971879618574a8c2afcfa2de5c3956e05a8d4e92841c66bbfc"
+        "workspaceSha256": "3f8b0d9c02106ddfee06d3fc4acae84e219569d91359b6b5e5871ded23d1ad85",
+        "actionPackSha256": "e094200a91762498c46952ad92e967ee941f7bb5f258c83261926aaddb70ed0a"
       }
     },
     {
@@ -318,7 +318,7 @@
       "kind": "custom-block-source",
       "collection": "examples",
       "artifactHashes": {
-        "workspaceSha256": "2521521adfba3d3923fef3b032880506aa1cf17c7cd4e9399ae9449922de46d6"
+        "workspaceSha256": "14caa02372bbc181f8f0ac03e3c87ffcf53bd4e0866559f2925b984326d12dbb"
       }
     },
     {
@@ -338,8 +338,8 @@
       "actionPackPath": "bundled-actionpacks/action-packs/remote-text-fetch-preview.actionpack",
       "collection": "examples",
       "artifactHashes": {
-        "workspaceSha256": "3406681a357c75b53665bfdb4254b204995005dfcb8b764318081ec7961501ce",
-        "actionPackSha256": "436b8156b6eadd86c729103848d8e0440a507ac456a0a904a10a54f210f7e8ec"
+        "workspaceSha256": "f7641d73413b770c9ca36627ab5eb6621e8523984288852cce95830de29c45ec",
+        "actionPackSha256": "33ec67a4417049fee01c3e969575a617b9e2e88f5f5e9d23c220e7e673044df9"
       }
     },
     {
@@ -359,8 +359,8 @@
       "actionPackPath": "bundled-actionpacks/action-packs/remote-post-snapshot.actionpack",
       "collection": "examples",
       "artifactHashes": {
-        "workspaceSha256": "77ec5d1604b1387d28eec84d14dc0f2d5fbb415eeed15a7cbc6d6ba0bd4db3bb",
-        "actionPackSha256": "b619d4e381f5597c0a93a872f5db90a36743a7f862afa366a16315e38077b0b4"
+        "workspaceSha256": "7a67dea8a3851e2e01f7e20eb515f45be115ca7231ee5839d1df4f4bd56f8bf1",
+        "actionPackSha256": "40879f4186a90eadde22f4c2eb6e4b134dc0c9c901a4e909dfbe69ef9093b73f"
       }
     },
     {
@@ -380,8 +380,8 @@
       "actionPackPath": "bundled-actionpacks/action-packs/clean-words.actionpack",
       "collection": "examples",
       "artifactHashes": {
-        "workspaceSha256": "412bcd39b79a5af403b5f2c16359582168a42fbc3e7f3fbff1b3d16ad83ea768",
-        "actionPackSha256": "aea944569f77e34620d9ea2b174e0caad2d5d7577d7ded4f360a6210d1551b3a"
+        "workspaceSha256": "c69b017ebf745244162dbbc48aff85116ef476c6a50e44e228ac14527d894a09",
+        "actionPackSha256": "95d6b837c9f5f3a612a9e72569684ea08891ff157ef244f3011ca12a7fc33658"
       }
     },
     {
@@ -401,8 +401,8 @@
       "actionPackPath": "bundled-actionpacks/action-packs/break-reminder.actionpack",
       "collection": "examples",
       "artifactHashes": {
-        "workspaceSha256": "c71ab514f6623f216e78bc8bbf85a2784d9023003bd568f0ab92fe7a9234c84f",
-        "actionPackSha256": "673fc8f395d30b75ceaeb8d45cdb967e7cd7f64f0903b6ed9dabaf7f0f1238f2"
+        "workspaceSha256": "7db99a6fd2b04d19e9c0e636929042f04ddf6f76bc465eb429aa809a18a5a84a",
+        "actionPackSha256": "59987a66f10eaf067b642c772c36c61a604b45ca30c6f0177f27c51174d318fc"
       }
     },
     {
@@ -423,8 +423,8 @@
       "actionPackPath": "bundled-actionpacks/action-packs/daily-break-once.actionpack",
       "collection": "bundled",
       "artifactHashes": {
-        "workspaceSha256": "757112e3b83e61a5f6c9586102d32b6be986eefe46f417af03daa67c31d8cdc0",
-        "actionPackSha256": "3f6e752a2035aa08697dd4372a86220c81409ab6309dcb4e337509c31cf1de86"
+        "workspaceSha256": "0a550d05b99a9181ae248d76e3584458a85e100179cc6d64b0c0e94d7ff18320",
+        "actionPackSha256": "5bb76bb7127e9ed5e2cd681822b6d53c3420b246eb9f222291d1ffbbbeba021e"
       }
     },
     {
@@ -444,8 +444,8 @@
       "actionPackPath": "bundled-actionpacks/action-packs/playback-resume.actionpack",
       "collection": "examples",
       "artifactHashes": {
-        "workspaceSha256": "19fa27952851281a1bde19ceb414eff50408e5e6d266b7a1ad95057bc853c50d",
-        "actionPackSha256": "440efeb1b6a84523faa8c2c4375f825a4ccbe4c620784b69f5a67271f694b7ac"
+        "workspaceSha256": "cab8111bd7187d0fe8e6a9cf7f72698c9bff94995b904f76295e10c233e3e2b3",
+        "actionPackSha256": "bd8c024b056b1d9d0c72baf95bbd33b6445f9a9d54d3aacf63d65110485aec3b"
       }
     },
     {
@@ -466,8 +466,8 @@
       "actionPackPath": "bundled-actionpacks/action-packs/overlay-input-capture.actionpack",
       "collection": "examples",
       "artifactHashes": {
-        "workspaceSha256": "69e39967743d4692cf5e27841c082e541829c5d4b51d8672789331dde19ef790",
-        "actionPackSha256": "efc85dc3b578b8d4cbc8a90afeebeb7bd2ce6b06e0083b3fc6391df45276b3f8"
+        "workspaceSha256": "052d344f3461b8e02ca400fc0de67ec45294b601b73cdf91a2d106a159de9cb2",
+        "actionPackSha256": "bf5c9ca7cf1def080ba71eabca4a9457d972dcd7d121dd92ef5b843321de31d3"
       }
     },
     {
@@ -490,8 +490,8 @@
       "actionPackPath": "bundled-actionpacks/action-packs/snake-overlay-arcade.actionpack",
       "collection": "examples",
       "artifactHashes": {
-        "workspaceSha256": "39abae8b0392e85d3f0b7e3a3a864a687d3519362d1d22e9fb8acf34060247a2",
-        "actionPackSha256": "aa5bbed6ec562b5894c7c4cba6f514817cba20aaf2f38dbbfb7ecf18f96cb358"
+        "workspaceSha256": "9e12472b4dfc389c5149ae8c76a90d379462e6149e6c69a46de0b21bc5e3f00b",
+        "actionPackSha256": "50d3288ee49810a3a0f086cbf937e3721d6c560833814f18df923d03163984ac"
       }
     }
   ]

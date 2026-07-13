@@ -233,7 +233,7 @@ input[type="radio"] {
     height: 15px;
     box-shadow:
       0 0 0 5px rgba(255, 255, 255, 0.96),
-      0 0 0 7px rgba(199, 106, 26, 0.26),
+      0 0 0 7px rgba(15, 118, 110, 0.24),
       0 6px 14px rgba(15, 23, 42, 0.24);
   }
 
@@ -261,5 +261,112 @@ input[type="radio"] {
 
   .workspace-port-handle-target.workspace-port-handle-compact {
     left: -22px !important;
+  }
+
+  .workspace-block-node .workspace-block-body > .mt-3,
+  .workspace-block-node .workspace-block-body .mt-3 {
+    margin-top: 0.5rem;
+  }
+
+  .workspace-block-node .workspace-block-body .gap-2 {
+    gap: 0.375rem;
+  }
+
+  .workspace-block-node .workspace-block-body textarea.min-h-14 {
+    min-height: 2.75rem;
+  }
+
+  .workspace-branch-region {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+    transition:
+      height 160ms ease,
+      transform 160ms ease,
+      width 160ms ease;
+  }
+
+  .workspace-block-grip {
+    transition: color 120ms ease;
+  }
+
+  .workspace-block-node:hover .workspace-block-grip,
+  .react-flow__node.dragging .workspace-block-grip {
+    color: #0f766e;
+  }
+
+  .react-flow__node.dragging .workspace-block-grip {
+    cursor: grabbing;
+  }
+
+  .workspace-edge-underlay,
+  .workspace-edge-foreground,
+  .react-flow__connection-path {
+    fill: none;
+    shape-rendering: geometricPrecision;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    vector-effect: non-scaling-stroke;
+  }
+
+  .workspace-edge-underlay {
+    pointer-events: none;
+    stroke: rgba(255, 255, 255, 0.94);
+    stroke-width: 6;
+  }
+
+  .workspace-edge-foreground {
+    filter: drop-shadow(0 1px 1px rgba(15, 23, 42, 0.12));
+    transition:
+      filter 140ms ease,
+      stroke 140ms ease,
+      stroke-width 140ms ease;
+  }
+
+  .react-flow__edge:hover .workspace-edge-foreground,
+  .workspace-edge.is-selected .workspace-edge-foreground {
+    filter: drop-shadow(0 0 3px rgba(15, 118, 110, 0.34));
+    stroke: var(--accent) !important;
+    stroke-width: 2.75 !important;
+  }
+
+  .workspace-edge.is-invalid .workspace-edge-foreground {
+    filter: drop-shadow(0 0 3px rgba(220, 38, 38, 0.3));
+    stroke: #dc2626 !important;
+  }
+
+  .react-flow__connection-path {
+    filter: drop-shadow(0 1px 1px rgba(15, 23, 42, 0.12));
+    stroke: var(--accent);
+    stroke-width: 2.25;
+  }
+
+  .workspace-minimap {
+    height: 104px !important;
+    width: 156px !important;
+    overflow: hidden;
+    border: 1px solid rgba(203, 213, 225, 0.9);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.92) !important;
+    box-shadow: 0 8px 24px rgba(31, 41, 55, 0.1);
+  }
+}
+
+button:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal-panel,
+  .workspace-branch-region,
+  .workspace-edge-foreground,
+  .workspace-block-node {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .react-flow__edge.animated path,
+  .react-flow__edge-path {
+    animation: none !important;
   }
 }

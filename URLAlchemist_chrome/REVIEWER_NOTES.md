@@ -12,10 +12,15 @@ This runs:
 
 ```bash
 npm ci
+npm run generate:bundled
 npm run build
 ```
 
 The built Chrome MV3 extension is written to `dist/`.
+
+The release source archive includes `RELEASE_BUILD_TIME.txt`. `reviewer-build.sh`
+uses that value unless `URL_ALCHEMIST_BUILD_TIME` is set explicitly, so the
+visible build metadata and generated bundle match the submitted release build.
 
 ## Source upload package
 
@@ -25,7 +30,14 @@ From the `URLAlchemist_chrome` directory:
 bash ./reviewer-source-package.sh
 ```
 
-The script creates a source zip under `../URLAlchemist_chrome_artifacts/`. It excludes generated build output, installed dependencies, local cache folders, and temporary files. The reviewer can unzip that source package, run `bash ./reviewer-build.sh`, and compare the resulting `dist/` output with the submitted extension package.
+The script creates `../URLAlchemist_chrome_artifacts/URLAlchemist_Chrome_source.zip`
+and a versioned `URLAlchemist_Chrome_VERSION_source.tar.gz` in the same artifact
+directory. Both archives include readable source, the root license, and the
+release build-time record. They exclude generated build output, installed
+dependencies, bundled-example binaries, local cache folders, and temporary
+files. The reviewer can extract either source package, run
+`bash ./reviewer-build.sh`, and compare the resulting `dist/` output with the
+submitted extension package.
 
 ## Third-party libraries bundled into the extension
 
@@ -50,7 +62,7 @@ Transitive open-source dependencies are resolved by npm from `package-lock.json`
 
 - Action Packs are binary files decoded and validated by the extension before installation.
 - Imported Action Packs open in a staging review flow and are not saved automatically.
-- Version 2.5 uses workspace/action-pack schema 8. Legacy V1 `.urlpack` import/conversion remains available, and older V2 schemas are migrated before validation.
+- Version 2.6.1 uses workspace/action-pack schema 9. Legacy V1 `.urlpack` import/conversion remains available, and older V2 schemas are migrated before validation.
 - Version-file update metadata/export support was removed; old version-file metadata is stripped during migration and export.
 - Large local media resources are stored in IndexedDB by SHA-256 and referenced from workspaces/installed Action Packs. They are excluded from browser sync and bundled into exported artifacts only.
 - Installed Action Packs keep local-only install metadata for trust status, logging, locks, review overrides, install time, and Content Blocker statistics. That metadata is stripped from exported `.actionpack` files.

@@ -10,8 +10,10 @@ Usage:
   ./change_version.sh
 
 When called without arguments, the script prompts for the three version
-components. It updates both extension targets to MAJOR.MINOR.PATCH, refreshes
-the bundled-example compatibility version constants, then rebuilds everything.
+components. It updates both extension targets and current release documentation
+to MAJOR.MINOR.PATCH, refreshes the bundled-example compatibility version
+constants, then builds and packages both browser releases and reviewer source
+archives.
 
 Example:
   ./change_version.sh 2 0 5
@@ -105,12 +107,26 @@ async function updateBundledExampleVersions(relativePath) {
   console.log(`updated ${relativePath}`);
 }
 
+async function updateReleaseDocumentVersion(relativePath, pattern) {
+  const filePath = join(root, relativePath);
+  const contents = await readFile(filePath, 'utf8');
+  if (!pattern.test(contents)) {
+    throw new Error(`Missing expected release version in ${relativePath}: ${pattern}`);
+  }
+  await writeFile(filePath, contents.replace(pattern, `$1${version}`));
+  console.log(`updated ${relativePath}`);
+}
+
 for (const relativePath of jsonFiles) {
   await updateJsonVersion(relativePath);
 }
 
 await updateBundledExampleVersions('URLAlchemist_chrome/src/shared/v2/bundledExamples.ts');
 await updateBundledExampleVersions('URLAlchemist_Firefox/src/shared/v2/bundledExamples.ts');
+await updateReleaseDocumentVersion('README.md', /(^Version )\d+\.\d+\.\d+/m);
+await updateReleaseDocumentVersion('URLAlchemist_chrome/REVIEWER_NOTES.md', /(^- Version )\d+\.\d+\.\d+(?= uses workspace\/action-pack schema)/m);
+await updateReleaseDocumentVersion('URLAlchemist_Firefox/REVIEWER_NOTES.md', /(^- Version )\d+\.\d+\.\d+(?= uses workspace\/action-pack schema)/m);
+await updateReleaseDocumentVersion('URLAlchemist_Firefox/README.md', /(^- Version )\d+\.\d+\.\d+(?= uses schema)/m);
 NODE
 
 "$ROOT_DIR/build_all.sh"

@@ -6,8 +6,8 @@ import type { BlockKind, CompiledActionPackV2, WorkspaceBlockSettings, Workspace
 export const BUNDLED_EXAMPLE_BUILD_TIME_UTC = 1_778_755_200;
 export const BUNDLED_EXAMPLE_BUILDER_UUID = '11111111-1111-4111-8111-111111111111';
 export const BUNDLED_EXAMPLE_CREATED_AT = BUNDLED_EXAMPLE_BUILD_TIME_UTC * 1000;
-export const BUNDLED_EXAMPLE_CHROME_VERSION = '2.6.0';
-export const BUNDLED_EXAMPLE_FIREFOX_VERSION = '2.6.0';
+export const BUNDLED_EXAMPLE_CHROME_VERSION = '2.6.1';
+export const BUNDLED_EXAMPLE_FIREFOX_VERSION = '2.6.1';
 export const BUNDLED_EXAMPLE_FIREFOX_ANDROID_VERSION = '142.0';
 const EMBEDDED_BREAK_IMAGE_BASE64 = 'PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxNjAgOTAiPjxyZWN0IHdpZHRoPSIxNjAiIGhlaWdodD0iOTAiIGZpbGw9IiNmZWYzYzciLz48Y2lyY2xlIGN4PSI4MCIgY3k9IjQ1IiByPSIzMCIgZmlsbD0iI2ZmZiIgc3Ryb2tlPSIjMGY3NjZlIiBzdHJva2Utd2lkdGg9IjYiLz48cGF0aCBkPSJNODAgMjV2MjJsMTYgMTAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2M3NmExYSIgc3Ryb2tlLXdpZHRoPSI2IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48dGV4dCB4PSI4MCIgeT0iODIiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxMCIgZmlsbD0iIzE3MjAzMyI+UXVpY2sgYnJlYWs8L3RleHQ+PC9zdmc+';
 const EMBEDDED_BREAK_TONE_BASE64 = 'UklGRgYEAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgATElTVBoAAABJTkZPSVNGVA4AAABMYXZmNjIuMTUuMTAwAGRhdGHAAwAAgomPjYV6cnB1fomPjoZ8c3B0fYiPjod9c3BzfYeOj4h+dHBzfIaOj4l+dXBye4WOj4qAdXBxeoSNj4qBdnBxeYOMj4uCd3BxeIKMj4yCeHFwd4KLj4yDeXFwdoGKj42EenFwdYCKj46Fe3JwdX6Jj46GfHNwdH2Ij46HfXNwc3yHjo+IfXRwc3yGjo+JfnVwcnuFjo+KgHVwcXqEjY+KgXZwcXmDjI+LgndwcXiCjJCMg3hxcHeCi4+Mg3lxcHaBio+NhHpxcHWAio+OhXtycHV+iY+OhnxzcHR9iI+Oh31zcHN9h46PiH10cHN8ho6PiX51cHJ7hY6PioB1cHF6hI2PioF2cHF5g4yPi4J3cHF4g4yPjIN4cXB3gouPjIN5cXB2gYqPjYR6cXB1f4qPjoV7cnB1fomPjoZ8c3B0fYiPjod9c3BzfYeOj4h9dHBzfIaOj4l/dXBye4WOj4qAdXBxeoSNj4qBdnBxeYOMj4uCd3BxeIKMj4yDeHFwd4KLj4yDeXFwdoGKj42EenFwdYCKj46Fe3JwdX6Jj46GfHNwdH2Ij46HfXNwc32Hjo+IfnRwc3yGjo+JfnVwcnuFjo+KgHVwcXqEjY+KgXZwcXmDjI+LgndwcXiCjI+MgnhxcHeCi4+Mg3lxcHaBio+NhHpxcHWAio+OhXtycHV+iY+OhnxzcHR9iI+Oh31zcHN8h46PiH10cHN8ho6PiX51cHJ7hY6PioB1cHF6hI2PioF2cHF5g4yPi4J3cHF4goyQjIN4cXB3gouPjIN5cXB2gYqPjYR6cXB1gIqPjoV7cnB1fomPjoZ8c3B0fYiPjod9c3BzfYeOj4h9dHBzfIaOj4l+dXBye4WOj4qAdXBxeoSNj4qBdnBxeYOMj4uCd3BxeIOMj4yDeHFwd4KLj4yDeXFwdoGKj42EenFwdX+Kj46Fe3JwdX6Jj46GfHNwdH2Ij46HfXNwc32Hjo+IfXRwc3yGjo+Jf3VwcnuFjo+KgHVwcXqEjY+KgXZwcXmDjI+LgndwcXiCjI+Mg3hxcHeCi4+Mg3lxcHaBio+NhHpxcHWAio+OhXtycHV+iY+OhnxzcHR9iI+Oh31zcHN9h46PiH50cHN8ho6PiX51cHJ7hY6PioB1cHF6hI2PioF2cHF5g4yPi4J3cHF4goyPjIJ4cXB3gouPjIN5cXB2gYqPjYR6cXB1gIqPjoV7cnB1fomPjoZ8c3B0fYiPjod9c3BzfIeOj4h9dHBzfIaOj4l+dXBye4WOj4qAdXBxeoSNj4uA';
@@ -1047,21 +1047,21 @@ function logicalFlowBranchDemo(): WorkspaceFileV2 {
     logicalFlowGroupId: flowGroupId,
     logicalFlowRole: 'condition',
   });
-  const flow = node(slug, 'flow', 'LogicalFlow', { x: 560, y: 240 }, {
+  const flow = node(slug, 'flow', 'LogicalFlow', { x: 864, y: 20 }, {
     label: 'Logical Flow',
     locked: true,
     logicalFlowGroupId: flowGroupId,
     logicalFlowRole: 'control',
   });
-  const trueTrim = node(slug, 'true-trim', 'TextTransform', { x: 980, y: 120 }, {
+  const trueTrim = node(slug, 'true-trim', 'TextTransform', { x: 1216, y: 82 }, {
     label: 'True branch trim',
     textTransformMode: 'TRIM',
   });
-  const toUrl = node(slug, 'to-url', 'Convert', { x: 1260, y: 120 }, {
+  const toUrl = node(slug, 'to-url', 'Convert', { x: 1528, y: 82 }, {
     label: 'String to URL',
     convertMode: 'STRING_TO_URL',
   });
-  const output = node(slug, 'output', 'DataFlowOut', { x: 1540, y: 120 }, { locked: true });
+  const output = node(slug, 'output', 'DataFlowOut', { x: 1840, y: 82 }, { locked: true });
 
   return {
     ...baseWorkspace(

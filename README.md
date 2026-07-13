@@ -35,8 +35,12 @@ URL Alchemist stores data locally by default. Profile sync is optional and best-
 
 Build the browser workflows you actually need, inspect what they do, and keep control over how your tabs, URLs, page data, and overlays behave.
 
-Version 2.6.0 adds AI Connectors model discovery, editor undo, Logical Flow branching, and Custom Block workspaces while preserving V1 import and V2 migration paths.
-- Updated workspace and Action Pack schema to 7 while preserving V1 `.urlpack` import/conversion and older V2 migrations.
+## Release packaging
+
+From the repository root, run `./change_version.sh MAJOR MINOR PATCH` after dependencies and tests are ready. The command records one shared build timestamp, regenerates bundled artifacts once per browser, builds both targets, and creates a Chrome `.zip`, Firefox `.xpi`, reviewer source `.zip` files, versioned source `.tar.gz` files, and SHA-256 manifests in the existing artifact directories. Set `URL_ALCHEMIST_BUILD_TIME` explicitly when a predetermined timestamp is required; otherwise the script captures one UTC value and stores it in both reviewer source archives so reviewer builds use consistent release metadata.
+
+Version 2.6.1 delivers a denser, polished workspace editor with compact inline-labelled blocks, a deduplicated Block Library, smoother connection rendering, and connection-driven Logical Flow layouts. Logical Flow branches now auto-position adopted subtrees, expand from measured block bounds, keep shared merges outside branch regions, and move as one live composite while dragging. V1 `.urlpack` import/conversion and older V2 migration paths remain available.
+- Workspace and Action Pack artifacts remain on schema 9; supported older V2 schemas are migrated before validation.
 - Removed version-file export/update metadata from workspace and Action Pack metadata; old fields are stripped during migration and export.
 - Added local-only install metadata for trust source, review status, logging, locks, install timestamps, checksums, and Focus Guard statistics.
 - Added IndexedDB resource storage keyed by SHA-256, with resources excluded from sync and bundled into exported artifacts.
