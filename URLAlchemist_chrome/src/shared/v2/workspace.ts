@@ -497,7 +497,7 @@ function validateCustomBlockPort(value: unknown, label: string, errors: string[]
   if (!isStringWithin(value.label, 80) || !value.label.trim()) {
     errors.push(`${label} label is required`);
   }
-  if (typeof value.dataType !== 'string' || !['bool', 'number', 'floatingPoint', 'string', 'URL', 'JSON', 'data', 'dict', 'asset', 'Any'].includes(value.dataType)) {
+  if (typeof value.dataType !== 'string' || !['bool', 'number', 'floatingPoint', 'string', 'URL', 'JSON', 'data', 'list', 'dict', 'asset', 'Any'].includes(value.dataType)) {
     errors.push(`${label} data type is unsupported`);
   }
   if (!isOptionalStringWithin(value.tooltip, MAX_WORKSPACE_TEXT_BYTES)) {

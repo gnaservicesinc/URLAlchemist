@@ -24,6 +24,6 @@
 <p>Use <strong>On Trigger Event</strong>, <strong>Overlay Control</strong>, <strong>Keyboard In</strong>, <strong>Mouse In</strong>, <strong>Overlay Tick In</strong>, and <strong>Overlay Draw</strong> when a workspace needs to respond as events happen. Those blocks run connected handlers while a URL Alchemist overlay session is active.</p>
 <p>Real-time handlers share session state with the normal Run chain, which lets a workflow update state, draw an overlay, and respond to keyboard, mouse, or timer events without custom JavaScript.</p>
 <h2>Example</h2>
-<p>The bundled <strong>Overlay Input Capture</strong> example opens the overlay from a hotkey and stores the captured event summary with Save Load so you can inspect the shape of the returned data.</p>
+<p>For a bundled real-time pattern, inspect <strong>Focus Sprint Timer</strong>. It uses event-handler blocks, shared state, and Overlay Draw instead of capturing one summary with Overlay Input. Keep Overlay Input for workflows that explicitly need a bounded record after capture ends.</p>
 </body>
 </html>

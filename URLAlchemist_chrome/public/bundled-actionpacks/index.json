@@ -5,493 +5,265 @@
   "examples": [
     {
       "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200001",
-      "name": "Clean Campaign Links",
-      "slug": "clean-campaign-links",
-      "description": "Removes common campaign tracking parameters and tidies query separators.",
+      "name": "Clean Share Link",
+      "slug": "clean-share-link",
+      "description": "Removes common campaign-tracking parameters while preserving every unrecognized query parameter, fragment, and signed value.",
       "category": "URL cleanup",
+      "collection": "bundled",
       "trigger": "INPUT_DATA",
       "risk": "safe",
       "features": [
-        "Run on input data",
-        "Regex cleanup",
-        "Safe URL output"
+        "Known tracker removal",
+        "Unknown parameters preserved",
+        "Automatic URL cleanup"
       ],
-      "workspacePath": "bundled-actionpacks/workspaces/clean-campaign-links.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/clean-campaign-links.actionpack",
-      "collection": "bundled",
+      "workspacePath": "bundled-actionpacks/workspaces/clean-share-link.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/clean-share-link.actionpack",
+      "kind": "action-pack",
       "artifactHashes": {
-        "workspaceSha256": "39bf75e072f276778c9c2ce558cc80edd28c6bc14b36901d9ad6cb4f6219169a",
-        "actionPackSha256": "7dc08a97326a4a49ef6a30cfd6aca04f494d7e1cacfb3fac6f8efe419ed2f1db"
-      }
-    },
-    {
-      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200002",
-      "name": "Keep Stable Query",
-      "slug": "keep-stable-query",
-      "description": "Keeps a stable id query value and removes noisy parameters after it.",
-      "category": "URL cleanup",
-      "trigger": "CONTEXT_MENU",
-      "risk": "safe",
-      "features": [
-        "After-pattern trimming",
-        "Context menu run",
-        "Stable share URLs"
-      ],
-      "workspacePath": "bundled-actionpacks/workspaces/keep-stable-query.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/keep-stable-query.actionpack",
-      "collection": "bundled",
-      "artifactHashes": {
-        "workspaceSha256": "340608da7846de933e3a757e47590377e635b5595d1a0613bcc76a65332d63d6",
-        "actionPackSha256": "c1429f989f3c927f42476767453d124cbc1ef7e44337a76d1884722dd4b75da4"
-      }
-    },
-    {
-      "id": "f5ef8a65-c730-4915-9b8d-6bdca5850250",
-      "name": "Query Param Manager",
-      "slug": "query-param-manager",
-      "description": "Keeps a short allowlist of useful query parameters, removes the rest, and sorts the result without regex-heavy URL cleanup.",
-      "category": "URL cleanup",
-      "trigger": "CONTEXT_MENU",
-      "risk": "safe",
-      "features": [
-        "URL Query block",
-        "Keep named params",
-        "Sort params",
-        "No regex"
-      ],
-      "workspacePath": "bundled-actionpacks/workspaces/query-param-manager.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/query-param-manager.actionpack",
-      "collection": "bundled",
-      "artifactHashes": {
-        "workspaceSha256": "eac04bca6abeffdcd531b823971c702f5d0e689ca0cc1b98ff94de1583bc090f",
-        "actionPackSha256": "d9a332f1ed7d5fcd8d184c93e670bed2eecc56ddcfe1d505f0efa31d5dd3d51b"
+        "workspaceSha256": "de849ae27e35fc27527a9e2924d566a5b3f6fc6b4c3626424ff4e453d0614d74",
+        "actionPackSha256": "23ae81b380d86451cc674f9d6a598c9626bba69e8a1b096d6c4e78c65e15525f"
       }
     },
     {
       "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200003",
-      "name": "GitHub PR Files Shortcut",
-      "slug": "github-pr-files-shortcut",
-      "description": "Turns a GitHub pull request URL into the files view.",
+      "name": "Open GitHub PR Files",
+      "slug": "open-github-pr-files",
+      "description": "Opens the Files view for a GitHub pull-request link without adding a second /files segment when the link already points there.",
       "category": "URL cleanup",
+      "collection": "bundled",
       "trigger": "CONTEXT_MENU",
       "risk": "safe",
       "features": [
-        "Before-pattern append",
-        "GitHub scope",
-        "Link URL friendly"
+        "Link context menu",
+        "Strict GitHub PR scope",
+        "Idempotent Files routing"
       ],
-      "workspacePath": "bundled-actionpacks/workspaces/github-pr-files-shortcut.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/github-pr-files-shortcut.actionpack",
-      "collection": "bundled",
+      "workspacePath": "bundled-actionpacks/workspaces/open-github-pr-files.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/open-github-pr-files.actionpack",
+      "kind": "action-pack",
       "artifactHashes": {
-        "workspaceSha256": "14181f47d49eb61acbffca265f0c5fbe9e4ed3fdf294dde6637fac6544480d83",
-        "actionPackSha256": "0e08c0ca4941c86f5b118d071714a9c5792eafaf50888f72dd9c261850a2b6f5"
+        "workspaceSha256": "ba165e425802b43271c49afba46d5bd00a7bf328cd3e5103ca1b645c7f4986aa",
+        "actionPackSha256": "02a5f24e0a7164d9fe11448bdc49f60a98d5a2e8b5b708ed99a482ec9d2d34fc"
       }
     },
     {
       "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200004",
       "name": "Search Selected Text",
       "slug": "search-selected-text",
-      "description": "Opens a search URL for the current selection with a hotkey.",
+      "description": "Trims and safely URL-encodes the current selection, then opens a web search from a hotkey.",
       "category": "Search",
+      "collection": "bundled",
       "trigger": "HOTKEY",
       "risk": "safe",
       "features": [
-        "Selected text input",
-        "Hotkey trigger",
-        "String to URL conversion"
+        "Selected-text input",
+        "Standards-based URL encoding",
+        "Hotkey search"
       ],
       "workspacePath": "bundled-actionpacks/workspaces/search-selected-text.workspace",
       "actionPackPath": "bundled-actionpacks/action-packs/search-selected-text.actionpack",
-      "collection": "bundled",
+      "kind": "action-pack",
       "artifactHashes": {
-        "workspaceSha256": "96f11829c0c981da81482b671191cc38e9c7d2ee57e0b0831c34739687be46d0",
-        "actionPackSha256": "4b604e7222c25096cef7e13f05be4d870f3103f7d49716acd86685f615d6d3b6"
-      }
-    },
-    {
-      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200005",
-      "name": "Clipboard Search Launcher",
-      "slug": "clipboard-search-launcher",
-      "description": "Opens a search URL for the current clipboard contents.",
-      "category": "Search",
-      "trigger": "HOTKEY",
-      "risk": "high",
-      "features": [
-        "Clipboard input",
-        "High-risk staging warning",
-        "String to URL conversion"
-      ],
-      "workspacePath": "bundled-actionpacks/workspaces/clipboard-search-launcher.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/clipboard-search-launcher.actionpack",
-      "collection": "bundled",
-      "artifactHashes": {
-        "workspaceSha256": "df1d1fc6cf7ee7aa62feabba05a957ca632ff5b59208903bf0599f0d267c3cdf",
-        "actionPackSha256": "93589c4094dfed5dff5a6005f6bdbe3289d738b7a5b35550019e13dd50491138"
-      }
-    },
-    {
-      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200006",
-      "name": "Remember Current Page",
-      "slug": "remember-current-page",
-      "description": "Shows a previous/current page note and updates the remembered URL for the next run.",
-      "category": "Storage",
-      "trigger": "CONTEXT_MENU",
-      "risk": "extended",
-      "features": [
-        "Session SaveLoad",
-        "Previous page recall",
-        "Overlay preview"
-      ],
-      "workspacePath": "bundled-actionpacks/workspaces/remember-current-page.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/remember-current-page.actionpack",
-      "collection": "bundled",
-      "artifactHashes": {
-        "workspaceSha256": "9b15e9c490e098e947f401bc8b852527ad85d2bc7177d17b1844ef8eb073c584",
-        "actionPackSha256": "9344d8b32f6ad77020fccf1f69f18bd385bc705e1a05729510c9c2822a0ef769"
-      }
-    },
-    {
-      "id": "514631bb-d33c-46e2-b416-70720c6e02f9",
-      "name": "Variable Use Across Runs",
-      "slug": "variable-use-across-runs",
-      "description": "Declares $counter once, uses it as the missing saved-value fallback and increment amount, then saves the next count for later runs.",
-      "category": "Storage",
-      "trigger": "HOTKEY",
-      "risk": "extended",
-      "features": [
-        "$counter declaration",
-        "Variable fallback",
-        "Cross-run save",
-        "Overlay and log"
-      ],
-      "workspacePath": "bundled-actionpacks/workspaces/variable-use-across-runs.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/variable-use-across-runs.actionpack",
-      "collection": "bundled",
-      "artifactHashes": {
-        "workspaceSha256": "fbccb1ae35827be6072f9e2b3ed7e2bf6d7bb8b277a8de4860b52f287f3ba89e",
-        "actionPackSha256": "83da4ee7f5777ed5117b78b4b0b67e8c5ec4f1460a06a3e92c34b5b920aa76d0"
-      }
-    },
-    {
-      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200016",
-      "name": "Copy Page Title",
-      "slug": "copy-page-title",
-      "description": "Copies the current tab title to the clipboard from the context menu without changing the URL.",
-      "category": "Page tools",
-      "trigger": "CONTEXT_MENU",
-      "risk": "high",
-      "features": [
-        "Page title input",
-        "Clipboard output",
-        "No redirect"
-      ],
-      "workspacePath": "bundled-actionpacks/workspaces/copy-page-title.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/copy-page-title.actionpack",
-      "collection": "examples",
-      "artifactHashes": {
-        "workspaceSha256": "dfc8a3daaf6c7e7b6b62c4c2fa3d588556d7f694a284946359ede170bbef13ea",
-        "actionPackSha256": "2e384f7dbbe482fb08e1eb477ccaa77d8c796dc0e57581d5a8fc804f28f8308b"
-      }
-    },
-    {
-      "id": "daf235dc-182c-4df0-b806-9d22f4a0c1c4",
-      "name": "Clipboard Cleanup",
-      "slug": "clipboard-cleanup",
-      "description": "Reads clipboard text from a hotkey, normalizes line endings and whitespace, strips unsafe control characters, and writes the cleaned text back.",
-      "category": "Page tools",
-      "trigger": "HOTKEY",
-      "risk": "high",
-      "features": [
-        "Clipboard read",
-        "Text Transform block",
-        "Clipboard write",
-        "High-risk warning"
-      ],
-      "workspacePath": "bundled-actionpacks/workspaces/clipboard-cleanup.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/clipboard-cleanup.actionpack",
-      "collection": "examples",
-      "artifactHashes": {
-        "workspaceSha256": "aa66643bfd7693d8dde4909bf66614688f8d24911117b3cd10ff51d18d26ae05",
-        "actionPackSha256": "8c97ac4382046a0aae7ee38e7df3e5ba036ebc3554d3801e4cb60a062ef6eb57"
-      }
-    },
-    {
-      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200017",
-      "name": "Debug Page Logger",
-      "slug": "debug-page-logger",
-      "description": "Formats page title and URL with the Substitution block, writes the message to the Action Pack log, and aborts cleanly when the title is empty.",
-      "category": "Page tools",
-      "trigger": "CONTEXT_MENU",
-      "risk": "extended",
-      "features": [
-        "Substitution block",
-        "Action Pack log",
-        "Abort guard"
-      ],
-      "workspacePath": "bundled-actionpacks/workspaces/debug-page-logger.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/debug-page-logger.actionpack",
-      "collection": "examples",
-      "artifactHashes": {
-        "workspaceSha256": "0c3b074cef8913e14e51a67e2e58973945302afa5a23dc33e73aefc830936242",
-        "actionPackSha256": "e65f1be8d426c6d6bc05944fd15424e51ea94a2d69b5af4c9a7ea2de9f8dfb42"
+        "workspaceSha256": "631249647a4134c825b235d7e68cc18bce28af29fbda204b97d36de3f05ebacd",
+        "actionPackSha256": "2dd357fc0c2b23a352665eaf12050629c5925b730d6082771cd55c29a8e0395b"
       }
     },
     {
       "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200007",
-      "name": "Research Note Snapshot",
-      "slug": "research-note-snapshot",
-      "description": "Copies a small JSON note containing the current URL and page title.",
+      "name": "Copy Markdown Citation",
+      "slug": "copy-markdown-citation",
+      "description": "Copies the current page as a tidy Markdown citation containing its title, URL, and local access date.",
       "category": "Page tools",
+      "collection": "bundled",
       "trigger": "CONTEXT_MENU",
       "risk": "high",
       "features": [
-        "Dictionary building",
-        "JSON conversion",
-        "Clipboard output"
+        "Page title and URL",
+        "Local access date",
+        "Markdown clipboard output"
       ],
-      "workspacePath": "bundled-actionpacks/workspaces/research-note-snapshot.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/research-note-snapshot.actionpack",
-      "collection": "examples",
+      "workspacePath": "bundled-actionpacks/workspaces/copy-markdown-citation.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/copy-markdown-citation.actionpack",
+      "kind": "action-pack",
       "artifactHashes": {
-        "workspaceSha256": "0fe104bd057f0a7667773899253c905613ea249ef06e500f411bbe692dc23893",
-        "actionPackSha256": "6938cf2a717349f7c35eb0c8869ca8335741455bb5536c38b2f36d45c1187b87"
+        "workspaceSha256": "8eb28be79086a7301df2b63cc53272fcac4f26a027d36176bb75defbfb29c2a4",
+        "actionPackSha256": "c82d353062ad7366688ed5dbca2a52b3d31858136cefb213085cc017babc9dde"
       }
     },
     {
-      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200008",
-      "name": "Uppercase Selection Clipboard",
-      "slug": "uppercase-selection-clipboard",
-      "description": "Copies a simple uppercase ASCII transform of the selected text.",
+      "id": "daf235dc-182c-4df0-b806-9d22f4a0c1c4",
+      "name": "Normalize Clipboard Text",
+      "slug": "normalize-clipboard-text",
+      "description": "Normalizes line endings, removes unsafe control characters, and trims clipboard text while preserving paragraphs and intentional spacing.",
       "category": "Page tools",
+      "collection": "bundled",
+      "trigger": "HOTKEY",
+      "risk": "high",
+      "features": [
+        "Clipboard read and write",
+        "Paragraphs preserved",
+        "Control-character cleanup"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/normalize-clipboard-text.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/normalize-clipboard-text.actionpack",
+      "kind": "action-pack",
+      "artifactHashes": {
+        "workspaceSha256": "9b1bb9f74779db9ed0310cf973027d293f8af63b9867107af07a7ad7109c0613",
+        "actionPackSha256": "47ddeb8400d83c21e08d2a0da0319c48f9189f95cb76d4613d38c8929b7b4539"
+      }
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200006",
+      "name": "Research Trail",
+      "slug": "research-trail",
+      "description": "Shows a friendly previous-versus-current page card, then remembers the current title and URL for the next run.",
+      "category": "Storage",
+      "collection": "bundled",
+      "trigger": "CONTEXT_MENU",
+      "risk": "extended",
+      "features": [
+        "Previous and current page card",
+        "Title and URL history",
+        "Local cross-run state"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/research-trail.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/research-trail.actionpack",
+      "kind": "action-pack",
+      "artifactHashes": {
+        "workspaceSha256": "1408b92c552aed0a70a71c9e7542cdcd2f9185b7537333adc274b54af6a75f5d",
+        "actionPackSha256": "2ee3e6b4b3e60c0a9dc66713da05d4d97cf0269ce629d0b18485569359694382"
+      }
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200011",
+      "name": "Redact Emails for Screen Sharing",
+      "slug": "redact-emails-for-screen-sharing",
+      "description": "After explicit confirmation, masks email addresses in visible page text for screen sharing. Reloading restores the original page.",
+      "category": "Page tools",
+      "collection": "examples",
       "trigger": "CONTEXT_MENU",
       "risk": "high",
       "features": [
-        "Declarations",
-        "Logic and loop blocks",
-        "Math conversion to clipboard"
+        "Explicit confirmation",
+        "Email-address masking",
+        "Visible page mutation warning"
       ],
-      "workspacePath": "bundled-actionpacks/workspaces/uppercase-selection-clipboard.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/uppercase-selection-clipboard.actionpack",
-      "collection": "examples",
+      "workspacePath": "bundled-actionpacks/workspaces/redact-emails-for-screen-sharing.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/redact-emails-for-screen-sharing.actionpack",
+      "kind": "action-pack",
       "artifactHashes": {
-        "workspaceSha256": "b883fd55b4df04afb9b199d9f4b92e61f978ffeb270d6338a9394ec966efbec9",
-        "actionPackSha256": "a76f0a4a5d1a61cc71309f55fe709d486b3c08ffa8ce56501c111b6c2466687c"
+        "workspaceSha256": "e951b3eed80096f10d5f7a5f7f0e8d823351a60d23c4f20fe7269a6b1f288849",
+        "actionPackSha256": "d95d70dd0b9824080b2e54855d4ba1896678a6acf5e211e785070e5995e54f36"
       }
     },
     {
-      "id": "906f8bd9-8101-43fd-bab3-7ee6558d2601",
-      "name": "Logical Flow Branch Demo",
-      "slug": "logical-flow-branch-demo",
-      "description": "Shows if/else-style branch execution: only the selected Logical Flow branch can reach its output blocks.",
-      "category": "Logic",
-      "trigger": "INPUT_DATA",
-      "risk": "safe",
-      "features": [
-        "Logical Flow",
-        "True branch execution",
-        "Missing else branch allowed"
-      ],
-      "workspacePath": "bundled-actionpacks/workspaces/logical-flow-branch-demo.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/logical-flow-branch-demo.actionpack",
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200009",
+      "name": "Fetch and Preview Text",
+      "slug": "fetch-and-preview-text",
+      "description": "Prompts for a public HTTPS URL, fetches a bounded text response, and previews it in an overlay without changing the page.",
+      "category": "Remote data",
       "collection": "examples",
+      "trigger": "CONTEXT_MENU",
+      "risk": "high",
+      "features": [
+        "Prompted HTTPS endpoint",
+        "Bounded remote GET",
+        "Overlay-only preview"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/fetch-and-preview-text.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/fetch-and-preview-text.actionpack",
+      "kind": "action-pack",
       "artifactHashes": {
-        "workspaceSha256": "3f8b0d9c02106ddfee06d3fc4acae84e219569d91359b6b5e5871ded23d1ad85",
-        "actionPackSha256": "e094200a91762498c46952ad92e967ee941f7bb5f258c83261926aaddb70ed0a"
+        "workspaceSha256": "68b1ae7ab6acc9c052af81b2aba7edcac26464cddd7a7e9a621a6fb1868de7af",
+        "actionPackSha256": "f6150bb762a532eef4d472d35b9fe16e17f74bd0a8f7fc61ff4f0f20f0b53433"
+      }
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200010",
+      "name": "Confirmed Webhook Test",
+      "slug": "confirmed-webhook-test",
+      "description": "Prompts for a public HTTPS webhook, shows exactly what will happen, and sends only a static sample payload after confirmation.",
+      "category": "Remote data",
+      "collection": "examples",
+      "trigger": "CONTEXT_MENU",
+      "risk": "high",
+      "features": [
+        "Static non-page payload",
+        "Explicit send confirmation",
+        "Guarded remote POST"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/confirmed-webhook-test.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/confirmed-webhook-test.actionpack",
+      "kind": "action-pack",
+      "artifactHashes": {
+        "workspaceSha256": "b8bb9f1a3dee72af5eabcd2e1b485cc318ba29a442aebe04f81c332557c6695e",
+        "actionPackSha256": "8c6050d31b22c56049a6a7c6ebfe3545e39d4b665ecc71e3761ff565a027988c"
+      }
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200012",
+      "name": "20-20-20 Break Reminder",
+      "slug": "20-20-20-break-reminder",
+      "description": "Every 20 minutes, opens a calm 20-second reminder to look about 20 feet away and records the reminder time locally.",
+      "category": "Wellness",
+      "collection": "examples",
+      "trigger": "INTERVAL",
+      "risk": "extended",
+      "features": [
+        "20-minute interval",
+        "20-second eye reset",
+        "Local last-run record"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/20-20-20-break-reminder.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/20-20-20-break-reminder.actionpack",
+      "kind": "action-pack",
+      "artifactHashes": {
+        "workspaceSha256": "658c9213f0eeb4c3c1c0a732b06608c1a404ea3c17004c042f8a23f7f1e27f4a",
+        "actionPackSha256": "7f9bb4b9b368137478c625180572d46484ee408e5293e6712b174d04efda58cc"
+      }
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200015",
+      "name": "Focus Sprint Timer",
+      "slug": "focus-sprint-timer",
+      "description": "Starts a practical 25-minute focus overlay. Press Space to pause or resume, and Escape to close it at any time.",
+      "category": "Interactive",
+      "collection": "examples",
+      "trigger": "HOTKEY",
+      "risk": "extended",
+      "features": [
+        "25-minute focus sprint",
+        "Space to pause or resume",
+        "Escape to close",
+        "Live overlay countdown"
+      ],
+      "workspacePath": "bundled-actionpacks/workspaces/focus-sprint-timer.workspace",
+      "actionPackPath": "bundled-actionpacks/action-packs/focus-sprint-timer.actionpack",
+      "kind": "action-pack",
+      "artifactHashes": {
+        "workspaceSha256": "47ddaf5b0427519766e1b2dacea7ad4c8109ce1f92bccdeee1990f86be3a7147",
+        "actionPackSha256": "bc228b3f1889d68c5fad15bca8cf682d21e3f5de0a041e6960798a46a8319411"
       }
     },
     {
       "id": "4d962803-b2b6-4f34-b29a-5ad0ed6fa1e0",
       "name": "Normalize Text Custom Block Source",
       "slug": "normalize-text-custom-block-source",
-      "description": "A Custom Block source workspace that trims and normalizes text through a typed input and output interface.",
+      "description": "A reusable Custom Block source that trims text and collapses repeated whitespace through a typed string interface.",
       "category": "Custom",
+      "collection": "examples",
       "trigger": "CUSTOM_BLOCK",
       "risk": "safe",
       "features": [
         "Custom Block source",
-        "Typed input",
-        "Typed output",
-        "Compile to install"
+        "Typed string input and output",
+        "Trim and whitespace normalization"
       ],
       "workspacePath": "bundled-actionpacks/workspaces/normalize-text-custom-block-source.workspace",
       "kind": "custom-block-source",
-      "collection": "examples",
       "artifactHashes": {
-        "workspaceSha256": "14caa02372bbc181f8f0ac03e3c87ffcf53bd4e0866559f2925b984326d12dbb"
-      }
-    },
-    {
-      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200009",
-      "name": "Remote Text Fetch Preview",
-      "slug": "remote-text-fetch-preview",
-      "description": "Fetches the stable Example Domain page and previews the returned text on the current page while leaving navigation unchanged.",
-      "category": "Remote data",
-      "trigger": "CONTEXT_MENU",
-      "risk": "high",
-      "features": [
-        "Remote GET warning",
-        "Real HTTPS endpoint",
-        "No redirect"
-      ],
-      "workspacePath": "bundled-actionpacks/workspaces/remote-text-fetch-preview.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/remote-text-fetch-preview.actionpack",
-      "collection": "examples",
-      "artifactHashes": {
-        "workspaceSha256": "f7641d73413b770c9ca36627ab5eb6621e8523984288852cce95830de29c45ec",
-        "actionPackSha256": "33ec67a4417049fee01c3e969575a617b9e2e88f5f5e9d23c220e7e673044df9"
-      }
-    },
-    {
-      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200010",
-      "name": "Remote POST Snapshot",
-      "slug": "remote-post-snapshot",
-      "description": "Builds a small page dictionary, sends it to a public echo endpoint, and previews the echoed response.",
-      "category": "Remote data",
-      "trigger": "CONTEXT_MENU",
-      "risk": "high",
-      "features": [
-        "Remote POST warning",
-        "Dictionary body",
-        "Echo response"
-      ],
-      "workspacePath": "bundled-actionpacks/workspaces/remote-post-snapshot.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/remote-post-snapshot.actionpack",
-      "collection": "examples",
-      "artifactHashes": {
-        "workspaceSha256": "7a67dea8a3851e2e01f7e20eb515f45be115ca7231ee5839d1df4f4bd56f8bf1",
-        "actionPackSha256": "40879f4186a90eadde22f4c2eb6e4b134dc0c9c901a4e909dfbe69ef9093b73f"
-      }
-    },
-    {
-      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200011",
-      "name": "Clean Words",
-      "slug": "clean-words",
-      "description": "Masks a small built-in word list in page text and shows a review message before leaving navigation unchanged.",
-      "category": "Page tools",
-      "trigger": "CONTEXT_MENU",
-      "risk": "high",
-      "features": [
-        "Built-in word list",
-        "Page text mutation",
-        "Overlay message"
-      ],
-      "workspacePath": "bundled-actionpacks/workspaces/clean-words.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/clean-words.actionpack",
-      "collection": "examples",
-      "artifactHashes": {
-        "workspaceSha256": "c69b017ebf745244162dbbc48aff85116ef476c6a50e44e228ac14527d894a09",
-        "actionPackSha256": "95d6b837c9f5f3a612a9e72569684ea08891ff157ef244f3011ca12a7fc33658"
-      }
-    },
-    {
-      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200012",
-      "name": "Break Reminder",
-      "slug": "break-reminder",
-      "description": "Opens a manual break reminder from a hotkey, shows bundled media, plays a short local tone, and records the run time.",
-      "category": "Media",
-      "trigger": "HOTKEY",
-      "risk": "high",
-      "features": [
-        "Embedded media",
-        "Hotkey trigger",
-        "SaveLoad timestamp"
-      ],
-      "workspacePath": "bundled-actionpacks/workspaces/break-reminder.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/break-reminder.actionpack",
-      "collection": "examples",
-      "artifactHashes": {
-        "workspaceSha256": "7db99a6fd2b04d19e9c0e636929042f04ddf6f76bc465eb429aa809a18a5a84a",
-        "actionPackSha256": "59987a66f10eaf067b642c772c36c61a604b45ca30c6f0177f27c51174d318fc"
-      }
-    },
-    {
-      "id": "58dc160e-3fc3-437c-9fe2-7dd02a36ab8c",
-      "name": "Daily Break Once",
-      "slug": "daily-break-once",
-      "description": "Uses Conditional Run to show a break reminder once per local day, then saves today as completed.",
-      "category": "Storage",
-      "trigger": "CONDITIONAL",
-      "risk": "extended",
-      "features": [
-        "Conditional Run",
-        "Condition Out",
-        "System time",
-        "SaveLoad state"
-      ],
-      "workspacePath": "bundled-actionpacks/workspaces/daily-break-once.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/daily-break-once.actionpack",
-      "collection": "bundled",
-      "artifactHashes": {
-        "workspaceSha256": "0a550d05b99a9181ae248d76e3584458a85e100179cc6d64b0c0e94d7ff18320",
-        "actionPackSha256": "5bb76bb7127e9ed5e2cd681822b6d53c3420b246eb9f222291d1ffbbbeba021e"
-      }
-    },
-    {
-      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200013",
-      "name": "Playback Resume",
-      "slug": "playback-resume",
-      "description": "Plays a tiny bundled video sample and stores playback result details for later runs.",
-      "category": "Media",
-      "trigger": "HOTKEY",
-      "risk": "high",
-      "features": [
-        "Embedded video",
-        "Playback result dictionary",
-        "SaveLoad"
-      ],
-      "workspacePath": "bundled-actionpacks/workspaces/playback-resume.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/playback-resume.actionpack",
-      "collection": "examples",
-      "artifactHashes": {
-        "workspaceSha256": "cab8111bd7187d0fe8e6a9cf7f72698c9bff94995b904f76295e10c233e3e2b3",
-        "actionPackSha256": "bd8c024b056b1d9d0c72baf95bbd33b6445f9a9d54d3aacf63d65110485aec3b"
-      }
-    },
-    {
-      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200014",
-      "name": "Overlay Input Capture",
-      "slug": "overlay-input-capture",
-      "description": "Opens an overlay from a hotkey, captures keyboard and mouse events while it is open, and stores the bounded event summary.",
-      "category": "Page tools",
-      "trigger": "HOTKEY",
-      "risk": "extended",
-      "features": [
-        "Hotkey launch",
-        "Overlay input",
-        "Keyboard capture",
-        "Mouse capture"
-      ],
-      "workspacePath": "bundled-actionpacks/workspaces/overlay-input-capture.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/overlay-input-capture.actionpack",
-      "collection": "examples",
-      "artifactHashes": {
-        "workspaceSha256": "052d344f3461b8e02ca400fc0de67ec45294b601b73cdf91a2d106a159de9cb2",
-        "actionPackSha256": "bf5c9ca7cf1def080ba71eabca4a9457d972dcd7d121dd92ef5b843321de31d3"
-      }
-    },
-    {
-      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200015",
-      "name": "Snake Overlay Arcade",
-      "slug": "snake-overlay-arcade",
-      "description": "Runs a playable Snake-style overlay game from generic event, state, list, random, and draw blocks.",
-      "category": "Interactive",
-      "trigger": "HOTKEY",
-      "risk": "extended",
-      "features": [
-        "Overlay session",
-        "Keyboard events",
-        "Mouse events",
-        "Tick loop",
-        "Shared state",
-        "Grid drawing"
-      ],
-      "workspacePath": "bundled-actionpacks/workspaces/snake-overlay-arcade.workspace",
-      "actionPackPath": "bundled-actionpacks/action-packs/snake-overlay-arcade.actionpack",
-      "collection": "examples",
-      "artifactHashes": {
-        "workspaceSha256": "9e12472b4dfc389c5149ae8c76a90d379462e6149e6c69a46de0b21bc5e3f00b",
-        "actionPackSha256": "50d3288ee49810a3a0f086cbf937e3721d6c560833814f18df923d03163984ac"
+        "workspaceSha256": "cad480e7316ba07923d239cd0c82d4d53d3ff19312dfbf78aa53623c6c5f4610"
       }
     }
   ]

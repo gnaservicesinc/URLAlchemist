@@ -43,7 +43,7 @@
 <h2>Quick Start</h2>
 
 <ol>
-  <li>Open the <strong>Examples</strong> tab and search by task, such as cleanup, query params, clipboard, conditions, media, remote data, or overlays.</li>
+  <li>Open the <strong>Examples</strong> tab and search by task, such as link cleanup, GitHub, clipboard, research, remote requests, break reminders, overlays, or custom blocks.</li>
   <li>Click <strong>Install Action Pack</strong> to try a compiled example, or <strong>Open Workspace</strong> to inspect and modify the source first.</li>
   <li>Use the <strong>Workspace Editor</strong> to build your own transformations from scratch.</li>
   <li>When your workspace is valid, click <strong>Build &amp; Install</strong> to compile it into an Action Pack and activate it.</li>
@@ -54,12 +54,18 @@
 
 <h2>Built-In Examples To Try</h2>
 <ul>
-  <li><strong>Clean Campaign Links</strong> removes common tracking query parameters as input URLs arrive.</li>
+  <li><strong>Clean Share Link</strong> removes common tracking parameters from a URL before you share it.</li>
+  <li><strong>Open GitHub PR Files</strong> opens the Files view for a GitHub pull request URL.</li>
   <li><strong>Search Selected Text</strong> turns selected page text into a search URL from a hotkey.</li>
-  <li><strong>Remote Text Fetch Preview</strong> demonstrates remote HTTPS fetch review without changing navigation.</li>
-  <li><strong>Clean Words</strong> shows how page text mutation and overlay review work together.</li>
-  <li><strong>Playback Resume</strong> plays bundled video and stores structured playback details.</li>
-  <li><strong>Snake Overlay Arcade</strong> demonstrates a real-time overlay built from generic event and draw blocks.</li>
+  <li><strong>Copy Markdown Citation</strong> formats the current page title, URL, and local date as a Markdown citation and copies it.</li>
+  <li><strong>Normalize Clipboard Text</strong> trims and normalizes copied text before writing the cleaned value back.</li>
+  <li><strong>Research Trail</strong> shows the previous and current page together, then remembers the current title and URL for the next run.</li>
+  <li><strong>Redact Emails for Screen Sharing</strong> masks visible email addresses after confirmation before a presentation or recording.</li>
+  <li><strong>Fetch and Preview Text</strong> fetches HTTPS text and previews it in an overlay without navigating or mutating page text.</li>
+  <li><strong>Confirmed Webhook Test</strong> prompts for an HTTPS endpoint, requires confirmation, and sends only a static sample payload&mdash;never current page data.</li>
+  <li><strong>20-20-20 Break Reminder</strong> shows a periodic eye-break reminder.</li>
+  <li><strong>Focus Sprint Timer</strong> demonstrates a visible real-time overlay timer built from generic event, state, and draw blocks.</li>
+  <li><strong>Normalize Text Custom Block Source</strong> is editable source for a reusable text-normalization custom block.</li>
 </ul>
 
 <h2>Tab Reference</h2>
@@ -71,7 +77,7 @@
   <li><strong>Workspace Editor</strong> &mdash; The visual node editor where you build URL transformation logic.</li>
   <li><strong>Content Blocker workspaces</strong> &mdash; Start from the Workspace Editor, choose Content Blocker as the workspace type, and compile/install locally.</li>
   <li><strong>Security</strong> &mdash; Enable tracing, audit files, configure hardening limits, and monitor alerts.</li>
-  <li><strong>Settings</strong> &mdash; Global toggles, UI scaling, clipboard permissions, and backup/restore.</li>
+  <li><strong>Settings</strong> &mdash; Global toggles, UI scaling, clipboard permissions, AI connector instructions, and backup/restore.</li>
   <li><strong>Help</strong> &mdash; This documentation.</li>
   <li><strong>About</strong> &mdash; Version info, license, repository links, and reset options.</li>
 </ul>
@@ -79,13 +85,14 @@
 <h2>Overlay Workflows</h2>
 <p><strong>Overlay Input</strong> opens a temporary overlay and returns a bounded summary of keyboard and mouse events captured while that overlay is open.</p>
 <p>For real-time applications, use the event-handler blocks: <strong>On Trigger Event</strong>, <strong>Keyboard In</strong>, <strong>Mouse In</strong>, and <strong>Overlay Tick In</strong>. Pair them with <strong>Overlay Control</strong>, <strong>Overlay Draw</strong>, and shared state blocks to build interactive overlay workflows without custom JavaScript.</p>
-<p>The bundled <strong>Snake Overlay Arcade</strong> example demonstrates a classic arcade game built from those generic workspace blocks.</p>
+<p>The bundled <strong>Focus Sprint Timer</strong> example demonstrates a practical real-time timer built from those generic workspace blocks.</p>
 <h2>Import Safety</h2>
 <p>Imported Action Packs open in the staging gate instead of saving immediately. Review the manifest, risk badges, plain-language steps, and sandbox result before confirming import.</p>
 <p class="warning">Treat clipboard, raw page, remote request, page mutation, and overlay input behavior as sensitive. URL Alchemist surfaces these risks so you can decide before the pack is installed.</p>
 <h2>Resources And AI Connectors</h2>
 <p>Large local images, video, and audio are stored once in IndexedDB and referenced by SHA-256 from workspaces and installed Action Packs. Resources are excluded from browser sync and are bundled only when exporting a workspace, Action Pack, or unlocked backup.</p>
-<p>The AI Connectors Ollama connector sends a block catalog, current workspace context, and your prompt only to a loopback Ollama endpoint such as <code>http://127.0.0.1:11434</code>. It returns strict JSON recipes that are previewed and validated before the editor applies them. Action Packs do not call AI providers at runtime.</p>
+<p>AI workspace instructions are editable in Settings and can be restored to the URL Alchemist default. Custom instructions stay in local extension storage and manual backups; browser sync receives the default instead. The fixed recipe contract, workspace validation, compiler checks, and safety policy are separate from this editable guidance and cannot be overridden by it.</p>
+<p>Ollama drafting sends your request, editable workspace instructions, the machine-readable block and port catalog, and an internal recipe for the eligible open graph only to a loopback endpoint such as <code>http://127.0.0.1:11434</code>; redirects and oversized responses are rejected. The returned complete graph must pass recipe, workspace, compiler, compiled Action Pack where applicable, and risk checks. Preview shows derived risk, applicable permissions, sensitive behavior, and the safely rendered complete recipe JSON before Apply. Custom Block permissions are determined later by the host Action Pack. A draft becomes ineligible if the open graph changes, and full replacement clears stale compatibility metadata. Content Blockers and workspaces that depend on embedded assets, local resources, or installed Custom Blocks are rejected rather than converted lossily. Recipe JSON is a build and LLM protocol, not a portable user file type, and Action Packs never call an AI provider at runtime.</p>
 <h2>Debugging</h2>
 <p>Manage Resources includes <strong>View Log</strong>, <strong>Export Log</strong>, and <strong>Clear Log</strong> actions for each installed Action Pack. New installs default logging off unless Settings changes the default; migrated existing packs keep logging on. Logs record run timestamps, exit codes, issues, and entries written by <strong>Save string to log</strong>.</p>
 <p>Per-pack logs rotate automatically after the newest 300 entries or about 256 KB, whichever limit is reached first.</p>

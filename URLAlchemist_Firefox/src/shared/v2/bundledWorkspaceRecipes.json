@@ -1,0 +1,543 @@
+{
+  "kind": "url-alchemist.bundled-workspace-recipes.v1",
+  "entries": [
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200001",
+      "slug": "clean-share-link",
+      "category": "URL cleanup",
+      "collection": "bundled",
+      "risk": "safe",
+      "features": ["Known tracker removal", "Unknown parameters preserved", "Automatic URL cleanup"],
+      "recipe": {
+        "kind": "workspace-recipe.v1",
+        "workspaceType": "data-modifier",
+        "name": "Clean Share Link",
+        "description": "Removes common campaign-tracking parameters while preserving every unrecognized query parameter, fragment, and signed value.",
+        "trigger": {
+          "type": "INPUT_DATA",
+          "hotkey": "Ctrl+Shift+U",
+          "inputSources": ["url"],
+          "sourceFilters": [{ "source": "url", "pattern": "^https?://" }]
+        },
+        "nodes": [
+          { "id": "input", "type": "DataFlowIn", "position": { "x": 0, "y": 120 }, "settings": { "locked": true } },
+          { "id": "remove-trackers", "type": "RegExpression", "position": { "x": 300, "y": 80 }, "settings": { "label": "Remove known trackers", "pattern": "([?&])(?:utm_[^=&#?]+|fbclid|gclid|dclid|msclkid|mc_cid|mc_eid|_hsenc|_hsmi)=[^&#]*(?=&|#|$)", "action": "SUBSTITUTE", "matchMode": "STANDARD", "payload": "$1", "payloadVars": true } },
+          { "id": "collapse-ampersands", "type": "RegExpression", "position": { "x": 620, "y": 80 }, "settings": { "label": "Collapse duplicate separators", "pattern": "&&+", "action": "SUBSTITUTE", "matchMode": "STANDARD", "payload": "&" } },
+          { "id": "tidy-query-start", "type": "RegExpression", "position": { "x": 940, "y": 80 }, "settings": { "label": "Tidy query start", "pattern": "\\?&+", "action": "SUBSTITUTE", "matchMode": "STANDARD", "payload": "?" } },
+          { "id": "trim-empty-query", "type": "RegExpression", "position": { "x": 1260, "y": 80 }, "settings": { "label": "Remove empty separators", "pattern": "[?&](?=#|$)", "action": "REMOVE", "matchMode": "STANDARD" } },
+          { "id": "output", "type": "DataFlowOut", "position": { "x": 1580, "y": 120 }, "settings": { "locked": true } }
+        ],
+        "connections": [
+          { "from": "input.url", "to": "remove-trackers.input" },
+          { "from": "remove-trackers.result", "to": "collapse-ampersands.input" },
+          { "from": "collapse-ampersands.result", "to": "tidy-query-start.input" },
+          { "from": "tidy-query-start.result", "to": "trim-empty-query.input" },
+          { "from": "trim-empty-query.result", "to": "output.url" }
+        ],
+        "viewport": { "x": 0, "y": 0, "zoom": 0.78 }
+      }
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200003",
+      "slug": "open-github-pr-files",
+      "category": "URL cleanup",
+      "collection": "bundled",
+      "risk": "safe",
+      "features": ["Link context menu", "Strict GitHub PR scope", "Idempotent Files routing"],
+      "recipe": {
+        "kind": "workspace-recipe.v1",
+        "workspaceType": "data-modifier",
+        "name": "Open GitHub PR Files",
+        "description": "Opens the Files view for a GitHub pull-request link without adding a second /files segment when the link already points there.",
+        "trigger": {
+          "type": "CONTEXT_MENU",
+          "hotkey": "Ctrl+Shift+G",
+          "inputSources": ["linkUrl"],
+          "sourceFilters": [{ "source": "linkUrl", "pattern": "^https://github\\.com/[^/]+/[^/]+/pull/\\d+(?:/(?:files|commits|checks))?/?(?:[?#]|$)" }]
+        },
+        "nodes": [
+          { "id": "input", "type": "DataFlowIn", "position": { "x": 0, "y": 120 }, "settings": { "locked": true } },
+          { "id": "route-files", "type": "RegExpression", "position": { "x": 320, "y": 80 }, "settings": { "label": "Route to Files", "pattern": "^(https://github\\.com/[^/]+/[^/]+/pull/\\d+)(?:/(?:files|commits|checks))?/?(?=[?#]|$)", "action": "SUBSTITUTE", "matchMode": "STANDARD", "payload": "$1/files", "payloadVars": true } },
+          { "id": "output", "type": "DataFlowOut", "position": { "x": 660, "y": 120 }, "settings": { "locked": true } }
+        ],
+        "connections": [
+          { "from": "input.linkUrl", "to": "route-files.input" },
+          { "from": "route-files.result", "to": "output.url" }
+        ],
+        "viewport": { "x": 0, "y": 0, "zoom": 0.9 }
+      }
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200004",
+      "slug": "search-selected-text",
+      "category": "Search",
+      "collection": "bundled",
+      "risk": "safe",
+      "features": ["Selected-text input", "Standards-based URL encoding", "Hotkey search"],
+      "recipe": {
+        "kind": "workspace-recipe.v1",
+        "workspaceType": "data-modifier",
+        "name": "Search Selected Text",
+        "description": "Trims and safely URL-encodes the current selection, then opens a web search from a hotkey.",
+        "trigger": {
+          "type": "HOTKEY",
+          "hotkey": "Ctrl+Shift+S",
+          "inputSources": ["selectedText"],
+          "sourceFilters": [{ "source": "url", "pattern": "^https?://" }]
+        },
+        "nodes": [
+          { "id": "input", "type": "DataFlowIn", "position": { "x": 0, "y": 120 }, "settings": { "locked": true } },
+          { "id": "trim", "type": "TextTransform", "position": { "x": 280, "y": 80 }, "settings": { "label": "Trim selection", "textTransformMode": "TRIM" } },
+          { "id": "encode", "type": "TextTransform", "position": { "x": 560, "y": 80 }, "settings": { "label": "Encode search query", "textTransformMode": "URL_ENCODE" } },
+          { "id": "build-search-url", "type": "Substitution", "position": { "x": 840, "y": 80 }, "settings": { "label": "Build search URL", "substitutionTemplate": "https://www.google.com/search?q=$1", "substitutionInputCount": 1 } },
+          { "id": "to-url", "type": "Convert", "position": { "x": 1140, "y": 80 }, "settings": { "label": "Convert to URL", "convertMode": "STRING_TO_URL" } },
+          { "id": "output", "type": "DataFlowOut", "position": { "x": 1440, "y": 120 }, "settings": { "locked": true } }
+        ],
+        "connections": [
+          { "from": "input.selectedText", "to": "trim.input" },
+          { "from": "trim.result", "to": "encode.input" },
+          { "from": "encode.result", "to": "build-search-url.value1" },
+          { "from": "build-search-url.result", "to": "to-url.input" },
+          { "from": "to-url.result", "to": "output.url" }
+        ],
+        "viewport": { "x": 0, "y": 0, "zoom": 0.82 }
+      }
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200007",
+      "slug": "copy-markdown-citation",
+      "category": "Page tools",
+      "collection": "bundled",
+      "risk": "high",
+      "features": ["Page title and URL", "Local access date", "Markdown clipboard output"],
+      "recipe": {
+        "kind": "workspace-recipe.v1",
+        "workspaceType": "data-modifier",
+        "name": "Copy Markdown Citation",
+        "description": "Copies the current page as a tidy Markdown citation containing its title, URL, and local access date.",
+        "trigger": {
+          "type": "CONTEXT_MENU",
+          "hotkey": "Ctrl+Shift+C",
+          "inputSources": ["url", "pageTitle"],
+          "sourceFilters": [{ "source": "url", "pattern": "^https?://" }]
+        },
+        "nodes": [
+          { "id": "input", "type": "DataFlowIn", "position": { "x": 0, "y": 180 }, "settings": { "locked": true } },
+          { "id": "today", "type": "SystemData", "position": { "x": 300, "y": 260 }, "settings": { "label": "Local access date", "systemDataMode": "LOCALE_DATE" } },
+          { "id": "format", "type": "Substitution", "position": { "x": 500, "y": 100 }, "settings": { "label": "Format Markdown citation", "substitutionTemplate": "**$1**\n<$2>\nAccessed $3", "substitutionInputCount": 3 } },
+          { "id": "clipboard", "type": "ExtendedDataOut", "position": { "x": 980, "y": 80 }, "settings": { "label": "Copy citation" } },
+          { "id": "output", "type": "DataFlowOut", "position": { "x": 980, "y": 280 }, "settings": { "locked": true } }
+        ],
+        "connections": [
+          { "from": "input.pageTitle", "to": "format.value1" },
+          { "from": "input.url", "to": "format.value2" },
+          { "from": "today.result", "to": "format.value3" },
+          { "from": "format.result", "to": "clipboard.clipboard" },
+          { "from": "input.url", "to": "output.url" }
+        ],
+        "viewport": { "x": 0, "y": 0, "zoom": 0.86 }
+      }
+    },
+    {
+      "id": "daf235dc-182c-4df0-b806-9d22f4a0c1c4",
+      "slug": "normalize-clipboard-text",
+      "category": "Page tools",
+      "collection": "bundled",
+      "risk": "high",
+      "features": ["Clipboard read and write", "Paragraphs preserved", "Control-character cleanup"],
+      "recipe": {
+        "kind": "workspace-recipe.v1",
+        "workspaceType": "data-modifier",
+        "name": "Normalize Clipboard Text",
+        "description": "Normalizes line endings, removes unsafe control characters, and trims clipboard text while preserving paragraphs and intentional spacing.",
+        "trigger": {
+          "type": "HOTKEY",
+          "hotkey": "Ctrl+Shift+X",
+          "inputSources": ["clipboard", "url"],
+          "sourceFilters": [{ "source": "url", "pattern": "^https?://" }]
+        },
+        "nodes": [
+          { "id": "input", "type": "DataFlowIn", "position": { "x": 0, "y": 260 }, "settings": { "locked": true } },
+          { "id": "extended-input", "type": "ExtendedDataIn", "position": { "x": 0, "y": 40 }, "settings": { "label": "Read clipboard" } },
+          { "id": "normalize-lines", "type": "TextTransform", "position": { "x": 300, "y": 40 }, "settings": { "label": "Normalize line endings", "textTransformMode": "NORMALIZE_LINE_ENDINGS" } },
+          { "id": "strip-control", "type": "TextTransform", "position": { "x": 600, "y": 40 }, "settings": { "label": "Strip control characters", "textTransformMode": "STRIP_CONTROL_CHARS" } },
+          { "id": "trim", "type": "TextTransform", "position": { "x": 900, "y": 40 }, "settings": { "label": "Trim outer whitespace", "textTransformMode": "TRIM" } },
+          { "id": "clipboard", "type": "ExtendedDataOut", "position": { "x": 1200, "y": 40 }, "settings": { "label": "Write clean clipboard" } },
+          { "id": "output", "type": "DataFlowOut", "position": { "x": 1200, "y": 260 }, "settings": { "locked": true } }
+        ],
+        "connections": [
+          { "from": "extended-input.clipboard", "to": "normalize-lines.input" },
+          { "from": "normalize-lines.result", "to": "strip-control.input" },
+          { "from": "strip-control.result", "to": "trim.input" },
+          { "from": "trim.result", "to": "clipboard.clipboard" },
+          { "from": "input.url", "to": "output.url" }
+        ],
+        "viewport": { "x": 0, "y": 0, "zoom": 0.84 }
+      }
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200006",
+      "slug": "research-trail",
+      "category": "Storage",
+      "collection": "bundled",
+      "risk": "extended",
+      "features": ["Previous and current page card", "Title and URL history", "Local cross-run state"],
+      "recipe": {
+        "kind": "workspace-recipe.v1",
+        "workspaceType": "data-modifier",
+        "name": "Research Trail",
+        "description": "Shows a friendly previous-versus-current page card, then remembers the current title and URL for the next run.",
+        "trigger": {
+          "type": "CONTEXT_MENU",
+          "hotkey": "Ctrl+Shift+R",
+          "inputSources": ["url", "pageTitle"],
+          "sourceFilters": [{ "source": "url", "pattern": "^https?://" }]
+        },
+        "nodes": [
+          { "id": "input", "type": "DataFlowIn", "position": { "x": 0, "y": 240 }, "settings": { "locked": true } },
+          { "id": "previous-title", "type": "SharedState", "position": { "x": 280, "y": 20 }, "settings": { "label": "Load previous title", "sharedStateMode": "GET", "literalValue": "research-trail:last-title", "selectFalseValue": "No previous page yet", "literalDataType": "string" } },
+          { "id": "previous-url", "type": "SharedState", "position": { "x": 280, "y": 140 }, "settings": { "label": "Load previous URL", "sharedStateMode": "GET", "literalValue": "research-trail:last-url", "selectFalseValue": "Run this again after visiting another page.", "literalDataType": "string" } },
+          { "id": "card", "type": "Substitution", "position": { "x": 620, "y": 80 }, "settings": { "label": "Build research card", "substitutionTemplate": "Previous page\n$1\n$2\n\nCurrent page\n$3\n$4", "substitutionInputCount": 4 } },
+          { "id": "show-card", "type": "ShowMessage", "position": { "x": 980, "y": 80 }, "settings": { "label": "Show research trail", "promptTitle": "Research Trail", "promptMessage": "Previous and current page", "displayMode": "OVERLAY", "displayTimeoutMs": 10000 } },
+          { "id": "save-title", "type": "SharedState", "position": { "x": 620, "y": 300 }, "settings": { "label": "Remember current title", "sharedStateMode": "SET", "literalValue": "research-trail:last-title", "literalDataType": "string", "alwaysProcess": true } },
+          { "id": "save-url", "type": "SharedState", "position": { "x": 940, "y": 300 }, "settings": { "label": "Remember current URL", "sharedStateMode": "SET", "literalValue": "research-trail:last-url", "literalDataType": "URL", "alwaysProcess": true } },
+          { "id": "output", "type": "DataFlowOut", "position": { "x": 1260, "y": 260 }, "settings": { "locked": true } }
+        ],
+        "connections": [
+          { "from": "previous-title.result", "to": "card.value1" },
+          { "from": "previous-url.result", "to": "card.value2" },
+          { "from": "input.pageTitle", "to": "card.value3" },
+          { "from": "input.url", "to": "card.value4" },
+          { "from": "card.result", "to": "show-card.message" },
+          { "from": "input.pageTitle", "to": "save-title.value" },
+          { "from": "input.url", "to": "save-url.value" },
+          { "from": "input.url", "to": "output.url" }
+        ],
+        "viewport": { "x": 0, "y": 0, "zoom": 0.82 }
+      }
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200011",
+      "slug": "redact-emails-for-screen-sharing",
+      "category": "Page tools",
+      "collection": "examples",
+      "risk": "high",
+      "features": ["Explicit confirmation", "Email-address masking", "Visible page mutation warning"],
+      "recipe": {
+        "kind": "workspace-recipe.v1",
+        "workspaceType": "data-modifier",
+        "name": "Redact Emails for Screen Sharing",
+        "description": "After explicit confirmation, masks email addresses in visible page text for screen sharing. Reloading restores the original page.",
+        "trigger": {
+          "type": "CONTEXT_MENU",
+          "hotkey": "Ctrl+Shift+E",
+          "inputSources": ["pageText", "url"],
+          "sourceFilters": [{ "source": "url", "pattern": "^https?://" }]
+        },
+        "nodes": [
+          { "id": "input", "type": "DataFlowIn", "position": { "x": 0, "y": 300 }, "settings": { "locked": true } },
+          { "id": "page-text", "type": "ExtendedDataIn", "position": { "x": 0, "y": 60 }, "settings": { "label": "Read visible page text" } },
+          { "id": "confirm", "type": "Confirm", "position": { "x": 280, "y": 300 }, "settings": { "label": "Confirm page redaction", "promptMessage": "Mask visible email addresses on this page for screen sharing? This changes page text until the page is reloaded." } },
+          { "id": "confirmed-value", "type": "DictGet", "position": { "x": 580, "y": 300 }, "settings": { "label": "Read confirmation", "dictKey": "value", "literalValue": "0", "literalDataType": "bool" } },
+          { "id": "confirmed", "type": "Logical", "position": { "x": 860, "y": 280 }, "settings": { "label": "User confirmed", "operator": "EQ", "compareValue": "1", "booleanOutput": true, "locked": true } },
+          { "id": "branch", "type": "LogicalFlow", "position": { "x": 1160, "y": 60 }, "settings": { "label": "Confirmed redaction", "locked": true } },
+          { "id": "mask-emails", "type": "RegExpression", "position": { "x": 1480, "y": 20 }, "settings": { "label": "Mask email addresses", "pattern": "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b", "action": "SUBSTITUTE", "matchMode": "STANDARD", "payload": "[email redacted]" } },
+          { "id": "mutate-page", "type": "ExtendedDataOut", "position": { "x": 1840, "y": 0 }, "settings": { "label": "Apply redacted page text" } },
+          { "id": "success-text", "type": "Substitution", "position": { "x": 1840, "y": 140 }, "settings": { "label": "Build completion message", "substitutionTemplate": "Email addresses are masked for screen sharing. Reload the page to restore its original text.", "substitutionInputCount": 1 } },
+          { "id": "success", "type": "ShowMessage", "position": { "x": 2180, "y": 140 }, "settings": { "label": "Show completion", "promptTitle": "Screen-sharing redaction active", "promptMessage": "Email addresses were masked.", "displayMode": "OVERLAY", "displayTimeoutMs": 7000 } },
+          { "id": "output", "type": "DataFlowOut", "position": { "x": 2180, "y": 340 }, "settings": { "locked": true } }
+        ],
+        "connections": [
+          { "from": "confirm.result", "to": "confirmed-value.dict" },
+          { "from": "confirmed-value.result", "to": "confirmed.input" },
+          { "from": "page-text.pageText", "to": "branch.input" },
+          { "from": "confirmed.result", "to": "branch.condition" },
+          { "from": "branch.trueValue", "to": "mask-emails.input" },
+          { "from": "mask-emails.result", "to": "mutate-page.pageText" },
+          { "from": "mask-emails.result", "to": "success-text.value1" },
+          { "from": "success-text.result", "to": "success.message" },
+          { "from": "input.url", "to": "output.url" }
+        ],
+        "logicalFlows": [{ "id": "redaction", "conditionNode": "confirmed", "controlNode": "branch", "depth": 0, "locked": true }],
+        "viewport": { "x": 0, "y": 0, "zoom": 0.68 }
+      }
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200009",
+      "slug": "fetch-and-preview-text",
+      "category": "Remote data",
+      "collection": "examples",
+      "risk": "high",
+      "features": ["Prompted HTTPS endpoint", "Bounded remote GET", "Overlay-only preview"],
+      "recipe": {
+        "kind": "workspace-recipe.v1",
+        "workspaceType": "data-modifier",
+        "name": "Fetch and Preview Text",
+        "description": "Prompts for a public HTTPS URL, fetches a bounded text response, and previews it in an overlay without changing the page.",
+        "trigger": {
+          "type": "CONTEXT_MENU",
+          "hotkey": "Ctrl+Shift+F",
+          "inputSources": ["url"],
+          "sourceFilters": [{ "source": "url", "pattern": "^https?://" }]
+        },
+        "nodes": [
+          { "id": "input", "type": "DataFlowIn", "position": { "x": 0, "y": 260 }, "settings": { "locked": true } },
+          { "id": "endpoint-prompt", "type": "PromptText", "position": { "x": 0, "y": 40 }, "settings": { "label": "Choose HTTPS endpoint", "promptMessage": "Enter a public HTTPS URL to fetch as text.", "promptPlaceholder": "https://example.com/", "promptDefaultValue": "https://example.com/" } },
+          { "id": "endpoint-value", "type": "DictGet", "position": { "x": 300, "y": 40 }, "settings": { "label": "Read endpoint", "dictKey": "value", "literalValue": "", "literalDataType": "string" } },
+          { "id": "trim-endpoint", "type": "TextTransform", "position": { "x": 580, "y": 40 }, "settings": { "label": "Trim endpoint", "textTransformMode": "TRIM" } },
+          { "id": "endpoint-url", "type": "Convert", "position": { "x": 860, "y": 40 }, "settings": { "label": "Validate URL shape", "convertMode": "STRING_TO_URL" } },
+          { "id": "fetch", "type": "FetchData", "position": { "x": 1140, "y": 40 }, "settings": { "label": "Fetch bounded text", "remoteDataType": "string", "remoteTimeoutMs": 5000, "remoteMaxBytes": 32768 } },
+          { "id": "preview-text", "type": "Substitution", "position": { "x": 1440, "y": 40 }, "settings": { "label": "Format preview", "substitutionTemplate": "Response from $1\n\n$2", "substitutionInputCount": 2 } },
+          { "id": "preview", "type": "ShowMessage", "position": { "x": 1760, "y": 40 }, "settings": { "label": "Preview fetched text", "promptTitle": "Fetched Text Preview", "promptMessage": "Remote response", "displayMode": "OVERLAY", "displayTimeoutMs": 0 } },
+          { "id": "output", "type": "DataFlowOut", "position": { "x": 1760, "y": 260 }, "settings": { "locked": true } }
+        ],
+        "connections": [
+          { "from": "endpoint-prompt.result", "to": "endpoint-value.dict" },
+          { "from": "endpoint-value.result", "to": "trim-endpoint.input" },
+          { "from": "trim-endpoint.result", "to": "endpoint-url.input" },
+          { "from": "endpoint-url.result", "to": "fetch.url" },
+          { "from": "endpoint-url.result", "to": "preview-text.value1" },
+          { "from": "fetch.result", "to": "preview-text.value2" },
+          { "from": "preview-text.result", "to": "preview.message" },
+          { "from": "input.url", "to": "output.url" }
+        ],
+        "viewport": { "x": 0, "y": 0, "zoom": 0.72 }
+      }
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200010",
+      "slug": "confirmed-webhook-test",
+      "category": "Remote data",
+      "collection": "examples",
+      "risk": "high",
+      "features": ["Static non-page payload", "Explicit send confirmation", "Guarded remote POST"],
+      "recipe": {
+        "kind": "workspace-recipe.v1",
+        "workspaceType": "data-modifier",
+        "name": "Confirmed Webhook Test",
+        "description": "Prompts for a public HTTPS webhook, shows exactly what will happen, and sends only a static sample payload after confirmation.",
+        "trigger": {
+          "type": "CONTEXT_MENU",
+          "hotkey": "Ctrl+Shift+W",
+          "inputSources": ["url"],
+          "sourceFilters": [{ "source": "url", "pattern": "^https?://" }]
+        },
+        "nodes": [
+          { "id": "input", "type": "DataFlowIn", "position": { "x": 0, "y": 420 }, "settings": { "locked": true } },
+          { "id": "endpoint-prompt", "type": "PromptText", "position": { "x": 0, "y": 40 }, "settings": { "label": "Choose webhook endpoint", "promptMessage": "Enter a public HTTPS webhook endpoint for a static test request.", "promptPlaceholder": "https://httpbin.org/post", "promptDefaultValue": "https://httpbin.org/post" } },
+          { "id": "endpoint-value", "type": "DictGet", "position": { "x": 300, "y": 40 }, "settings": { "label": "Read endpoint", "dictKey": "value", "literalValue": "", "literalDataType": "string" } },
+          { "id": "trim-endpoint", "type": "TextTransform", "position": { "x": 580, "y": 40 }, "settings": { "label": "Trim endpoint", "textTransformMode": "TRIM" } },
+          { "id": "endpoint-url", "type": "Convert", "position": { "x": 860, "y": 40 }, "settings": { "label": "Validate URL shape", "convertMode": "STRING_TO_URL" } },
+          { "id": "confirm", "type": "Confirm", "position": { "x": 580, "y": 240 }, "settings": { "label": "Confirm test request", "promptMessage": "Send the static sample payload {source: URL Alchemist example, message: Confirmed webhook test}? The current page URL, title, and content are not included." } },
+          { "id": "confirmed-value", "type": "DictGet", "position": { "x": 880, "y": 240 }, "settings": { "label": "Read confirmation", "dictKey": "value", "literalValue": "0", "literalDataType": "bool" } },
+          { "id": "confirmed", "type": "Logical", "position": { "x": 1160, "y": 220 }, "settings": { "label": "User confirmed", "operator": "EQ", "compareValue": "1", "booleanOutput": true, "locked": true } },
+          { "id": "branch", "type": "LogicalFlow", "position": { "x": 1460, "y": 40 }, "settings": { "label": "Confirmed send", "locked": true } },
+          { "id": "payload", "type": "Constant", "position": { "x": 1460, "y": 300 }, "settings": { "label": "Static sample payload", "literalValue": "{\"source\":\"URL Alchemist example\",\"message\":\"Confirmed webhook test\"}", "literalDataType": "dict" } },
+          { "id": "request", "type": "HttpRequest", "position": { "x": 1780, "y": 20 }, "settings": { "label": "POST static test", "remoteMethod": "POST", "remoteDataType": "string", "remoteTimeoutMs": 5000, "remoteMaxBytes": 32768 } },
+          { "id": "response-text", "type": "Substitution", "position": { "x": 2100, "y": 20 }, "settings": { "label": "Format webhook result", "substitutionTemplate": "Webhook test response\n\n$1", "substitutionInputCount": 1 } },
+          { "id": "response", "type": "ShowMessage", "position": { "x": 2420, "y": 20 }, "settings": { "label": "Show webhook response", "promptTitle": "Confirmed Webhook Test", "promptMessage": "Webhook response", "displayMode": "OVERLAY", "displayTimeoutMs": 0 } },
+          { "id": "cancelled-text", "type": "Substitution", "position": { "x": 1780, "y": 180 }, "settings": { "label": "Build cancellation message", "substitutionTemplate": "Request cancelled. No data was sent.", "substitutionInputCount": 1 } },
+          { "id": "cancelled", "type": "ShowMessage", "position": { "x": 2100, "y": 180 }, "settings": { "label": "Show cancellation", "promptTitle": "Webhook test cancelled", "promptMessage": "No data was sent.", "displayMode": "OVERLAY", "displayTimeoutMs": 5000 } },
+          { "id": "output", "type": "DataFlowOut", "position": { "x": 2420, "y": 420 }, "settings": { "locked": true } }
+        ],
+        "connections": [
+          { "from": "endpoint-prompt.result", "to": "endpoint-value.dict" },
+          { "from": "endpoint-value.result", "to": "trim-endpoint.input" },
+          { "from": "trim-endpoint.result", "to": "endpoint-url.input" },
+          { "from": "confirm.result", "to": "confirmed-value.dict" },
+          { "from": "confirmed-value.result", "to": "confirmed.input" },
+          { "from": "endpoint-url.result", "to": "branch.input" },
+          { "from": "confirmed.result", "to": "branch.condition" },
+          { "from": "branch.trueValue", "to": "request.url" },
+          { "from": "payload.value", "to": "request.body" },
+          { "from": "request.result", "to": "response-text.value1" },
+          { "from": "response-text.result", "to": "response.message" },
+          { "from": "branch.falseValue", "to": "cancelled-text.value1" },
+          { "from": "cancelled-text.result", "to": "cancelled.message" },
+          { "from": "input.url", "to": "output.url" }
+        ],
+        "logicalFlows": [{ "id": "webhook-send", "conditionNode": "confirmed", "controlNode": "branch", "depth": 0, "locked": true }],
+        "viewport": { "x": 0, "y": 0, "zoom": 0.62 }
+      }
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200012",
+      "slug": "20-20-20-break-reminder",
+      "category": "Wellness",
+      "collection": "examples",
+      "risk": "extended",
+      "features": ["20-minute interval", "20-second eye reset", "Local last-run record"],
+      "recipe": {
+        "kind": "workspace-recipe.v1",
+        "workspaceType": "data-modifier",
+        "name": "20-20-20 Break Reminder",
+        "description": "Every 20 minutes, opens a calm 20-second reminder to look about 20 feet away and records the reminder time locally.",
+        "trigger": {
+          "type": "INTERVAL",
+          "hotkey": "Ctrl+Shift+B",
+          "inputSources": ["url"],
+          "intervalMs": 1200000,
+          "sourceFilters": [{ "source": "url", "pattern": "^https?://" }]
+        },
+        "nodes": [
+          { "id": "input", "type": "DataFlowIn", "position": { "x": 0, "y": 260 }, "settings": { "locked": true } },
+          { "id": "now", "type": "SystemData", "position": { "x": 0, "y": 40 }, "settings": { "label": "Reminder time", "systemDataMode": "ISO_DATE" } },
+          { "id": "message", "type": "Substitution", "position": { "x": 300, "y": 40 }, "settings": { "label": "Build break card", "substitutionTemplate": "Look at something about 20 feet away for 20 seconds. Relax your shoulders, blink naturally, and let your eyes refocus.\n\nReminder started: $1", "substitutionInputCount": 1 } },
+          { "id": "show", "type": "ShowMessage", "position": { "x": 660, "y": 40 }, "settings": { "label": "Show eye-break card", "promptTitle": "20-20-20 eye break", "promptMessage": "Look away for 20 seconds.", "displayMode": "OVERLAY", "displayTimeoutMs": 20000 } },
+          { "id": "save", "type": "SaveLoad", "position": { "x": 660, "y": 220 }, "settings": { "label": "Record last reminder", "saveLoadMode": "SAVE", "literalValue": "wellness:last-20-20-20-reminder", "alwaysProcess": true } },
+          { "id": "output", "type": "DataFlowOut", "position": { "x": 1000, "y": 260 }, "settings": { "locked": true } }
+        ],
+        "connections": [
+          { "from": "now.result", "to": "message.value1" },
+          { "from": "message.result", "to": "show.message" },
+          { "from": "now.result", "to": "save.value" },
+          { "from": "input.url", "to": "output.url" }
+        ],
+        "viewport": { "x": 0, "y": 0, "zoom": 0.86 }
+      }
+    },
+    {
+      "id": "0f6b6d50-9d44-4a86-9d0f-80a9e8200015",
+      "slug": "focus-sprint-timer",
+      "category": "Interactive",
+      "collection": "examples",
+      "risk": "extended",
+      "features": ["25-minute focus sprint", "Space to pause or resume", "Escape to close", "Live overlay countdown"],
+      "recipe": {
+        "kind": "workspace-recipe.v1",
+        "workspaceType": "data-modifier",
+        "name": "Focus Sprint Timer",
+        "description": "Starts a practical 25-minute focus overlay. Press Space to pause or resume, and Escape to close it at any time.",
+        "trigger": {
+          "type": "HOTKEY",
+          "hotkey": "Ctrl+Shift+P",
+          "inputSources": ["url"],
+          "sourceFilters": [{ "source": "url", "pattern": "^https?://" }]
+        },
+        "nodes": [
+          { "id": "input", "type": "DataFlowIn", "position": { "x": 0, "y": 80 }, "settings": { "locked": true } },
+          { "id": "output", "type": "DataFlowOut", "position": { "x": 320, "y": 80 }, "settings": { "locked": true } },
+          { "id": "trigger", "type": "OnTriggerEvent", "position": { "x": 0, "y": 300 }, "settings": { "label": "Start focus sprint" } },
+          { "id": "start", "type": "OverlayControl", "position": { "x": 300, "y": 260 }, "settings": { "label": "Open focus overlay", "overlayControlAction": "START", "overlayText": "Focus Sprint", "overlayWidth": 24, "overlayHeight": 18, "overlayCellSize": 24, "overlayTickMs": 1000, "overlayBackground": "#f8fafc" } },
+          { "id": "duration", "type": "Constant", "position": { "x": 300, "y": 420 }, "settings": { "label": "25 minutes", "literalValue": "1500000", "literalDataType": "number" } },
+          { "id": "save-duration", "type": "SharedState", "position": { "x": 620, "y": 420 }, "settings": { "label": "Initialize time remaining", "sharedStateMode": "SET", "literalValue": "focus-sprint:remaining-ms", "literalDataType": "number" } },
+          { "id": "not-paused", "type": "Constant", "position": { "x": 300, "y": 540 }, "settings": { "label": "Running state", "literalValue": "0", "literalDataType": "number" } },
+          { "id": "save-not-paused", "type": "SharedState", "position": { "x": 620, "y": 540 }, "settings": { "label": "Initialize pause state", "sharedStateMode": "SET", "literalValue": "focus-sprint:paused", "literalDataType": "number" } },
+          { "id": "initial-text", "type": "Constant", "position": { "x": 620, "y": 300 }, "settings": { "label": "Initial focus message", "literalValue": "25 minutes remaining — Space pauses, Escape closes", "literalDataType": "string" } },
+          { "id": "initial-draw", "type": "OverlayDraw", "position": { "x": 960, "y": 300 }, "settings": { "label": "Draw focus timer", "overlayWidth": 24, "overlayHeight": 18, "overlayCellSize": 24, "overlayBackground": "#f8fafc" } },
+          { "id": "keyboard", "type": "KeyboardIn", "position": { "x": 0, "y": 760 }, "settings": { "label": "Focus controls" } },
+          { "id": "space", "type": "Logical", "position": { "x": 280, "y": 700 }, "settings": { "label": "Space pressed", "operator": "EQ", "compareValue": "Space", "booleanOutput": true } },
+          { "id": "escape", "type": "Logical", "position": { "x": 280, "y": 840 }, "settings": { "label": "Escape pressed", "operator": "EQ", "compareValue": "Escape", "booleanOutput": true } },
+          { "id": "load-pause-key", "type": "SharedState", "position": { "x": 560, "y": 680 }, "settings": { "label": "Load pause state", "sharedStateMode": "GET", "literalValue": "focus-sprint:paused", "selectFalseValue": "0", "literalDataType": "number" } },
+          { "id": "pause-is-off", "type": "Logical", "position": { "x": 840, "y": 680 }, "settings": { "label": "Currently running", "operator": "EQ", "compareValue": "0", "booleanOutput": true } },
+          { "id": "next-pause", "type": "ConditionSelect", "position": { "x": 1120, "y": 680 }, "settings": { "label": "Toggle pause", "selectTrueValue": "1", "selectFalseValue": "0", "literalDataType": "number" } },
+          { "id": "save-pause", "type": "SharedState", "position": { "x": 1400, "y": 680 }, "settings": { "label": "Save pause state", "sharedStateMode": "SET", "literalValue": "focus-sprint:paused", "literalDataType": "number" } },
+          { "id": "pause-label", "type": "ConditionSelect", "position": { "x": 1120, "y": 820 }, "settings": { "label": "Pause status message", "selectTrueValue": "Focus Sprint paused — press Space to resume", "selectFalseValue": "Focus Sprint resumed — press Space to pause", "literalDataType": "string" } },
+          { "id": "pause-draw", "type": "OverlayDraw", "position": { "x": 1400, "y": 820 }, "settings": { "label": "Draw pause status", "overlayWidth": 24, "overlayHeight": 18, "overlayCellSize": 24, "overlayBackground": "#f8fafc" } },
+          { "id": "close", "type": "OverlayControl", "position": { "x": 560, "y": 900 }, "settings": { "label": "Close focus overlay", "overlayControlAction": "STOP", "overlayText": "Focus Sprint" } },
+          { "id": "tick", "type": "OverlayTickIn", "position": { "x": 0, "y": 1120 }, "settings": { "label": "Countdown tick" } },
+          { "id": "load-remaining", "type": "SharedState", "position": { "x": 280, "y": 1040 }, "settings": { "label": "Load time remaining", "sharedStateMode": "GET", "literalValue": "focus-sprint:remaining-ms", "selectFalseValue": "1500000", "literalDataType": "number" } },
+          { "id": "load-pause-tick", "type": "SharedState", "position": { "x": 280, "y": 1180 }, "settings": { "label": "Load tick pause state", "sharedStateMode": "GET", "literalValue": "focus-sprint:paused", "selectFalseValue": "0", "literalDataType": "number" } },
+          { "id": "running", "type": "Logical", "position": { "x": 560, "y": 1180 }, "settings": { "label": "Timer is running", "operator": "EQ", "compareValue": "0", "booleanOutput": true } },
+          { "id": "subtract-tick", "type": "Math", "position": { "x": 560, "y": 1040 }, "settings": { "label": "Subtract elapsed time", "mathOperation": "SUBTRACT" } },
+          { "id": "time-left", "type": "Logical", "position": { "x": 840, "y": 1040 }, "settings": { "label": "Time remains", "operator": "GT", "compareValue": "0", "booleanOutput": true } },
+          { "id": "advance-score", "type": "Math", "position": { "x": 840, "y": 1180 }, "settings": { "label": "Combine running checks", "mathOperation": "ADD" } },
+          { "id": "can-advance", "type": "Logical", "position": { "x": 1120, "y": 1120 }, "settings": { "label": "Advance countdown", "operator": "GTE", "compareValue": "2", "booleanOutput": true } },
+          { "id": "save-remaining", "type": "SharedState", "position": { "x": 1400, "y": 1040 }, "settings": { "label": "Save time remaining", "sharedStateMode": "SET", "literalValue": "focus-sprint:remaining-ms", "literalDataType": "number" } },
+          { "id": "minutes", "type": "Math", "position": { "x": 1400, "y": 1180 }, "settings": { "label": "Convert to minutes", "mathOperation": "DIVIDE", "compareValue": "60000" } },
+          { "id": "round-minutes", "type": "Convert", "position": { "x": 1680, "y": 1180 }, "settings": { "label": "Round minutes up", "convertMode": "FLOAT_TO_NUMBER", "rounding": "CEIL" } },
+          { "id": "countdown-text", "type": "Substitution", "position": { "x": 1960, "y": 1180 }, "settings": { "label": "Build countdown text", "substitutionTemplate": "$1 minutes remaining — Space pauses, Escape closes", "substitutionInputCount": 1 } },
+          { "id": "countdown-draw", "type": "OverlayDraw", "position": { "x": 2280, "y": 1120 }, "settings": { "label": "Draw live countdown", "overlayWidth": 24, "overlayHeight": 18, "overlayCellSize": 24, "overlayBackground": "#f8fafc" } },
+          { "id": "expired", "type": "Logical", "position": { "x": 1120, "y": 1320 }, "settings": { "label": "Sprint complete", "operator": "LTE", "compareValue": "0", "booleanOutput": true } },
+          { "id": "complete-score", "type": "Math", "position": { "x": 1400, "y": 1320 }, "settings": { "label": "Complete while running", "mathOperation": "ADD" } },
+          { "id": "should-close", "type": "Logical", "position": { "x": 1680, "y": 1320 }, "settings": { "label": "Close completed sprint", "operator": "GTE", "compareValue": "2", "booleanOutput": true } },
+          { "id": "complete", "type": "OverlayControl", "position": { "x": 1960, "y": 1320 }, "settings": { "label": "Close completed timer", "overlayControlAction": "STOP", "overlayText": "Focus Sprint complete" } }
+        ],
+        "connections": [
+          { "from": "input.url", "to": "output.url" },
+          { "from": "trigger.triggered", "to": "start.enabled" },
+          { "from": "duration.value", "to": "save-duration.value" },
+          { "from": "trigger.triggered", "to": "save-duration.enabled" },
+          { "from": "not-paused.value", "to": "save-not-paused.value" },
+          { "from": "trigger.triggered", "to": "save-not-paused.enabled" },
+          { "from": "initial-text.value", "to": "initial-draw.text" },
+          { "from": "trigger.triggered", "to": "initial-draw.enabled" },
+          { "from": "keyboard.keyboardCode", "to": "space.input" },
+          { "from": "keyboard.keyboardKey", "to": "escape.input" },
+          { "from": "load-pause-key.result", "to": "pause-is-off.input" },
+          { "from": "pause-is-off.result", "to": "next-pause.condition" },
+          { "from": "next-pause.result", "to": "save-pause.value" },
+          { "from": "space.result", "to": "save-pause.enabled" },
+          { "from": "pause-is-off.result", "to": "pause-label.condition" },
+          { "from": "pause-label.result", "to": "pause-draw.text" },
+          { "from": "space.result", "to": "pause-draw.enabled" },
+          { "from": "escape.result", "to": "close.enabled" },
+          { "from": "load-pause-tick.result", "to": "running.input" },
+          { "from": "load-remaining.result", "to": "subtract-tick.left" },
+          { "from": "tick.deltaMs", "to": "subtract-tick.right" },
+          { "from": "subtract-tick.result", "to": "time-left.input" },
+          { "from": "running.result", "to": "advance-score.left" },
+          { "from": "time-left.result", "to": "advance-score.right" },
+          { "from": "advance-score.result", "to": "can-advance.input" },
+          { "from": "subtract-tick.result", "to": "save-remaining.value" },
+          { "from": "can-advance.result", "to": "save-remaining.enabled" },
+          { "from": "subtract-tick.result", "to": "minutes.left" },
+          { "from": "minutes.result", "to": "round-minutes.input" },
+          { "from": "round-minutes.result", "to": "countdown-text.value1" },
+          { "from": "countdown-text.result", "to": "countdown-draw.text" },
+          { "from": "can-advance.result", "to": "countdown-draw.enabled" },
+          { "from": "subtract-tick.result", "to": "expired.input" },
+          { "from": "running.result", "to": "complete-score.left" },
+          { "from": "expired.result", "to": "complete-score.right" },
+          { "from": "complete-score.result", "to": "should-close.input" },
+          { "from": "should-close.result", "to": "complete.enabled" }
+        ],
+        "viewport": { "x": 0, "y": 0, "zoom": 0.48 }
+      }
+    },
+    {
+      "id": "4d962803-b2b6-4f34-b29a-5ad0ed6fa1e0",
+      "slug": "normalize-text-custom-block-source",
+      "category": "Custom",
+      "collection": "examples",
+      "risk": "safe",
+      "features": ["Custom Block source", "Typed string input and output", "Trim and whitespace normalization"],
+      "recipe": {
+        "kind": "workspace-recipe.v1",
+        "workspaceType": "custom-block",
+        "name": "Normalize Text Custom Block Source",
+        "description": "A reusable Custom Block source that trims text and collapses repeated whitespace through a typed string interface.",
+        "trigger": {
+          "type": "NEVER",
+          "hotkey": "Ctrl+Shift+N",
+          "inputSources": ["url"],
+          "sourceFilters": []
+        },
+        "nodes": [
+          { "id": "input", "type": "CustomBlockInput", "position": { "x": 0, "y": 120 }, "settings": { "label": "Text", "locked": true, "customPortId": "text", "customPortLabel": "Text", "customPortDataType": "string" } },
+          { "id": "trim", "type": "TextTransform", "position": { "x": 320, "y": 120 }, "settings": { "label": "Trim text", "textTransformMode": "TRIM" } },
+          { "id": "normalize", "type": "TextTransform", "position": { "x": 620, "y": 120 }, "settings": { "label": "Collapse whitespace", "textTransformMode": "COLLAPSE_WHITESPACE" } },
+          { "id": "output", "type": "CustomBlockOutput", "position": { "x": 940, "y": 120 }, "settings": { "label": "Result", "locked": true, "customPortId": "result", "customPortLabel": "Result", "customPortDataType": "string" } }
+        ],
+        "connections": [
+          { "from": "input.value", "to": "trim.input" },
+          { "from": "trim.result", "to": "normalize.input" },
+          { "from": "normalize.result", "to": "output.value" }
+        ],
+        "viewport": { "x": 0, "y": 0, "zoom": 0.82 },
+        "customBlock": {
+          "blockId": "normalize-text",
+          "label": "Normalize Text",
+          "version": 1,
+          "category": "custom",
+          "visibleWorkspaceTypes": ["data-modifier", "content-blocker"],
+          "description": "Trims outer whitespace and collapses repeated internal whitespace.",
+          "tips": ["Compile this source workspace to install the Custom Block in the picker."],
+          "inputs": [{ "id": "text", "label": "Text", "dataType": "string", "tooltip": "Text to normalize." }],
+          "outputs": [{ "id": "result", "label": "Result", "dataType": "string", "tooltip": "Normalized text." }],
+          "fields": []
+        }
+      }
+    }
+  ]
+}

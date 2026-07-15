@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 
 import {
@@ -17,6 +17,26 @@ async function writeBytes(path: string, bytes: Uint8Array): Promise<void> {
   const target = resolve('public', path);
   await mkdir(dirname(target), { recursive: true });
   await writeFile(target, bytes);
+}
+
+async function pruneRetiredArtifacts(
+  directoryName: 'workspaces' | 'action-packs',
+  extension: '.workspace' | '.actionpack',
+  expectedPaths: Set<string>,
+): Promise<void> {
+  const directory = resolve(outputRoot, directoryName);
+  await mkdir(directory, { recursive: true });
+  const entries = await readdir(directory, { withFileTypes: true });
+  await Promise.all(entries.map(async (entry) => {
+    if (!entry.isFile() || !entry.name.endsWith(extension)) {
+      return;
+    }
+
+    const publicPath = `bundled-actionpacks/${directoryName}/${entry.name}`;
+    if (!expectedPaths.has(publicPath)) {
+      await rm(resolve(directory, entry.name));
+    }
+  }));
 }
 
 function sha256Hex(bytes: Uint8Array): string {
@@ -44,6 +64,17 @@ for (const example of BUNDLED_ACTION_PACK_EXAMPLES) {
   }
 }
 
+await pruneRetiredArtifacts(
+  'workspaces',
+  '.workspace',
+  new Set(BUNDLED_ACTION_PACK_EXAMPLES.map((example) => example.workspacePath)),
+);
+await pruneRetiredArtifacts(
+  'action-packs',
+  '.actionpack',
+  new Set(BUNDLED_ACTION_PACK_EXAMPLES.flatMap((example) => example.actionPackPath ? [example.actionPackPath] : [])),
+);
+
 const artifactsByExample = await Promise.all(BUNDLED_ACTION_PACK_EXAMPLES.map(async (example) => {
   const workspace = workspaceById.get(example.id);
   const pack = packById.get(example.id);
@@ -52,10 +83,8 @@ const artifactsByExample = await Promise.all(BUNDLED_ACTION_PACK_EXAMPLES.map(as
   }
   const workspaceBytes = await exportWorkspaceBinary(workspace);
   const actionPackBytes = example.actionPackPath && pack ? await exportCompiledActionPackV2Binary(pack) : null;
-  const collection = ['URL cleanup', 'Search', 'Storage'].includes(example.category) ? 'bundled' : 'examples';
   return {
     ...example,
-    collection,
     artifactHashes: {
       workspaceSha256: sha256Hex(workspaceBytes),
       actionPackSha256: actionPackBytes ? sha256Hex(actionPackBytes) : undefined,

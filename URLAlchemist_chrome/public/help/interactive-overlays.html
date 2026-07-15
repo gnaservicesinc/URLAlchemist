@@ -26,7 +26,7 @@
 <p>A typical overlay workflow starts from a hotkey, uses <strong>Overlay Control</strong> to start the visible session, initializes shared state, and then lets keyboard, mouse, or tick handlers update that state and draw the next frame.</p>
 <p class="warning">Do not use overlay handlers for hidden key logging. Events are routed only through the visible URL Alchemist overlay, and closing that overlay stops routing.</p>
 <h2>Example</h2>
-<p>The bundled <strong>Snake Overlay Arcade</strong> workspace is built from these generic blocks. Its hotkey opens or closes the overlay, keyboard events change direction or exit, mouse clicks toggle pause, and tick events move the snake, update shared state, spawn food, and redraw the grid.</p>
+<p>The bundled <strong>Focus Sprint Timer</strong> workspace is built from these generic blocks. Its trigger opens the visible timer, tick events advance the sprint, control events update shared state, and Overlay Draw refreshes the remaining time and status without a timer-specific opcode.</p>
 <p class="warning">Keyboard and mouse events are routed only from the active URL Alchemist overlay session. They do not re-fire the workspace hotkey Run.</p>
 </body>
 </html>

@@ -17,6 +17,7 @@ import type { CompiledCustomBlockV2 } from './v2/types';
 import { ACTION_PACK_SCHEMA_VERSION, SUPPORTED_ACTION_PACK_SCHEMA_VERSIONS } from './v2/types';
 import type { CompiledActionPackV2 } from './v2/types';
 import { validateCompiledActionPackV2 } from './v2/actionPackValidator';
+import { normalizeAiWorkspaceInstructions } from './v2/aiInstructions';
 import { migratedStoredInstallMetadata } from './v2/installMetadata';
 import { validateWorkspaceFile } from './v2/workspace';
 
@@ -60,6 +61,7 @@ const SETTINGS_KEYS = [
   'ollamaEndpoint',
   'ollamaModel',
   'ollamaTimeoutMs',
+  'aiWorkspaceInstructions',
   'uiScale',
   'hardeningMaxInstructions',
   'hardeningMaxRecursion',
@@ -325,9 +327,10 @@ export function validateStoredState(candidate: unknown): ValidationResult<Valida
 
   if (
     (candidate.settings.ollamaEndpoint !== undefined && typeof candidate.settings.ollamaEndpoint !== 'string') ||
-    (candidate.settings.ollamaModel !== undefined && typeof candidate.settings.ollamaModel !== 'string')
+    (candidate.settings.ollamaModel !== undefined && typeof candidate.settings.ollamaModel !== 'string') ||
+    (candidate.settings.aiWorkspaceInstructions !== undefined && typeof candidate.settings.aiWorkspaceInstructions !== 'string')
   ) {
-    return { ok: false, errors: ['Stored Ollama settings must be strings'] };
+    return { ok: false, errors: ['Stored AI connector settings must be strings'] };
   }
 
   if (candidate.settings.builderUuid !== undefined && typeof candidate.settings.builderUuid !== 'string') {
@@ -490,6 +493,9 @@ export function validateStoredState(candidate: unknown): ValidationResult<Valida
       ollamaEndpoint: candidate.settings.ollamaEndpoint || DEFAULT_SETTINGS.ollamaEndpoint,
       ollamaModel: candidate.settings.ollamaModel || DEFAULT_SETTINGS.ollamaModel,
       ollamaTimeoutMs: Math.max(1_000, Math.min(120_000, Math.trunc(candidate.settings.ollamaTimeoutMs ?? DEFAULT_SETTINGS.ollamaTimeoutMs))),
+      aiWorkspaceInstructions: typeof candidate.settings.aiWorkspaceInstructions === 'string'
+        ? normalizeAiWorkspaceInstructions(candidate.settings.aiWorkspaceInstructions)
+        : DEFAULT_SETTINGS.aiWorkspaceInstructions,
       uiScale: normalizeUiScale(candidate.settings.uiScale),
       hardeningMaxInstructions: normalizeHardeningMaxInstructions(candidate.settings.hardeningMaxInstructions),
       hardeningMaxRecursion: normalizeHardeningMaxRecursion(candidate.settings.hardeningMaxRecursion),

@@ -13,6 +13,8 @@ export function formatRunType(type: string | undefined): string {
       return 'Conditional';
     case 'NEVER':
       return 'Never';
+    case 'CUSTOM_BLOCK':
+      return 'Custom Block source';
     default:
       return type?.trim() || 'Unknown';
   }

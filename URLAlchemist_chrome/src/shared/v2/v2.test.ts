@@ -11,13 +11,15 @@ import { effectiveRedirectDepthLimit, effectiveRegexTimeoutMs, normalizeUiScale 
 import { executeRegexJobRequest } from '../regex/executeRegexJob';
 import type { ActionPack, RegexTransformRequest } from '../types';
 import { HOTKEY_TRIGGER_MESSAGE, isHotkeyTriggerMessage, isOverlayAppEventMessage, OVERLAY_APP_EVENT_MESSAGE } from '../messages';
-import { getDefaultState } from '../storage';
+import { createSyncSnapshot, getDefaultState } from '../storage';
 import { normalizeStoredState } from '../validation';
 import { validateCompiledActionPackV2 } from './actionPackValidator';
+import { AI_WORKSPACE_INSTRUCTIONS_MAX_CHARS, DEFAULT_AI_WORKSPACE_INSTRUCTIONS, normalizeAiWorkspaceInstructions } from './aiInstructions';
 import { BUNDLED_ACTION_PACK_EXAMPLES, createBundledExampleActionPacks, createBundledExampleWorkspaces } from './bundledExamples';
 import { compileWorkspace } from './compiler';
 import { explainRiskReason } from './explain';
 import { stripLocalInstallMetadata } from './installMetadata';
+import { formatRunType } from './labels';
 import { createChallengeLockState, createPasswordLockState, verifyPasswordLock } from './locks';
 import { listOllamaModels, validateOllamaEndpoint } from './ollama';
 import { createSandboxGraphRuntime } from './sandboxRuntime';
@@ -620,15 +622,12 @@ describe('v2 workspace compiler and VM', () => {
   });
 
   it('lists installed Ollama models from the local tags endpoint', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
         models: [
           { name: 'phi4-mini:latest', model: 'phi4-mini:latest', modified_at: '2026-06-01T00:00:00Z', size: 1234, digest: 'abc' },
           { model: 'mistral:latest' },
         ],
-      }),
-    });
+      }), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
 
     const models = await listOllamaModels({
@@ -636,29 +635,40 @@ describe('v2 workspace compiler and VM', () => {
       ollamaTimeoutMs: 5_000,
     });
 
-    expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:11434/api/tags', expect.objectContaining({ method: 'GET' }));
+    expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:11434/api/tags', expect.objectContaining({ method: 'GET', redirect: 'error' }));
     expect(models.map((model) => model.name)).toEqual(['phi4-mini:latest', 'mistral:latest']);
     vi.unstubAllGlobals();
   });
 
   it('handles empty and failed Ollama model lists', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ models: [] }),
-    }));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ models: [] }), { status: 200 })));
     await expect(listOllamaModels({
       ollamaEndpoint: 'http://localhost:11434',
       ollamaTimeoutMs: 5_000,
     })).resolves.toEqual([]);
 
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: false,
-      status: 500,
-    }));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 500 })));
     await expect(listOllamaModels({
       ollamaEndpoint: 'http://localhost:11434',
       ollamaTimeoutMs: 5_000,
     })).rejects.toThrow('Ollama model list failed with HTTP 500');
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', {
+      status: 200,
+      headers: { 'content-length': '2000000' },
+    })));
+    await expect(listOllamaModels({
+      ollamaEndpoint: 'http://localhost:11434',
+      ollamaTimeoutMs: 5_000,
+    })).rejects.toThrow('model list that is too large');
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      models: Array.from({ length: 513 }, (_, index) => ({ name: `model-${index}` })),
+    }), { status: 200 })));
+    await expect(listOllamaModels({
+      ollamaEndpoint: 'http://localhost:11434',
+      ollamaTimeoutMs: 5_000,
+    })).rejects.toThrow('more than 512 model entries');
     vi.unstubAllGlobals();
   });
 
@@ -2338,10 +2348,28 @@ describe('v2 workspace compiler and VM', () => {
     const usedActions = new Set<string>();
     const usedMatchModes = new Set<string>();
 
-    expect(BUNDLED_ACTION_PACK_EXAMPLES.some((example) => example.slug === 'screen-time')).toBe(false);
-    expect(BUNDLED_ACTION_PACK_EXAMPLES.map((example) => example.slug)).toContain('break-reminder');
-    expect(workspaces.length).toBeGreaterThanOrEqual(13);
-    expect(packs).toHaveLength(BUNDLED_ACTION_PACK_EXAMPLES.filter((example) => example.actionPackPath).length);
+    expect(BUNDLED_ACTION_PACK_EXAMPLES.map((example) => example.slug)).toEqual([
+      'clean-share-link',
+      'open-github-pr-files',
+      'search-selected-text',
+      'copy-markdown-citation',
+      'normalize-clipboard-text',
+      'research-trail',
+      'redact-emails-for-screen-sharing',
+      'fetch-and-preview-text',
+      'confirmed-webhook-test',
+      '20-20-20-break-reminder',
+      'focus-sprint-timer',
+      'normalize-text-custom-block-source',
+    ]);
+    expect(BUNDLED_ACTION_PACK_EXAMPLES.filter((example) => example.collection === 'bundled')).toHaveLength(6);
+    expect(BUNDLED_ACTION_PACK_EXAMPLES.filter((example) => example.collection === 'examples')).toHaveLength(6);
+    expect(BUNDLED_ACTION_PACK_EXAMPLES.some((example) => /snake|variable-use-across-runs/i.test(example.slug))).toBe(false);
+    expect(formatRunType(BUNDLED_ACTION_PACK_EXAMPLES.find((example) => example.kind === 'custom-block-source')?.trigger)).toBe('Custom Block source');
+    expect(workspaces).toHaveLength(12);
+    expect(packs).toHaveLength(11);
+    expect(new Set(BUNDLED_ACTION_PACK_EXAMPLES.map((example) => example.id)).size).toBe(12);
+    expect(new Set(BUNDLED_ACTION_PACK_EXAMPLES.map((example) => example.slug)).size).toBe(12);
 
     workspaces.forEach((workspace) => {
       const compiled = compileWorkspace(workspace);
@@ -2360,8 +2388,8 @@ describe('v2 workspace compiler and VM', () => {
       });
     });
 
-    expect(Array.from(usedActions).sort()).toEqual(['APPEND', 'PREPEND', 'REMOVE', 'SUBSTITUTE']);
-    expect(Array.from(usedMatchModes).sort()).toEqual(['AFTER_PATTERN', 'BEFORE_PATTERN', 'NTH_OCCURRENCE', 'STANDARD']);
+    expect(Array.from(usedActions).sort()).toEqual(['REMOVE', 'SUBSTITUTE']);
+    expect(Array.from(usedMatchModes)).toEqual(['STANDARD']);
   });
 
   it('executes every bundled example with realistic stubbed browser services', async () => {
@@ -2395,9 +2423,11 @@ describe('v2 workspace compiler and VM', () => {
           : 'Example Domain remote response',
       } as GraphValue),
       requestUserInteraction: async (request) => {
-        const value: GraphValue = request.kind === 'PROMPT_NUMBER'
-          ? { type: 'number', value: 30 }
-          : { type: 'string', value: request.defaultValue || 'Test input' };
+        const value: GraphValue = request.kind === 'CONFIRM'
+          ? { type: 'bool', value: 1 }
+          : request.kind === 'PROMPT_NUMBER'
+            ? { type: 'number', value: 30 }
+            : { type: 'string', value: request.defaultValue || 'Test input' };
 
         return {
           type: 'dict',
@@ -2444,7 +2474,7 @@ describe('v2 workspace compiler and VM', () => {
     };
 
     for (const pack of packs) {
-      const inputUrl = pack.manifest.name === 'GitHub PR Files Shortcut'
+      const inputUrl = pack.manifest.name === 'Open GitHub PR Files'
         ? 'https://github.com/acme/project/pull/42?tab=conversation'
         : 'https://example.com/path?utm_source=newsletter&ref=abc&id=123&keep=1';
       const result = await executeCompiledActionPackV2(inputUrl, pack, exampleRuntime, DEFAULT_SETTINGS, {
@@ -2455,70 +2485,143 @@ describe('v2 workspace compiler and VM', () => {
       expect(result.issues, pack.manifest.name).toEqual([]);
     }
 
-    expect(session.has('break-reminder:last-run')).toBe(true);
-    expect(session.has('playback-resume:last-video')).toBe(true);
-    expect(session.has('variable-use:run-count')).toBe(true);
+    expect(session.has('wellness:last-20-20-20-reminder')).toBe(true);
+    expect(session.has('research-trail:last-title')).toBe(true);
+    expect(session.has('research-trail:last-url')).toBe(true);
+    expect(session.get('focus-sprint:remaining-ms')).toEqual({ type: 'number', value: 1_500_000 });
+    expect(session.get('focus-sprint:paused')).toEqual({ type: 'number', value: 0 });
     expect(destinationWrites).toContain('pageText');
     expect(destinationWrites).toContain('clipboard');
   });
 
-  it('only reads connected source handles from bundled source blocks', async () => {
-    const cleanWords = createBundledExampleActionPacks().find((pack) => pack.manifest.name === 'Clean Words');
-    expect(cleanWords).toBeTruthy();
+  it('only reads connected high-risk sources and gates page redaction behind confirmation', async () => {
+    const redaction = createBundledExampleActionPacks().find((pack) => pack.manifest.name === 'Redact Emails for Screen Sharing');
+    expect(redaction).toBeTruthy();
 
-    const sourceInstructions = cleanWords!.vm.instructions.filter((instruction) => instruction.op === 'SOURCE');
+    const sourceInstructions = redaction!.vm.instructions.filter((instruction) => instruction.op === 'SOURCE');
     expect(sourceInstructions.map((instruction) => instruction.source)).toContain('pageText');
     expect(sourceInstructions.map((instruction) => instruction.source)).not.toContain('clipboard');
 
     const readSources: string[] = [];
-    const result = await executeCompiledActionPackV2(
-      'https://example.com/page',
-      cleanWords!,
-      {
-        ...runtime,
-        readSource: async (source) => {
-          readSources.push(source);
-          if (source === 'clipboard') {
-            throw new Error('clipboard should not be read for Clean Words');
-          }
-          if (source === 'pageText') {
-            return { type: 'string', value: 'This damn page has a crap word.' };
-          }
-          return undefined;
-        },
-        displayOverlay: async () => ({ type: 'dict', value: { ok: { type: 'bool', value: 1 } } }),
-        mutatePageText: async () => undefined,
+    const mutations: GraphValue[] = [];
+    let confirmed = false;
+    const redactionRuntime: GraphRuntime = {
+      ...runtime,
+      readSource: async (source) => {
+        readSources.push(source);
+        if (source === 'clipboard') {
+          throw new Error('clipboard should not be read for page redaction');
+        }
+        if (source === 'pageText') {
+          return { type: 'string', value: 'Contact alice@example.com for access.' };
+        }
+        return undefined;
       },
+      requestUserInteraction: async () => ({
+        type: 'dict',
+        value: {
+          ok: { type: 'bool', value: 1 },
+          cancelled: { type: 'bool', value: 0 },
+          value: { type: 'bool', value: confirmed ? 1 : 0 },
+        },
+      }),
+      displayOverlay: async () => ({ type: 'dict', value: { ok: { type: 'bool', value: 1 } } }),
+      mutatePageText: async (value) => {
+        mutations.push(value);
+      },
+    };
+
+    const denied = await executeCompiledActionPackV2(
+      'https://example.com/page',
+      redaction!,
+      redactionRuntime,
       DEFAULT_SETTINGS,
     );
+    expect(denied.issues).toEqual([]);
+    expect(mutations).toEqual([]);
 
-    expect(result.issues).toEqual([]);
-    expect(readSources).toEqual(['url', 'pageText']);
+    confirmed = true;
+    const allowed = await executeCompiledActionPackV2('https://example.com/page', redaction!, redactionRuntime, DEFAULT_SETTINGS);
+    expect(allowed.issues).toEqual([]);
+    expect(readSources).not.toContain('clipboard');
+    expect(mutations.at(-1)).toEqual({ type: 'string', value: 'Contact [email redacted] for access.' });
   });
 
-  it('keeps the Snake example built from generic block and VM operation names', () => {
-    const snake = createBundledExampleWorkspaces().find((workspace) => workspace.metadata.name === 'Snake Overlay Arcade');
-    expect(snake).toBeTruthy();
+  it('keeps remote examples prompted, bounded, preview-only, and confirmation-gated', async () => {
+    const packs = new Map(createBundledExampleActionPacks().map((pack) => [pack.manifest.name, pack]));
+    const remoteRequests: Array<{ url: string; method: 'GET' | 'POST'; body?: unknown }> = [];
+    const shownMessages: string[] = [];
+    const pageMutations: GraphValue[] = [];
+    let confirmed = false;
+    const remoteRuntime: GraphRuntime = {
+      ...runtime,
+      requestUserInteraction: async (request) => ({
+        type: 'dict',
+        value: {
+          ok: { type: 'bool', value: 1 },
+          cancelled: { type: 'bool', value: 0 },
+          value: request.kind === 'CONFIRM'
+            ? { type: 'bool', value: confirmed ? 1 : 0 }
+            : { type: 'string', value: request.defaultValue ?? '' },
+        },
+      }),
+      fetchRemote: async (request) => {
+        remoteRequests.push({ url: request.url, method: request.method, body: request.body });
+        return { type: request.outputDataType, value: 'bounded test response' } as GraphValue;
+      },
+      displayOverlay: async (request) => {
+        shownMessages.push(request.message);
+        return { type: 'dict', value: { ok: { type: 'bool', value: 1 } } };
+      },
+      mutatePageText: async (value) => {
+        pageMutations.push(value);
+      },
+    };
 
-    const compiled = compileWorkspace(snake!);
+    await executeCompiledActionPackV2('https://private.example/current', packs.get('Fetch and Preview Text')!, remoteRuntime, DEFAULT_SETTINGS);
+    expect(remoteRequests).toHaveLength(1);
+    expect(remoteRequests[0]).toMatchObject({ url: 'https://example.com/', method: 'GET' });
+    expect(shownMessages.at(-1)).toContain('bounded test response');
+    expect(pageMutations).toEqual([]);
+
+    await executeCompiledActionPackV2('https://private.example/current', packs.get('Confirmed Webhook Test')!, remoteRuntime, DEFAULT_SETTINGS);
+    expect(remoteRequests).toHaveLength(1);
+    expect(shownMessages.at(-1)).toContain('No data was sent');
+
+    confirmed = true;
+    await executeCompiledActionPackV2('https://private.example/current', packs.get('Confirmed Webhook Test')!, remoteRuntime, DEFAULT_SETTINGS);
+    expect(remoteRequests).toHaveLength(2);
+    expect(remoteRequests[1]).toEqual({
+      url: 'https://httpbin.org/post',
+      method: 'POST',
+      body: { source: 'URL Alchemist example', message: 'Confirmed webhook test' },
+    });
+    expect(JSON.stringify(remoteRequests[1]?.body)).not.toContain('private.example');
+  });
+
+  it('builds the Focus Sprint example from generic overlay event blocks', () => {
+    const focusSprint = createBundledExampleWorkspaces().find((workspace) => workspace.metadata.name === 'Focus Sprint Timer');
+    expect(focusSprint).toBeTruthy();
+
+    const compiled = compileWorkspace(focusSprint!);
     expect(compiled.ok, compiled.validation.errors.join('; ')).toBe(true);
-    expect(snake!.nodes.some((node) => /snake|arcadegame/i.test(node.type))).toBe(false);
-    expect(compiled.pack!.vm.instructions.some((instruction) => /snake|arcadegame/i.test(instruction.op))).toBe(false);
+    expect(focusSprint!.nodes.some((node) => /focus|sprint/i.test(node.type))).toBe(false);
+    expect(compiled.pack!.vm.instructions.some((instruction) => /focus|sprint/i.test(instruction.op))).toBe(false);
     expect(compiled.pack!.vm.eventHandlers?.trigger?.length).toBeGreaterThan(0);
     expect(compiled.pack!.vm.eventHandlers?.keyboard?.length).toBeGreaterThan(0);
-    expect(compiled.pack!.vm.eventHandlers?.mouse?.length).toBeGreaterThan(0);
+    expect(compiled.pack!.vm.eventHandlers?.mouse ?? []).toHaveLength(0);
     expect(compiled.pack!.vm.eventHandlers?.tick?.length).toBeGreaterThan(0);
   });
 
-  it('simulates Snake gameplay through generic overlay event handlers', async () => {
-    const snake = createBundledExampleWorkspaces().find((workspace) => workspace.metadata.name === 'Snake Overlay Arcade')!;
-    const compiled = compileWorkspace(snake);
+  it('simulates Focus Sprint pause, resume, countdown, and close controls', async () => {
+    const focusSprint = createBundledExampleWorkspaces().find((workspace) => workspace.metadata.name === 'Focus Sprint Timer')!;
+    const compiled = compileWorkspace(focusSprint);
     expect(compiled.ok, compiled.validation.errors.join('; ')).toBe(true);
 
-    const session = new Map<string, import('./types').GraphValue>();
+    const session = new Map<string, GraphValue>();
     const overlayEvents: string[] = [];
     let overlayActive = false;
-    const snakeRuntime: GraphRuntime = {
+    const focusRuntime: GraphRuntime = {
       ...runtime,
       loadSessionValue: async (key) => session.get(key),
       saveSessionValue: async (key, value) => {
@@ -2540,30 +2643,39 @@ describe('v2 workspace compiler and VM', () => {
       overlayDraw: async () => ({ type: 'dict', value: { ok: { type: 'bool', value: 1 }, active: { type: 'bool', value: 1 } } }),
     };
 
-    await executeCompiledActionPackV2('https://example.com/', compiled.pack!, snakeRuntime, DEFAULT_SETTINGS, {
+    await executeCompiledActionPackV2('https://example.com/', compiled.pack!, focusRuntime, DEFAULT_SETTINGS, {
       handler: 'trigger',
-      event: { kind: 'trigger', hotkey: 'Ctrl+Shift+S', url: 'https://example.com/' },
+      event: { kind: 'trigger', hotkey: compiled.pack!.manifest.trigger.hotkey, url: 'https://example.com/' },
     });
     expect(overlayEvents).toContain('START');
-    expect(session.get('snake:direction')).toEqual({ type: 'string', value: 'ArrowRight' });
-    expect(session.get('snake:alive')).toEqual({ type: 'number', value: 1 });
-    expect(session.get('snake:paused')).toEqual({ type: 'number', value: 0 });
+    expect(session.get('focus-sprint:remaining-ms')).toEqual({ type: 'number', value: 1_500_000 });
+    expect(session.get('focus-sprint:paused')).toEqual({ type: 'number', value: 0 });
 
-    for (let tick = 1; tick <= 6; tick += 1) {
-      await executeCompiledActionPackV2('https://example.com/', compiled.pack!, snakeRuntime, DEFAULT_SETTINGS, {
-        handler: 'tick',
-        event: { kind: 'tick', tick, deltaMs: 135 },
-      });
-    }
-    expect(session.get('snake:score')).toEqual({ type: 'number', value: 1 });
-
-    await executeCompiledActionPackV2('https://example.com/', compiled.pack!, snakeRuntime, DEFAULT_SETTINGS, {
-      handler: 'mouse',
-      event: { kind: 'mouse', eventType: 'pointerdown', button: 0, buttons: 1, x: 16, y: 16 },
+    await executeCompiledActionPackV2('https://example.com/', compiled.pack!, focusRuntime, DEFAULT_SETTINGS, {
+      handler: 'keyboard',
+      event: { kind: 'keyboard', eventType: 'keydown', key: ' ', code: 'Space', keyCode: 32 },
     });
-    expect(session.get('snake:paused')).toEqual({ type: 'number', value: 1 });
+    expect(session.get('focus-sprint:paused')).toEqual({ type: 'number', value: 1 });
 
-    await executeCompiledActionPackV2('https://example.com/', compiled.pack!, snakeRuntime, DEFAULT_SETTINGS, {
+    await executeCompiledActionPackV2('https://example.com/', compiled.pack!, focusRuntime, DEFAULT_SETTINGS, {
+      handler: 'tick',
+      event: { kind: 'tick', tick: 1, deltaMs: 1_000 },
+    });
+    expect(session.get('focus-sprint:remaining-ms')).toEqual({ type: 'number', value: 1_500_000 });
+
+    await executeCompiledActionPackV2('https://example.com/', compiled.pack!, focusRuntime, DEFAULT_SETTINGS, {
+      handler: 'keyboard',
+      event: { kind: 'keyboard', eventType: 'keydown', key: ' ', code: 'Space', keyCode: 32 },
+    });
+    expect(session.get('focus-sprint:paused')).toEqual({ type: 'number', value: 0 });
+
+    await executeCompiledActionPackV2('https://example.com/', compiled.pack!, focusRuntime, DEFAULT_SETTINGS, {
+      handler: 'tick',
+      event: { kind: 'tick', tick: 2, deltaMs: 1_000 },
+    });
+    expect(session.get('focus-sprint:remaining-ms')).toEqual({ type: 'number', value: 1_499_000 });
+
+    await executeCompiledActionPackV2('https://example.com/', compiled.pack!, focusRuntime, DEFAULT_SETTINGS, {
       handler: 'keyboard',
       event: { kind: 'keyboard', eventType: 'keydown', key: 'Escape', code: 'Escape', keyCode: 27 },
     });
@@ -2572,21 +2684,28 @@ describe('v2 workspace compiler and VM', () => {
 
   it('round-trips generated bundled workspace and action pack artifacts', async () => {
     const indexPath = resolve(projectRoot, 'public/bundled-actionpacks/index.json');
-    const index = JSON.parse(await readFile(indexPath, 'utf8')) as { examples: typeof BUNDLED_ACTION_PACK_EXAMPLES };
+    type IndexedExample = (typeof BUNDLED_ACTION_PACK_EXAMPLES)[number] & {
+      artifactHashes: { workspaceSha256: string; actionPackSha256?: string };
+    };
+    const index = JSON.parse(await readFile(indexPath, 'utf8')) as { examples: IndexedExample[] };
+    const indexedById = new Map(index.examples.map((example) => [example.id, example]));
 
     expect(index.examples.map((example) => example.id)).toEqual(BUNDLED_ACTION_PACK_EXAMPLES.map((example) => example.id));
 
     for (const example of BUNDLED_ACTION_PACK_EXAMPLES) {
       const workspaceBytes = new Uint8Array(await readFile(resolve(projectRoot, 'public', example.workspacePath)));
       const workspace = await importWorkspaceBinary(workspaceBytes);
+      const indexedExample = indexedById.get(example.id);
 
       expect(workspace.workspace.metadata.id).toBe(example.id);
+      expect(await sha256Hex(workspaceBytes)).toBe(indexedExample?.artifactHashes.workspaceSha256);
       expect(workspace.workspace.metadata.compatibility?.firefox?.status).toBe('supported');
       expect(workspace.workspace.metadata.compatibility?.firefoxAndroid?.status).toBe('source-only');
       if (example.actionPackPath) {
         const actionPackBytes = new Uint8Array(await readFile(resolve(projectRoot, 'public', example.actionPackPath)));
         const pack = await importCompiledActionPackV2Binary(actionPackBytes);
         expect(pack.pack.manifest.id).toBe(example.id);
+        expect(await sha256Hex(actionPackBytes)).toBe(indexedExample?.artifactHashes.actionPackSha256);
       } else {
         expect(workspace.workspace.workspaceType).toBe('custom-block');
       }
@@ -2599,6 +2718,7 @@ describe('v2 workspace compiler and VM', () => {
       settings: {
         ...getDefaultState().settings,
         syncEnabled: true,
+        aiWorkspaceInstructions: 'backup-specific AI guidance',
       },
       actionPacksV2: [createBasicCompiledPack()],
       workspacesV2: [createDefaultWorkspace()],
@@ -2607,6 +2727,7 @@ describe('v2 workspace compiler and VM', () => {
     const restored = await importBackupState(backup);
 
     expect(restored.settings.syncEnabled).toBe(true);
+    expect(restored.settings.aiWorkspaceInstructions).toBe('backup-specific AI guidance');
     expect(restored.actionPacksV2).toHaveLength(1);
     expect(restored.workspacesV2).toHaveLength(1);
   });
@@ -2630,6 +2751,42 @@ describe('v2 workspace compiler and VM', () => {
     expect(restored.settings.hardeningMaxInstructions).toBe(300);
     expect(restored.settings.hardeningMaxRecursion).toBe(3);
     expect(restored.settings.hardeningRegexTimeoutMs).toBe(50);
+    expect(restored.settings.aiWorkspaceInstructions).toBe(DEFAULT_AI_WORKSPACE_INSTRUCTIONS);
+  });
+
+  it('preserves, caps, and keeps editable AI workspace instructions out of browser sync', () => {
+    expect(normalizeAiWorkspaceInstructions('')).toBe('');
+    expect(normalizeAiWorkspaceInstructions('custom guidance')).toBe('custom guidance');
+
+    const oversizedInstructions = 'x'.repeat(AI_WORKSPACE_INSTRUCTIONS_MAX_CHARS + 25);
+    const restored = normalizeStoredState({
+      ...getDefaultState(),
+      settings: {
+        ...getDefaultState().settings,
+        aiWorkspaceInstructions: oversizedInstructions,
+      },
+    });
+    expect(restored.settings.aiWorkspaceInstructions).toBe('x'.repeat(AI_WORKSPACE_INSTRUCTIONS_MAX_CHARS));
+
+    const empty = normalizeStoredState({
+      ...getDefaultState(),
+      settings: {
+        ...getDefaultState().settings,
+        aiWorkspaceInstructions: '',
+      },
+    });
+    expect(empty.settings.aiWorkspaceInstructions).toBe('');
+
+    const localState = {
+      ...getDefaultState(),
+      settings: {
+        ...getDefaultState().settings,
+        aiWorkspaceInstructions: 'private local guidance',
+      },
+    };
+    const syncSnapshot = createSyncSnapshot(localState);
+    expect(syncSnapshot.settings.aiWorkspaceInstructions).toBe(DEFAULT_AI_WORKSPACE_INSTRUCTIONS);
+    expect(localState.settings.aiWorkspaceInstructions).toBe('private local guidance');
   });
 
   it('clamps UI scale and hardening settings to stricter effective limits', () => {
@@ -2662,24 +2819,33 @@ describe('v2 workspace compiler and VM', () => {
     expect(result.issues.some((entry) => entry.message.includes('VM step budget exceeded'))).toBe(true);
   });
 
-  it('executes bundled examples that use selected text, clipboard input, storage, and clipboard output', async () => {
+  it('executes polished starter workflows with useful, deterministic outcomes', async () => {
     const packs = new Map(createBundledExampleActionPacks().map((pack) => [pack.manifest.name, pack]));
     const written: Record<string, string> = {};
     const saved: Record<string, GraphValue> = {};
     const shownMessages: string[] = [];
+    let clipboardText = '\u0000  First\r\n\r\nSecond\u0007 line  ';
+    let selectedText = 'C++ & café';
+    let pageTitle = 'Example Title';
+    let linkUrl = 'https://github.com/acme/project/pull/42/files?diff=split';
     const contextRuntime: GraphRuntime = {
       ...runtime,
+      readClipboard: async () => clipboardText,
       readSource: async (source) => {
         if (source === 'clipboard') {
-          return { type: 'string', value: 'clipboard token' };
+          return { type: 'string', value: clipboardText };
         }
 
         if (source === 'selectedText') {
-          return { type: 'string', value: 'abc' };
+          return { type: 'string', value: selectedText };
         }
 
         if (source === 'pageTitle') {
-          return { type: 'string', value: 'Example Title' };
+          return { type: 'string', value: pageTitle };
+        }
+
+        if (source === 'linkUrl') {
+          return { type: 'URL', value: linkUrl };
         }
 
         return undefined;
@@ -2700,43 +2866,48 @@ describe('v2 workspace compiler and VM', () => {
       },
     };
 
+    const cleaned = await executeCompiledActionPackV2(
+      'https://example.com/p?utm_source=x&sig=keep&utm_medium=y&foo=1#part',
+      packs.get('Clean Share Link')!,
+      contextRuntime,
+      DEFAULT_SETTINGS,
+    );
+    expect(cleaned.finalUrl).toBe('https://example.com/p?sig=keep&foo=1#part');
+
+    const githubFiles = await executeCompiledActionPackV2(
+      'https://example.com/',
+      packs.get('Open GitHub PR Files')!,
+      contextRuntime,
+      DEFAULT_SETTINGS,
+    );
+    expect(githubFiles.finalUrl).toBe(linkUrl);
+
     const selectedResult = await executeCompiledActionPackV2(
       'https://example.com/',
       packs.get('Search Selected Text')!,
       contextRuntime,
       DEFAULT_SETTINGS,
     );
-    expect(selectedResult.finalUrl).toBe('https://www.google.com/search?q=abc');
+    expect(selectedResult.finalUrl).toBe('https://www.google.com/search?q=C%2B%2B%20%26%20caf%C3%A9');
 
-    const clipboardResult = await executeCompiledActionPackV2(
-      'https://example.com/',
-      packs.get('Clipboard Search Launcher')!,
-      contextRuntime,
-      DEFAULT_SETTINGS,
-    );
-    expect(clipboardResult.finalUrl).toBe('https://www.google.com/search?q=clipboard+token');
+    await executeCompiledActionPackV2('https://example.com/', packs.get('Normalize Clipboard Text')!, contextRuntime, DEFAULT_SETTINGS);
+    expect(written.clipboard).toBe('First\n\nSecond line');
 
-    await executeCompiledActionPackV2('https://example.com/page', packs.get('Remember Current Page')!, contextRuntime, DEFAULT_SETTINGS);
-    expect(saved['last-url']?.value).toBe('https://example.com/page');
-    expect(shownMessages.some((message) => message.includes('currentUrl'))).toBe(true);
+    await executeCompiledActionPackV2('https://example.com/article', packs.get('Copy Markdown Citation')!, contextRuntime, DEFAULT_SETTINGS);
+    expect(written.clipboard).toMatch(/^\*\*Example Title\*\*\n<https:\/\/example\.com\/article>\nAccessed /);
 
-    await executeCompiledActionPackV2('https://example.com/page', packs.get('Variable Use Across Runs')!, contextRuntime, DEFAULT_SETTINGS);
-    expect(saved['variable-use:run-count']?.value).toBe(2);
-    expect(shownMessages.some((message) => message.includes('Current run: 1'))).toBe(true);
-    expect(shownMessages.some((message) => message.includes('Next run will start from 2'))).toBe(true);
-    await executeCompiledActionPackV2('https://example.com/page', packs.get('Variable Use Across Runs')!, contextRuntime, DEFAULT_SETTINGS);
-    expect(saved['variable-use:run-count']?.value).toBe(3);
-    expect(shownMessages.some((message) => message.includes('Current run: 2'))).toBe(true);
-    expect(shownMessages.some((message) => message.includes('The $counter variable supplied the first-run value'))).toBe(true);
+    await executeCompiledActionPackV2('https://example.com/first', packs.get('Research Trail')!, contextRuntime, DEFAULT_SETTINGS);
+    expect(saved['research-trail:last-title']).toEqual({ type: 'string', value: 'Example Title' });
+    expect(saved['research-trail:last-url']).toEqual({ type: 'URL', value: 'https://example.com/first' });
+    expect(shownMessages.at(-1)).toContain('No previous page yet');
 
-    await executeCompiledActionPackV2('https://example.com/page', packs.get('Copy Page Title')!, contextRuntime, DEFAULT_SETTINGS);
-    expect(written.clipboard).toBe('Example Title');
+    pageTitle = 'Second Reference';
+    await executeCompiledActionPackV2('https://example.com/second', packs.get('Research Trail')!, contextRuntime, DEFAULT_SETTINGS);
+    expect(shownMessages.at(-1)).toContain('Example Title');
+    expect(shownMessages.at(-1)).toContain('Second Reference');
+    expect(saved['research-trail:last-url']).toEqual({ type: 'URL', value: 'https://example.com/second' });
 
-    await executeCompiledActionPackV2('https://example.com/page', packs.get('Research Note Snapshot')!, contextRuntime, DEFAULT_SETTINGS);
-    expect(written.clipboard).toContain('Example Title');
-    expect(written.clipboard).toContain('https://example.com/page');
-
-    await executeCompiledActionPackV2('https://example.com/page', packs.get('Uppercase Selection Clipboard')!, contextRuntime, DEFAULT_SETTINGS);
-    expect(written.clipboard).toBe('ABC');
+    clipboardText = 'unused';
+    selectedText = 'unused';
   });
 });

@@ -41,7 +41,7 @@ Include these files and folders in the AMO source submission package:
 - `LICENSE`
 - `RELEASE_BUILD_TIME.txt` (added to the generated source package)
 
-The source submission package intentionally excludes `public/bundled-actionpacks/`. Those binary workspace and Action Pack artifacts are generated from `src/shared/v2/bundledExamples.ts` by `npm run generate:bundled`, which is called by `reviewer-build.sh` before the extension is built.
+The source submission package intentionally excludes `public/bundled-actionpacks/`. Those binary workspace and Action Pack artifacts are generated from the readable recipe catalog in `src/shared/v2/bundledWorkspaceRecipes.json` through `src/shared/v2/workspaceRecipe.ts` and `src/shared/v2/bundledExamples.ts` by `npm run generate:bundled`, which is called by `reviewer-build.sh` before the extension is built.
 
 Do not treat these as source files:
 
@@ -153,7 +153,9 @@ npx web-ext lint -s dist
 - `package-lock.json` is included so dependency resolution is pinned.
 - The authoritative project source is in `src/`, `public/`, and the top-level config files listed above.
 - Firefox uses an MV3 background script/page for regex, clipboard, interval, and overlay runtime services; it does not use Chrome offscreen documents.
-- Version 2.6.1 uses schema 9 workspace/action-pack artifacts, removes version-file export/update metadata, preserves V1 `.urlpack` conversion, stores large resources in IndexedDB by SHA-256, and strips local-only install metadata from exported `.actionpack` files.
+- Version 2.7.1 uses schema 9 workspace/action-pack artifacts, removes version-file export/update metadata, preserves V1 `.urlpack` conversion, stores large resources in IndexedDB by SHA-256, and strips local-only install metadata from exported `.actionpack` files.
 - Content Blocker workspaces compile into local Action Packs with local lock metadata. Locks are enforced inside the extension but cannot prevent add-on removal or browser profile tampering.
-- The AI Connectors Ollama connector accepts only loopback HTTP endpoints and produces previewed JSON workspace recipes; Action Packs do not contain runtime AI instructions.
+- Workspace recipe JSON is an internal, versioned build and LLM protocol used to generate validated workspace graphs. It is not a portable user artifact and does not replace `.workspace`, `.actionpack`, or legacy V1 `.urlpack` import/conversion.
+- AI workspace instructions are editable and restorable in Settings. Custom text is kept in local extension storage and manual backups; browser sync receives the built-in default instead.
+- The Ollama drafting flow accepts only loopback HTTP endpoints, rejects redirects and oversized responses, and sends the editable guidance, machine-readable authoring catalog, and an internal recipe for the eligible open graph. Returned recipes must pass immutable schema, workspace, compiler, compiled Action Pack where applicable, and risk checks. Preview shows derived risk, applicable permissions, sensitive behavior, and the complete recipe JSON before explicit Apply; Custom Block permissions are deferred until the block is used by an Action Pack. Stale drafts are blocked and compatibility metadata is cleared after full graph replacement. Content Blockers and workspaces with embedded assets, local resources, or installed Custom Block dependencies are rejected rather than converted lossily. Action Packs contain no runtime AI instructions and never contact a model.
 - `dist/` is generated output and should be recreated from source.

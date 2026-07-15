@@ -3,6 +3,7 @@ import { capLogMessage, rotateActionPackLogEntries } from './logs';
 import type { ActionPack, GlobalSettings, StoredActionPackLogEntry, StoredState, StoredTraceEntry } from './types';
 import { normalizeStoredState } from './validation';
 import { isActionPackLocked, withInstallMetadata } from './v2/installMetadata';
+import { DEFAULT_AI_WORKSPACE_INSTRUCTIONS } from './v2/aiInstructions';
 import { validateWorkspaceFile } from './v2/workspace';
 import type { CompiledActionPackV2, CompiledCustomBlockV2, WorkspaceFileV2, WorkspaceViewport } from './v2/types';
 
@@ -34,9 +35,10 @@ function jsonBytes(value: unknown): number {
   return new TextEncoder().encode(JSON.stringify(value)).byteLength;
 }
 
-function createSyncSnapshot(state: StoredState): StoredState {
+export function createSyncSnapshot(state: StoredState): StoredState {
   const settings = {
     ...state.settings,
+    aiWorkspaceInstructions: DEFAULT_AI_WORKSPACE_INSTRUCTIONS,
     syncEnabled: true,
   };
   const actionPacksV2 = state.actionPacksV2

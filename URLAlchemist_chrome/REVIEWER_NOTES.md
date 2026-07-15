@@ -62,7 +62,7 @@ Transitive open-source dependencies are resolved by npm from `package-lock.json`
 
 - Action Packs are binary files decoded and validated by the extension before installation.
 - Imported Action Packs open in a staging review flow and are not saved automatically.
-- Version 2.6.1 uses workspace/action-pack schema 9. Legacy V1 `.urlpack` import/conversion remains available, and older V2 schemas are migrated before validation.
+- Version 2.7.1 uses workspace/action-pack schema 9. Legacy V1 `.urlpack` import/conversion remains available, and older V2 schemas are migrated before validation.
 - Version-file update metadata/export support was removed; old version-file metadata is stripped during migration and export.
 - Large local media resources are stored in IndexedDB by SHA-256 and referenced from workspaces/installed Action Packs. They are excluded from browser sync and bundled into exported artifacts only.
 - Installed Action Packs keep local-only install metadata for trust status, logging, locks, review overrides, install time, and Content Blocker statistics. That metadata is stripped from exported `.actionpack` files.

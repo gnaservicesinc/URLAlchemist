@@ -62,6 +62,7 @@ export interface GlobalSettings {
   ollamaEndpoint: string;
   ollamaModel: string;
   ollamaTimeoutMs: number;
+  aiWorkspaceInstructions: string;
   uiScale: number;
   hardeningMaxInstructions: number;
   hardeningMaxRecursion: number;

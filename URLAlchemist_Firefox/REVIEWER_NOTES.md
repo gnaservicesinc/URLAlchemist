@@ -36,6 +36,13 @@ the build scripts, and `RELEASE_BUILD_TIME.txt`. They exclude `dist/`,
 `node_modules/`, build caches, macOS metadata, and generated bundled-example
 binaries under `public/bundled-actionpacks/`.
 
+The generated example binaries come from the readable catalog in
+`src/shared/v2/bundledWorkspaceRecipes.json`. `src/shared/v2/workspaceRecipe.ts`
+validates and expands that internal recipe JSON into workspace graphs, and
+`src/shared/v2/bundledExamples.ts` supplies the bundled-example metadata used by
+the generator. Recipe JSON is a build and LLM protocol, not a portable extension
+artifact.
+
 The source-package script uses `rsync`, `zip`, and `tar`. On Ubuntu, install the
 non-default tools with `sudo apt-get install zip rsync`. The helper was verified
 locally with Info-ZIP 3.0 and openrsync protocol 29 / rsync 2.6.9-compatible
@@ -94,14 +101,15 @@ This Firefox MV3 build uses a background script/page rather than a Chrome servic
 
 - Action Packs are binary files decoded and validated by the extension before installation.
 - Imported Action Packs open in a staging review flow and are not saved automatically.
-- Version 2.6.1 uses workspace/action-pack schema 9. Legacy V1 `.urlpack` import/conversion remains available, and older V2 schemas are migrated before validation.
+- Version 2.7.1 uses workspace/action-pack schema 9. Legacy V1 `.urlpack` import/conversion remains available, and older V2 schemas are migrated before validation.
 - Version-file update metadata/export support was removed; old version-file metadata is stripped during migration and export.
 - Large local media resources are stored in IndexedDB by SHA-256 and referenced from workspaces/installed Action Packs. They are excluded from browser sync and bundled into exported artifacts only.
 - Installed Action Packs keep local-only install metadata for trust status, logging, locks, review overrides, install time, and Content Blocker statistics. That metadata is stripped from exported `.actionpack` files.
 - New Action Pack installs default logging off unless the user changes the setting; migrated existing packs retain logging on.
 - Content Blocker workspaces compile into local Action Packs plus local install metadata. Locked Content Blocker packs cannot be disabled, deleted, exported, overwritten by rebuild/import, or removed by backup restore/reset until unlocked.
 - Level 1 locks use challenge text, repeated confirmation, and a delay. Level 2 locks use salted PBKDF2 through WebCrypto. Level 3 has no in-app unlock path. Extension removal or browser profile tampering remains outside what an extension can prevent.
-- The AI Connectors Ollama connector is disabled by default, allows only loopback HTTP endpoints, previews strict JSON recipes, and never adds runtime AI instructions.
+- AI Connectors is disabled by default. Editable workspace instructions are stored locally and included in manual backups; browser sync substitutes the built-in default for custom text.
+- The Ollama drafting flow allows only loopback HTTP endpoints, rejects redirects, and stops oversized responses while streaming. It sends editable guidance, a machine-readable block/port schema, and an internal recipe for the eligible current graph. Editable instructions cannot change the parser, validator, compiler checks, compiled Action Pack validation where applicable, risk policy, or supported recipe fields. Content Blockers and workspaces with embedded assets, local resources, or installed Custom Block dependencies are rejected rather than serialized lossily. Preview exposes derived risk, applicable permissions, sensitive behaviors, and safely rendered complete recipe JSON; Custom Block permissions are explicitly deferred until use by a host Action Pack. Stale drafts cannot be applied, and compatibility metadata is cleared after graph replacement. Action Packs never contain runtime AI instructions or contact a model.
 - The extension does not use `eval`, `new Function`, imported scripts, or downloaded code to execute Action Pack logic.
 
 ## Useful review entry points
@@ -111,6 +119,8 @@ This Firefox MV3 build uses a background script/page rather than a Chrome servic
 - `src/content/index.ts` owns page overlays, hotkey capture, page reads, page mutation, and display UI.
 - `src/shared/v2/actionPackValidator.ts` validates imported compiled Action Packs.
 - `src/shared/v2/compiler.ts` compiles workspaces into Action Packs.
+- `src/shared/v2/bundledWorkspaceRecipes.json`, `src/shared/v2/workspaceRecipe.ts`, and `src/shared/v2/bundledExamples.ts` are the readable source and deterministic generator path for bundled examples.
+- `src/shared/v2/aiInstructions.ts` owns the editable default AI workspace guidance and its storage limit.
 - `src/shared/v2/resources.ts` owns local resource IndexedDB storage and SHA-256 resource references.
 - `src/shared/v2/locks.ts` owns local lock challenge and PBKDF2 password verification helpers.
 - `src/shared/v2/ollama.ts` owns local-only Ollama endpoint validation and recipe validation.

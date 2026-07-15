@@ -1,4 +1,5 @@
 import type { GlobalSettings } from './types';
+import { DEFAULT_AI_WORKSPACE_INSTRUCTIONS } from './v2/aiInstructions';
 
 export const STORAGE_KEY = 'url-alchemist-state';
 export const VAULT_MAGIC = 'URLA1';
@@ -32,6 +33,7 @@ export const DEFAULT_SETTINGS: GlobalSettings = {
   ollamaEndpoint: 'http://127.0.0.1:11434',
   ollamaModel: '',
   ollamaTimeoutMs: 30_000,
+  aiWorkspaceInstructions: DEFAULT_AI_WORKSPACE_INSTRUCTIONS,
   uiScale: 100,
   hardeningMaxInstructions: DEFAULT_VM_INSTRUCTION_LIMIT,
   hardeningMaxRecursion: MAX_REDIRECT_DEPTH,

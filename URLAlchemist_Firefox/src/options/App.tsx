@@ -32,11 +32,12 @@ import { BUNDLED_ACTION_PACK_EXAMPLES, type BundledActionPackExample } from '../
 import { compileWorkspace } from '../shared/v2/compiler';
 import { isActionPackLocked, isContentBlockerActionPack, withInstallMetadata } from '../shared/v2/installMetadata';
 import { createChallengeLockState, createPasswordLockState, unlockedLockState, verifyPasswordLock } from '../shared/v2/locks';
-import { listOllamaModels, requestOllamaWorkspaceDraft, validateOllamaEndpoint, workspaceFromOllamaDraft, type OllamaModelSummary, type OllamaWorkspaceDraft } from '../shared/v2/ollama';
+import { listOllamaModels, previewOllamaWorkspaceDraft, requestOllamaWorkspaceDraft, validateOllamaEndpoint, type OllamaModelSummary, type OllamaWorkspaceDraft, type OllamaWorkspaceDraftPreview } from '../shared/v2/ollama';
 import { inferAssetKind, listResources, putResourceBytes, resourceToAssetRef } from '../shared/v2/resources';
 import { executeCompiledActionPackV2, type GraphRuntime } from '../shared/v2/vm';
 import { createSandboxGraphRuntime } from '../shared/v2/sandboxRuntime';
 import type { ActionPackLockLevel, ActionPackLockState, AssetRef, CompiledActionPackV2, CompiledCustomBlockV2, WorkspaceEmbeddedCustomBlock, WorkspaceFileV2, WorkspaceMetadata, WorkspaceType } from '../shared/v2/types';
+import { normalizeAiWorkspaceInstructions } from '../shared/v2/aiInstructions';
 import { createDefaultContentBlockerWorkspace, createDefaultCustomBlockWorkspace, createDefaultWorkspace, workspaceFromLegacyPack } from '../shared/v2/workspace';
 import { URL_ALCHEMIST_VERSION } from '../shared/v2/buildInfo';
 import {
@@ -342,11 +343,19 @@ function App() {
   const [ollamaModels, setOllamaModels] = useState<OllamaModelSummary[]>([]);
   const [ollamaModelsBusy, setOllamaModelsBusy] = useState(false);
   const [ollamaModelsMessage, setOllamaModelsMessage] = useState<string | null>(null);
-  const [pendingOllamaDraft, setPendingOllamaDraft] = useState<OllamaWorkspaceDraft | null>(null);
+  const [pendingOllamaDraft, setPendingOllamaDraft] = useState<{
+    recipe: OllamaWorkspaceDraft;
+    preview: OllamaWorkspaceDraftPreview;
+    sourceWorkspaceFingerprint: string;
+  } | null>(null);
   const builderUuidFileInputRef = useRef<HTMLInputElement | null>(null);
   const backupFileInputRef = useRef<HTMLInputElement | null>(null);
   const runtimesRef = useRef(createOptionsRuntimes(state.settings));
   const stagedValidationErrors = getPackImportValidationErrors(stagedPack, state.actionPacksV2);
+  const currentWorkspaceFingerprint = useMemo(() => JSON.stringify(workspace), [workspace]);
+  const pendingOllamaDraftIsStale = Boolean(
+    pendingOllamaDraft && pendingOllamaDraft.sourceWorkspaceFingerprint !== currentWorkspaceFingerprint,
+  );
 
   async function refreshResources(): Promise<void> {
     setResourceAssets((await listResources()).map(resourceToAssetRef));
@@ -961,13 +970,19 @@ function App() {
       setOllamaMessage('Enter a workspace request first.');
       return;
     }
+    if (workspace.workspaceType === 'content-blocker') {
+      setOllamaMessage('AI workspace drafting currently supports data-modifier and custom-block workspaces, not content blockers.');
+      return;
+    }
 
     setOllamaBusy(true);
     setOllamaMessage(null);
     setPendingOllamaDraft(null);
     try {
+      const sourceWorkspaceFingerprint = currentWorkspaceFingerprint;
       const draft = await requestOllamaWorkspaceDraft(state.settings, ollamaPrompt, workspace);
-      setPendingOllamaDraft(draft);
+      const preview = previewOllamaWorkspaceDraft(draft, workspace);
+      setPendingOllamaDraft({ recipe: draft, preview, sourceWorkspaceFingerprint });
       setOllamaMessage('AI Connectors draft is ready for review.');
     } catch (error) {
       setOllamaMessage(error instanceof Error ? error.message : 'AI Connectors drafting failed.');
@@ -1007,8 +1022,13 @@ function App() {
     if (!pendingOllamaDraft) {
       return;
     }
+    if (pendingOllamaDraft.sourceWorkspaceFingerprint !== currentWorkspaceFingerprint) {
+      setPendingOllamaDraft(null);
+      setOllamaMessage('The open workspace changed after this draft was requested. The stale draft was discarded; draft again from the current graph.');
+      return;
+    }
 
-    const nextWorkspace = workspaceFromOllamaDraft(pendingOllamaDraft, workspace);
+    const nextWorkspace = pendingOllamaDraft.preview.workspace;
     pushUndoSnapshot(workspace);
     setWorkspace(nextWorkspace);
     setWorkspaceDirty(true);
@@ -1470,11 +1490,14 @@ function App() {
     await applyState(updateSettings({ defaultActionPackLoggingEnabled: !state.settings.defaultActionPackLoggingEnabled }));
   }
 
-  async function updateOllamaSettings(settings: Partial<Pick<GlobalSettings, 'ollamaEnabled' | 'ollamaEndpoint' | 'ollamaModel' | 'ollamaTimeoutMs'>>): Promise<void> {
+  async function updateOllamaSettings(settings: Partial<Pick<GlobalSettings, 'ollamaEnabled' | 'ollamaEndpoint' | 'ollamaModel' | 'ollamaTimeoutMs' | 'aiWorkspaceInstructions'>>): Promise<void> {
     try {
       const next: Partial<GlobalSettings> = { ...settings };
       if (settings.ollamaEndpoint !== undefined) {
         next.ollamaEndpoint = validateOllamaEndpoint(settings.ollamaEndpoint);
+      }
+      if (settings.aiWorkspaceInstructions !== undefined) {
+        next.aiWorkspaceInstructions = normalizeAiWorkspaceInstructions(settings.aiWorkspaceInstructions);
       }
       await applyState(updateSettings(next));
       setOllamaModelsMessage(null);
@@ -1683,12 +1706,16 @@ function App() {
                 <div>
                   <p className="eyebrow">AI Connectors</p>
                   <h2 className="mt-2 text-xl font-semibold text-slate-900">Ollama workspace draft</h2>
+                  <p className="mt-2 max-w-3xl text-sm text-slate-600">
+                    Drafting sends your request, editable AI instructions, the block and port catalog, and a recipe for the eligible open graph to the selected loopback Ollama endpoint. Nothing changes until you review and apply the complete replacement graph. Content Blockers and graphs with embedded resources or installed Custom Block dependencies are rejected instead of converted lossily.
+                  </p>
                 </div>
                 <span className="risk-badge risk-badge-soft">{state.settings.ollamaModel || 'No installed model selected'}</span>
               </div>
               <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto]">
                 <textarea
                   className="field-textarea min-h-24"
+                  placeholder="Describe the workflow or graph change you want..."
                   value={ollamaPrompt}
                   onChange={(event) => setOllamaPrompt(event.target.value)}
                 />
@@ -1698,12 +1725,42 @@ function App() {
               </div>
               {pendingOllamaDraft ? (
                 <div className="mt-3 grid gap-2 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
-                  <div><span className="font-semibold text-slate-900">Name:</span> {pendingOllamaDraft.name ?? workspace.metadata.name}</div>
-                  <div><span className="font-semibold text-slate-900">Trigger:</span> {pendingOllamaDraft.trigger ?? workspace.trigger.type}</div>
-                  <div><span className="font-semibold text-slate-900">Description:</span> {pendingOllamaDraft.description ?? workspace.metadata.description}</div>
-                  <div>
-                    <button className="secondary-button" type="button" onClick={applyOllamaDraft}>
+                  <div><span className="font-semibold text-slate-900">Name:</span> {pendingOllamaDraft.recipe.name}</div>
+                  <div><span className="font-semibold text-slate-900">Workspace type:</span> {pendingOllamaDraft.recipe.workspaceType}</div>
+                  <div><span className="font-semibold text-slate-900">Trigger:</span> {pendingOllamaDraft.recipe.trigger.type}</div>
+                  <div><span className="font-semibold text-slate-900">Graph:</span> {pendingOllamaDraft.recipe.nodes.length} blocks, {pendingOllamaDraft.recipe.connections.length} connections</div>
+                  <div><span className="font-semibold text-slate-900">Description:</span> {pendingOllamaDraft.recipe.description}</div>
+                  <div><span className="font-semibold text-slate-900">Derived risk:</span> {pendingOllamaDraft.preview.risk.highest}</div>
+                  <div><span className="font-semibold text-slate-900">Required permissions:</span> {pendingOllamaDraft.preview.requiredPermissions === null ? 'Determined when this Custom Block is used in an Action Pack' : pendingOllamaDraft.preview.requiredPermissions.length > 0 ? pendingOllamaDraft.preview.requiredPermissions.join(', ') : 'None'}</div>
+                  {pendingOllamaDraft.preview.risk.reasons.length > 0 ? (
+                    <div>
+                      <p className="font-semibold text-slate-900">Risk reasons:</p>
+                      <ul className="mt-1 list-disc pl-5 text-xs">
+                        {pendingOllamaDraft.preview.risk.reasons.map((reason) => <li key={reason}>{reason}</li>)}
+                      </ul>
+                    </div>
+                  ) : <p className="text-xs text-slate-600">Uses safe-core inputs and outputs only.</p>}
+                  {pendingOllamaDraft.preview.sensitiveBehaviors.length > 0 ? (
+                    <div>
+                      <p className="font-semibold text-slate-900">Sensitive destinations and behaviors:</p>
+                      <ul className="mt-1 list-disc pl-5 text-xs">
+                        {pendingOllamaDraft.preview.sensitiveBehaviors.map((behavior) => <li key={behavior}>{behavior}</li>)}
+                      </ul>
+                    </div>
+                  ) : null}
+                  <details className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                    <summary className="cursor-pointer font-semibold text-slate-900">Review complete recipe JSON</summary>
+                    <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words text-[11px] text-slate-700">{JSON.stringify(pendingOllamaDraft.recipe, null, 2)}</pre>
+                  </details>
+                  <p className="text-xs text-slate-600">Existing compatibility metadata is cleared because the graph changed; review cross-browser behavior before sharing.</p>
+                  {pendingOllamaDraftIsStale ? <p className="text-xs font-semibold text-rose-700">The open workspace changed after this draft was requested. Discard it and draft again.</p> : null}
+                  <p className="text-xs text-amber-800">Apply replaces the open workspace graph. You can undo the change before saving.</p>
+                  <div className="flex flex-wrap gap-2">
+                    <button className="secondary-button" disabled={pendingOllamaDraftIsStale} type="button" onClick={applyOllamaDraft}>
                       Apply Draft
+                    </button>
+                    <button className="ghost-button" type="button" onClick={() => setPendingOllamaDraft(null)}>
+                      Discard Draft
                     </button>
                   </div>
                 </div>

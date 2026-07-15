@@ -16,7 +16,7 @@ interface BundledExamplesPanelProps {
 }
 
 function collectionForExample(example: BundledActionPackExample): 'bundled' | 'examples' {
-  return ['URL cleanup', 'Search', 'Storage'].includes(example.category) ? 'bundled' : 'examples';
+  return example.collection;
 }
 
 function riskClass(risk: BundledActionPackExample['risk']): string {

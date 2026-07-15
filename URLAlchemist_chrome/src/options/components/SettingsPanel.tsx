@@ -3,6 +3,7 @@ import { useEffect, useState, type ChangeEvent, type RefObject } from 'react';
 import { UI_SCALE_MAX, UI_SCALE_MIN, UI_SCALE_STEP } from '../../shared/constants';
 import { normalizeUiScale } from '../../shared/hardening';
 import type { GlobalSettings } from '../../shared/types';
+import { AI_WORKSPACE_INSTRUCTIONS_MAX_CHARS, DEFAULT_AI_WORKSPACE_INSTRUCTIONS, normalizeAiWorkspaceInstructions } from '../../shared/v2/aiInstructions';
 import type { OllamaModelSummary } from '../../shared/v2/ollama';
 import { HelpTooltip } from './HelpTooltip';
 
@@ -25,7 +26,7 @@ interface SettingsPanelProps {
   onDefaultLoggingToggle: () => void;
   onGlobalEnabledToggle: () => void;
   onLocalFilesToggle: () => void;
-  onOllamaSettingsChange: (settings: Partial<Pick<GlobalSettings, 'ollamaEnabled' | 'ollamaEndpoint' | 'ollamaModel' | 'ollamaTimeoutMs'>>) => void;
+  onOllamaSettingsChange: (settings: Partial<Pick<GlobalSettings, 'ollamaEnabled' | 'ollamaEndpoint' | 'ollamaModel' | 'ollamaTimeoutMs' | 'aiWorkspaceInstructions'>>) => void;
   onRefreshOllamaModels: () => void;
   onRequestClipboardPermission: () => void;
   onRestoreBuilderUuid: () => void;
@@ -81,13 +82,19 @@ export function SettingsPanel({
   onUiScaleChange,
 }: SettingsPanelProps) {
   const [pendingUiScale, setPendingUiScale] = useState(() => normalizeUiScale(settings.uiScale));
+  const [pendingAiWorkspaceInstructions, setPendingAiWorkspaceInstructions] = useState(() => settings.aiWorkspaceInstructions);
   const activeUiScale = normalizeUiScale(settings.uiScale);
   const hasPendingUiScale = pendingUiScale !== activeUiScale;
+  const hasPendingAiWorkspaceInstructions = pendingAiWorkspaceInstructions !== settings.aiWorkspaceInstructions;
   const selectedOllamaModelAvailable = ollamaModels.some((model) => model.name === settings.ollamaModel);
 
   useEffect(() => {
     setPendingUiScale(activeUiScale);
   }, [activeUiScale]);
+
+  useEffect(() => {
+    setPendingAiWorkspaceInstructions(settings.aiWorkspaceInstructions);
+  }, [settings.aiWorkspaceInstructions]);
 
   return (
     <section className="panel-shell reveal-panel">
@@ -240,6 +247,49 @@ export function SettingsPanel({
               <span className="field-label">Timeout ms</span>
               <input className="field-input" min={1000} max={120000} type="number" value={settings.ollamaTimeoutMs} onChange={(event) => onOllamaSettingsChange({ ollamaTimeoutMs: Number.parseInt(event.target.value || '30000', 10) })} />
             </label>
+          </div>
+          <label className="field-shell mt-4">
+            <span className="field-label">Workspace instructions</span>
+            <textarea
+              aria-describedby="ai-workspace-instructions-help"
+              aria-label="AI workspace instructions"
+              className="field-textarea min-h-48"
+              maxLength={AI_WORKSPACE_INSTRUCTIONS_MAX_CHARS}
+              value={pendingAiWorkspaceInstructions}
+              onChange={(event) => setPendingAiWorkspaceInstructions(normalizeAiWorkspaceInstructions(event.target.value))}
+            />
+          </label>
+          <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
+            <div className="max-w-3xl text-xs text-slate-500" id="ai-workspace-instructions-help">
+              <p>These editable instructions accompany every workspace draft. The fixed response schema, validation, and safety checks are separate and cannot be edited here.</p>
+              <p className="mt-1">Stored locally and included in manual backups. Browser sync receives the URL Alchemist default instead of your custom text. The text is sent to the configured loopback Ollama endpoint only when you choose Draft.</p>
+            </div>
+            <span className="text-xs tabular-nums text-slate-500">
+              {pendingAiWorkspaceInstructions.length.toLocaleString()} / {AI_WORKSPACE_INSTRUCTIONS_MAX_CHARS.toLocaleString()}
+            </span>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              className="secondary-button"
+              disabled={!hasPendingAiWorkspaceInstructions}
+              type="button"
+              onClick={() => onOllamaSettingsChange({ aiWorkspaceInstructions: normalizeAiWorkspaceInstructions(pendingAiWorkspaceInstructions) })}
+            >
+              Save Instructions
+            </button>
+            <button
+              className="ghost-button"
+              disabled={pendingAiWorkspaceInstructions === DEFAULT_AI_WORKSPACE_INSTRUCTIONS && settings.aiWorkspaceInstructions === DEFAULT_AI_WORKSPACE_INSTRUCTIONS}
+              type="button"
+              onClick={() => {
+                setPendingAiWorkspaceInstructions(DEFAULT_AI_WORKSPACE_INSTRUCTIONS);
+                if (settings.aiWorkspaceInstructions !== DEFAULT_AI_WORKSPACE_INSTRUCTIONS) {
+                  onOllamaSettingsChange({ aiWorkspaceInstructions: DEFAULT_AI_WORKSPACE_INSTRUCTIONS });
+                }
+              }}
+            >
+              Restore Default
+            </button>
           </div>
           {ollamaModelsMessage ? (
             <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">{ollamaModelsMessage}</p>
