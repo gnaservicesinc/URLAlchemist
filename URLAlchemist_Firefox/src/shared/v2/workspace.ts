@@ -5,6 +5,9 @@ import { assertSafeRegexPattern } from '../regex/executeRegexJob';
 import { BLOCK_REGISTRY, getBlockDefinition } from './blockRegistry';
 import type {
   BlockKind,
+  CompiledCustomBlockV2,
+  CustomBlockPortDefinition,
+  WorkspaceBlockSettings,
   WorkspaceEdgeV2,
   WorkspaceFileV2,
   WorkspaceGraphSurface,
@@ -192,12 +195,14 @@ export function createDefaultCustomBlockWorkspace(): WorkspaceFileV2 {
     customPortId: 'input',
     customPortLabel: 'Input',
     customPortDataType: 'Any',
+    customPortTooltip: '',
     locked: true,
   });
   const output = createWorkspaceNode('CustomBlockOutput', { x: 560, y: 120 }, {
     customPortId: 'result',
     customPortLabel: 'Result',
     customPortDataType: 'Any',
+    customPortTooltip: '',
     locked: true,
   });
   const blockId = `custom-${crypto.randomUUID()}`;
@@ -232,15 +237,253 @@ export function createDefaultCustomBlockWorkspace(): WorkspaceFileV2 {
       blockId,
       label: 'Untitled Custom Block',
       version: 1,
-      category: 'custom',
+      category: '',
       visibleWorkspaceTypes: ['data-modifier', 'content-blocker'],
       description: 'Reusable workspace block.',
       tips: [],
-      inputs: [{ id: 'input', label: 'Input', dataType: 'Any' }],
-      outputs: [{ id: 'result', label: 'Result', dataType: 'Any' }],
+      inputs: [{ id: 'input', label: 'Input', dataType: 'Any', tooltip: '' }],
+      outputs: [{ id: 'result', label: 'Result', dataType: 'Any', tooltip: '' }],
       fields: [],
     },
   };
+}
+
+export function synchronizeCustomBlockIdentity(workspace: WorkspaceFileV2): WorkspaceFileV2 {
+  if (workspace.workspaceType !== 'custom-block' || !workspace.customBlock) {
+    return workspace;
+  }
+  if (
+    workspace.customBlock.label === workspace.metadata.name &&
+    workspace.customBlock.version === workspace.metadata.version
+  ) {
+    return workspace;
+  }
+  return {
+    ...workspace,
+    customBlock: {
+      ...workspace.customBlock,
+      label: workspace.metadata.name,
+      version: workspace.metadata.version,
+    },
+  };
+}
+
+function synchronizeCustomBlockInvocationNode(
+  node: WorkspaceNodeV2,
+  customBlocksById: ReadonlyMap<string, CompiledCustomBlockV2>,
+): WorkspaceNodeV2 {
+  if (node.type !== 'CustomBlock' || !node.settings.customBlockId) {
+    return node;
+  }
+
+  const block = customBlocksById.get(node.settings.customBlockId);
+  if (!block) {
+    return node;
+  }
+
+  const inputs = block.inputs.map((input) => ({ ...input }));
+  const outputs = block.outputs.map((output) => ({ ...output }));
+  const fields = block.fields.map((field) => ({ ...field }));
+  const customFieldValues = { ...(node.settings.customFieldValues ?? {}) };
+  let fieldValuesChanged = false;
+  fields.forEach((field) => {
+    if (!Object.prototype.hasOwnProperty.call(customFieldValues, field.id)) {
+      customFieldValues[field.id] = field.defaultValue ?? '';
+      fieldValuesChanged = true;
+    }
+  });
+
+  const label = !node.settings.label || node.settings.label === node.settings.customBlockName
+    ? block.label
+    : node.settings.label;
+  const metadataChanged =
+    label !== node.settings.label ||
+    block.label !== node.settings.customBlockName ||
+    block.version !== node.settings.customBlockVersion ||
+    JSON.stringify(inputs) !== JSON.stringify(node.settings.customBlockInputs ?? []) ||
+    JSON.stringify(outputs) !== JSON.stringify(node.settings.customBlockOutputs ?? []) ||
+    JSON.stringify(fields) !== JSON.stringify(node.settings.customBlockFields ?? []);
+
+  if (!metadataChanged && !fieldValuesChanged) {
+    return node;
+  }
+
+  return {
+    ...node,
+    settings: {
+      ...node.settings,
+      label,
+      customBlockName: block.label,
+      customBlockVersion: block.version,
+      customBlockInputs: inputs,
+      customBlockOutputs: outputs,
+      customBlockFields: fields,
+      ...(fieldValuesChanged ? { customFieldValues } : {}),
+    },
+  };
+}
+
+/**
+ * Refreshes installed Custom Block metadata snapshots without guessing how
+ * renamed ports should be rewired. Edges that still reference removed port ids
+ * therefore become visibly invalid and block compilation until reconnected.
+ */
+export function synchronizeCustomBlockInvocationMetadata(
+  workspace: WorkspaceFileV2,
+  customBlocks: readonly CompiledCustomBlockV2[],
+): WorkspaceFileV2 {
+  if (customBlocks.length === 0) {
+    return workspace;
+  }
+
+  const customBlocksById = new Map(customBlocks.map((block) => [block.blockId, block]));
+  let changed = false;
+  const synchronizeNodes = (nodes: WorkspaceNodeV2[]): WorkspaceNodeV2[] => nodes.map((node) => {
+    const synchronized = synchronizeCustomBlockInvocationNode(node, customBlocksById);
+    changed ||= synchronized !== node;
+    return synchronized;
+  });
+
+  const nodes = synchronizeNodes(workspace.nodes);
+  const surfaces = workspace.surfaces?.map((surface) => ({
+    ...surface,
+    nodes: synchronizeNodes(surface.nodes),
+  }));
+
+  return changed ? { ...workspace, nodes, ...(surfaces ? { surfaces } : {}) } : workspace;
+}
+
+export function updateWorkspaceMetadataFields(
+  workspace: WorkspaceFileV2,
+  updates: Partial<WorkspaceMetadata>,
+  updatedAt = Date.now(),
+): WorkspaceFileV2 {
+  return synchronizeCustomBlockIdentity({
+    ...workspace,
+    metadata: {
+      ...workspace.metadata,
+      ...updates,
+      updated_at: updatedAt,
+    },
+  });
+}
+
+export function updateCustomBlockPortMetadata(
+  workspace: WorkspaceFileV2,
+  direction: 'input' | 'output',
+  index: number,
+  updates: Partial<CustomBlockPortDefinition>,
+  updatedAt = Date.now(),
+): WorkspaceFileV2 {
+  if (!workspace.customBlock) {
+    return workspace;
+  }
+  const key = direction === 'input' ? 'inputs' : 'outputs';
+  const nodeType = direction === 'input' ? 'CustomBlockInput' : 'CustomBlockOutput';
+  const previous = workspace.customBlock[key][index];
+  if (!previous) {
+    return workspace;
+  }
+  const nextPort = { ...previous, ...updates };
+  const boundaryNodes = workspace.nodes.filter((node) => node.type === nodeType);
+  const matchingBoundaryNodes = boundaryNodes.filter((node) => node.settings.customPortId === previous.id);
+  const targetBoundaryNodeId = (matchingBoundaryNodes.length === 1
+    ? matchingBoundaryNodes[0]
+    : boundaryNodes[index])?.id;
+  return synchronizeCustomBlockIdentity({
+    ...workspace,
+    metadata: {
+      ...workspace.metadata,
+      updated_at: updatedAt,
+    },
+    customBlock: {
+      ...workspace.customBlock,
+      [key]: workspace.customBlock[key].map((port, portIndex) => portIndex === index ? nextPort : port),
+    },
+    nodes: workspace.nodes.map((node) => node.id === targetBoundaryNodeId ? {
+      ...node,
+      settings: {
+        ...node.settings,
+        label: nextPort.label,
+        customPortId: nextPort.id,
+        customPortLabel: nextPort.label,
+        customPortDataType: nextPort.dataType,
+        customPortTooltip: nextPort.tooltip ?? '',
+      },
+    } : node),
+  });
+}
+
+export function updateWorkspaceNodeSettings(
+  workspace: WorkspaceFileV2,
+  nodeId: string,
+  updates: Partial<WorkspaceBlockSettings>,
+  updatedAt = Date.now(),
+): WorkspaceFileV2 {
+  const previousNode = workspace.nodes.find((node) => node.id === nodeId);
+  if (!previousNode) {
+    return workspace;
+  }
+
+  const boundaryDirection = previousNode.type === 'CustomBlockInput'
+    ? 'input'
+    : previousNode.type === 'CustomBlockOutput'
+      ? 'output'
+      : null;
+  let synchronizedUpdates = updates;
+  let customBlock = workspace.customBlock;
+  if (boundaryDirection && customBlock) {
+    const portUpdates: Partial<CustomBlockPortDefinition> = {};
+    if (updates.customPortId !== undefined) portUpdates.id = updates.customPortId;
+    if (updates.customPortDataType !== undefined) portUpdates.dataType = updates.customPortDataType;
+    if (updates.customPortTooltip !== undefined) portUpdates.tooltip = updates.customPortTooltip;
+
+    const nextLabel = updates.customPortLabel !== undefined
+      ? updates.customPortLabel
+      : updates.label;
+    if (nextLabel !== undefined) {
+      portUpdates.label = nextLabel;
+      synchronizedUpdates = {
+        ...updates,
+        label: nextLabel,
+        customPortLabel: nextLabel,
+      };
+    }
+
+    if (Object.keys(portUpdates).length > 0) {
+      const key = boundaryDirection === 'input' ? 'inputs' : 'outputs';
+      const previousPortId = previousNode.settings.customPortId;
+      const matchingPortIndexes = customBlock[key]
+        .map((port, portIndex) => port.id === previousPortId ? portIndex : -1)
+        .filter((portIndex) => portIndex >= 0);
+      const boundaryNodeIndex = workspace.nodes
+        .filter((node) => node.type === previousNode.type)
+        .findIndex((node) => node.id === nodeId);
+      const targetPortIndex = matchingPortIndexes.length === 1
+        ? matchingPortIndexes[0]
+        : boundaryNodeIndex;
+      customBlock = {
+        ...customBlock,
+        [key]: customBlock[key].map((port, portIndex) => portIndex === targetPortIndex ? { ...port, ...portUpdates } : port),
+      };
+    }
+  }
+
+  return synchronizeCustomBlockIdentity({
+    ...workspace,
+    metadata: {
+      ...workspace.metadata,
+      updated_at: updatedAt,
+    },
+    customBlock,
+    nodes: workspace.nodes.map((node) => node.id === nodeId ? {
+      ...node,
+      settings: {
+        ...node.settings,
+        ...synchronizedUpdates,
+      },
+    } : node),
+  });
 }
 
 export function createEdge(source: string, sourceHandle: string, target: string, targetHandle: string): WorkspaceEdgeV2 {
@@ -875,7 +1118,7 @@ function normalizeWorkspaceTrigger(trigger: unknown): WorkspaceTrigger {
 
 export function migrateWorkspaceFile(value: WorkspaceFileV2): WorkspaceFileV2 {
   const workspaceType = workspaceTypeForCandidate(value);
-  return {
+  const migrated: WorkspaceFileV2 = {
     kind: 'workspace.v2',
     schemaVersion: WORKSPACE_SCHEMA_VERSION,
     workspaceType,
@@ -891,6 +1134,7 @@ export function migrateWorkspaceFile(value: WorkspaceFileV2): WorkspaceFileV2 {
     customBlock: workspaceType === 'custom-block' ? normalizeCustomBlockDefinition(value.customBlock) : undefined,
     embeddedCustomBlocks: Array.isArray(value.embeddedCustomBlocks) ? value.embeddedCustomBlocks : undefined,
   };
+  return synchronizeCustomBlockIdentity(migrated);
 }
 
 export function validateWorkspaceFile(value: unknown): { ok: true; value: WorkspaceFileV2 } | { ok: false; errors: string[] } {

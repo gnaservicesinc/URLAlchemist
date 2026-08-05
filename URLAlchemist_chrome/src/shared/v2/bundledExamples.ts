@@ -12,8 +12,8 @@ import type { WorkspaceRecipeV1 } from './workspaceRecipe';
 export const BUNDLED_EXAMPLE_BUILD_TIME_UTC = 1_778_755_200;
 export const BUNDLED_EXAMPLE_BUILDER_UUID = '11111111-1111-4111-8111-111111111111';
 export const BUNDLED_EXAMPLE_CREATED_AT = BUNDLED_EXAMPLE_BUILD_TIME_UTC * 1000;
-export const BUNDLED_EXAMPLE_CHROME_VERSION = '2.7.1';
-export const BUNDLED_EXAMPLE_FIREFOX_VERSION = '2.7.1';
+export const BUNDLED_EXAMPLE_CHROME_VERSION = '2.7.2';
+export const BUNDLED_EXAMPLE_FIREFOX_VERSION = '2.7.2';
 export const BUNDLED_EXAMPLE_FIREFOX_ANDROID_VERSION = '142.0';
 
 const BUNDLED_EXAMPLE_COMPATIBILITY: WorkspaceCompatibilityMetadata = {
@@ -39,7 +39,7 @@ export type BundledExampleCategory =
   | 'Page tools'
   | 'Interactive'
   | 'Wellness'
-  | 'Custom';
+  | 'Text processing';
 
 export interface BundledActionPackExample {
   id: string;
@@ -69,7 +69,7 @@ const CATEGORY_VALUES = new Set<BundledExampleCategory>([
   'Page tools',
   'Interactive',
   'Wellness',
-  'Custom',
+  'Text processing',
 ]);
 const COLLECTION_VALUES = new Set(['bundled', 'examples']);
 const RISK_VALUES = new Set<RiskLevel>(['safe', 'extended', 'high']);

@@ -498,14 +498,14 @@
     {
       "id": "4d962803-b2b6-4f34-b29a-5ad0ed6fa1e0",
       "slug": "normalize-text-custom-block-source",
-      "category": "Custom",
+      "category": "Text processing",
       "collection": "examples",
       "risk": "safe",
       "features": ["Custom Block source", "Typed string input and output", "Trim and whitespace normalization"],
       "recipe": {
         "kind": "workspace-recipe.v1",
         "workspaceType": "custom-block",
-        "name": "Normalize Text Custom Block Source",
+        "name": "Normalize Text",
         "description": "A reusable Custom Block source that trims text and collapses repeated whitespace through a typed string interface.",
         "trigger": {
           "type": "NEVER",
@@ -514,10 +514,10 @@
           "sourceFilters": []
         },
         "nodes": [
-          { "id": "input", "type": "CustomBlockInput", "position": { "x": 0, "y": 120 }, "settings": { "label": "Text", "locked": true, "customPortId": "text", "customPortLabel": "Text", "customPortDataType": "string" } },
+          { "id": "input", "type": "CustomBlockInput", "position": { "x": 0, "y": 120 }, "settings": { "label": "Text", "locked": true, "customPortId": "text", "customPortLabel": "Text", "customPortDataType": "string", "customPortTooltip": "Text to normalize." } },
           { "id": "trim", "type": "TextTransform", "position": { "x": 320, "y": 120 }, "settings": { "label": "Trim text", "textTransformMode": "TRIM" } },
           { "id": "normalize", "type": "TextTransform", "position": { "x": 620, "y": 120 }, "settings": { "label": "Collapse whitespace", "textTransformMode": "COLLAPSE_WHITESPACE" } },
-          { "id": "output", "type": "CustomBlockOutput", "position": { "x": 940, "y": 120 }, "settings": { "label": "Result", "locked": true, "customPortId": "result", "customPortLabel": "Result", "customPortDataType": "string" } }
+          { "id": "output", "type": "CustomBlockOutput", "position": { "x": 940, "y": 120 }, "settings": { "label": "Result", "locked": true, "customPortId": "result", "customPortLabel": "Result", "customPortDataType": "string", "customPortTooltip": "Normalized text." } }
         ],
         "connections": [
           { "from": "input.value", "to": "trim.input" },
@@ -529,7 +529,7 @@
           "blockId": "normalize-text",
           "label": "Normalize Text",
           "version": 1,
-          "category": "custom",
+          "category": "convert",
           "visibleWorkspaceTypes": ["data-modifier", "content-blocker"],
           "description": "Trims outer whitespace and collapses repeated internal whitespace.",
           "tips": ["Compile this source workspace to install the Custom Block in the picker."],

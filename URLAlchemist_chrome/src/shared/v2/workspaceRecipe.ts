@@ -20,7 +20,7 @@ import type {
   WorkspaceType,
   WorkspaceViewport,
 } from './types';
-import { BLOCK_TYPE_IDS, MIN_INTERVAL_TRIGGER_MS, WORKSPACE_SCHEMA_VERSION } from './types';
+import { BLOCK_TYPE_IDS, CUSTOM_BLOCK_CATEGORY_VALUES, MIN_INTERVAL_TRIGGER_MS, WORKSPACE_SCHEMA_VERSION, isCustomBlockCategory } from './types';
 import { migrateWorkspaceFile, validateWorkspaceFile } from './workspace';
 
 export const WORKSPACE_RECIPE_KIND = 'workspace-recipe.v1' as const;
@@ -50,7 +50,6 @@ const WORKSPACE_INPUT_SOURCES = [
   'pageText', 'rawHtml', 'mediaData', 'pageLinks', 'jsMetadata', 'consoleOutput',
 ] as const;
 const GRAPH_DATA_TYPES = ['bool', 'number', 'floatingPoint', 'string', 'URL', 'JSON', 'data', 'list', 'dict', 'asset', 'Any'] as const;
-const BLOCK_CATEGORIES = ['flow', 'logic', 'regex', 'math', 'storage', 'convert', 'data', 'interaction', 'media', 'debug', 'content-blocker', 'custom'] as const;
 const RECIPE_TRIGGER_KEYS = new Set([
   'type',
   'hotkey',
@@ -153,6 +152,7 @@ const RECIPE_SETTING_KEYS = new Set<keyof WorkspaceBlockSettings>([
   'customPortId',
   'customPortLabel',
   'customPortDataType',
+  'customPortTooltip',
   'customFieldValues',
 ]);
 const RECIPE_FORBIDDEN_SETTING_KEYS = new Set<keyof WorkspaceBlockSettings>([
@@ -194,7 +194,7 @@ const STRING_SETTING_KEYS = new Set<keyof WorkspaceBlockSettings>([
   'compareValue', 'variableName', 'literalValue', 'dictKey', 'listVariableName', 'outputDestination',
   'overlayBackground', 'overlayText', 'abortMessage', 'substitutionTemplate', 'selectTrueValue',
   'selectFalseValue', 'splitJoinSeparator', 'urlQueryKey', 'urlQueryValue', 'urlQueryParams',
-  'challengeText', 'customBlockId', 'customBlockName', 'customPortId', 'customPortLabel',
+  'challengeText', 'customBlockId', 'customBlockName', 'customPortId', 'customPortLabel', 'customPortTooltip',
 ]);
 
 const BOOLEAN_SETTING_KEYS = new Set<keyof WorkspaceBlockSettings>([
@@ -788,7 +788,7 @@ function parseCustomBlock(value: unknown): WorkspaceCustomBlockDefinition | unde
   if (!Number.isInteger(value.version) || Number(value.version) < 1) {
     throw new Error('Recipe customBlock.version must be a positive integer.');
   }
-  if (typeof value.category !== 'string' || !(BLOCK_CATEGORIES as readonly string[]).includes(value.category)) {
+  if (!isCustomBlockCategory(value.category)) {
     throw new Error('Recipe customBlock.category is unsupported.');
   }
   if (!Array.isArray(value.visibleWorkspaceTypes) || value.visibleWorkspaceTypes.length === 0) {
@@ -867,8 +867,11 @@ function validateCustomBlockBoundary(
       if (settings.customPortDataType !== port.dataType) {
         throw new Error(`Custom-block recipe ${label} port "${id}" has mismatched metadata and node data types.`);
       }
-      if ((settings.customPortLabel ?? '').trim() !== port.label.trim()) {
+      if ((settings.customPortLabel ?? '') !== port.label) {
         throw new Error(`Custom-block recipe ${label} port "${id}" has mismatched metadata and node labels.`);
+      }
+      if ((settings.customPortTooltip ?? '') !== (port.tooltip ?? '')) {
+        throw new Error(`Custom-block recipe ${label} port "${id}" has mismatched metadata and node tooltips.`);
       }
     });
   };
@@ -1004,6 +1007,9 @@ export function parseWorkspaceRecipe(value: unknown): WorkspaceRecipeV1 {
   }
   if (value.workspaceType !== 'custom-block' && customBlock) {
     throw new Error('Only custom-block recipes may include customBlock metadata.');
+  }
+  if (customBlock && customBlock.label !== value.name.trim()) {
+    throw new Error('Custom-block recipe name and customBlock.label must match.');
   }
   validateRecipeBlockAvailability(nodes, value.workspaceType as WorkspaceRecipeV1['workspaceType']);
   if (customBlock) {
@@ -1153,7 +1159,9 @@ export function materializeWorkspaceRecipe(
     metadata: {
       id: options.id ?? crypto.randomUUID(),
       name: recipe.name,
-      version: options.version ?? 1,
+      version: recipe.workspaceType === 'custom-block' && recipe.customBlock
+        ? recipe.customBlock.version
+        : options.version ?? 1,
       author: options.author ?? '',
       description: recipe.description,
       compatibility: options.compatibility,
@@ -1362,6 +1370,7 @@ export function buildWorkspaceRecipeContext(): WorkspaceRecipeContext {
       'URL Alchemist derives schema versions, permissions, risk metadata, compiled instructions, and artifact bytes.',
       'Recipes cannot embed files, binary asset bytes, local resource IDs, JavaScript, HTML, or executable code.',
       'The proposed workspace must pass port, workspace, compiler, and risk validation before it can be applied.',
+      'For custom-block recipes, customBlock.label must equal name, category must use a listed specific category, and every input/output ID, label, type, and tooltip must match its boundary node.',
     ],
     recipeShape: {
       required: ['kind', 'workspaceType', 'name', 'description', 'trigger', 'nodes', 'connections'],
@@ -1400,6 +1409,7 @@ export function buildWorkspaceRecipeContext(): WorkspaceRecipeContext {
       customBlock: {
         required: ['blockId', 'label', 'version', 'category', 'visibleWorkspaceTypes', 'inputs', 'outputs', 'fields'],
         optional: ['description', 'tips'],
+        categories: CUSTOM_BLOCK_CATEGORY_VALUES,
         port: { required: ['id', 'label', 'dataType'], optional: ['tooltip'], dataTypes: GRAPH_DATA_TYPES },
         field: { required: ['id', 'label', 'dataType'], optional: ['defaultValue', 'tooltip', 'visibility'], visibility: ['visible', 'advanced', 'hidden'] },
       },

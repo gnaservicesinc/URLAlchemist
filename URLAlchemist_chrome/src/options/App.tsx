@@ -37,8 +37,9 @@ import { inferAssetKind, listResources, putResourceBytes, resourceToAssetRef } f
 import { executeCompiledActionPackV2, type GraphRuntime } from '../shared/v2/vm';
 import { createSandboxGraphRuntime } from '../shared/v2/sandboxRuntime';
 import type { ActionPackLockLevel, ActionPackLockState, AssetRef, CompiledActionPackV2, CompiledCustomBlockV2, WorkspaceEmbeddedCustomBlock, WorkspaceFileV2, WorkspaceMetadata, WorkspaceType } from '../shared/v2/types';
+import { isCustomBlockCategory } from '../shared/v2/types';
 import { normalizeAiWorkspaceInstructions } from '../shared/v2/aiInstructions';
-import { createDefaultContentBlockerWorkspace, createDefaultCustomBlockWorkspace, createDefaultWorkspace, workspaceFromLegacyPack } from '../shared/v2/workspace';
+import { createDefaultContentBlockerWorkspace, createDefaultCustomBlockWorkspace, createDefaultWorkspace, updateWorkspaceMetadataFields, workspaceFromLegacyPack } from '../shared/v2/workspace';
 import { URL_ALCHEMIST_VERSION } from '../shared/v2/buildInfo';
 import {
   importCompiledActionPackV2Binary,
@@ -467,7 +468,7 @@ function App() {
       const result = compileWorkspace(entry.workspace, {
         builderUuid: state.settings.builderUuid,
         conditionWorkspaces: [entry.workspace],
-        customBlocks: state.customBlocksV2,
+        customBlocks: state.customBlocksV2.filter((block) => isCustomBlockCategory(block.category)),
       });
       if (result.ok && result.customBlock) {
         await applyState(upsertWorkspaceV2(result.workspace));
@@ -489,7 +490,9 @@ function App() {
   }
 
   const customBlocksForWorkspace = useCallback((targetWorkspace: WorkspaceFileV2): { customBlocks: CompiledCustomBlockV2[]; errors: string[] } => {
-    const byId = new Map(state.customBlocksV2.map((block) => [block.blockId, block]));
+    const byId = new Map(state.customBlocksV2
+      .filter((block) => isCustomBlockCategory(block.category))
+      .map((block) => [block.blockId, block]));
     const pending = [...(targetWorkspace.embeddedCustomBlocks ?? []).filter((entry) => entry.useEmbedded)];
     const errors = new Map<string, string>();
 
@@ -801,7 +804,7 @@ function App() {
   }
 
   async function saveWorkspace(): Promise<void> {
-    const savedWorkspace = { ...workspace, validationState: compiledWorkspace.validation };
+    const savedWorkspace = compiledWorkspace.workspace;
     await applyState(upsertWorkspaceV2(savedWorkspace));
     setWorkspace(savedWorkspace);
     setWorkspaceDirty(false);
@@ -1040,8 +1043,8 @@ function App() {
     const exportWorkspace = workspaceWithEmbeddedCustomBlocks(targetWorkspace);
     const result = compileWithConditions(exportWorkspace);
     await downloadBytes(
-      await exportWorkspaceBinary({ ...exportWorkspace, validationState: result.validation }),
-      `workspaces/${slugify(exportWorkspace.metadata.name) || 'workspace'}.workspace`,
+      await exportWorkspaceBinary(result.workspace),
+      `workspaces/${slugify(result.workspace.metadata.name) || 'workspace'}.workspace`,
     );
   }
 
@@ -1350,20 +1353,10 @@ function App() {
       return;
     }
 
-    const nextWorkspace: WorkspaceFileV2 = {
-      ...savedWorkspace,
-      metadata: {
-        ...savedWorkspace.metadata,
-        ...metadata,
-        updated_at: Date.now(),
-      },
-    };
+    const nextWorkspace = updateWorkspaceMetadataFields(savedWorkspace, metadata);
     await applyState(upsertWorkspaceV2(nextWorkspace));
     if (workspace.metadata.id === workspaceId) {
-      setWorkspace((current) => ({
-        ...current,
-        metadata: nextWorkspace.metadata,
-      }));
+      setWorkspace((current) => updateWorkspaceMetadataFields(current, metadata, nextWorkspace.metadata.updated_at));
     }
   }
 

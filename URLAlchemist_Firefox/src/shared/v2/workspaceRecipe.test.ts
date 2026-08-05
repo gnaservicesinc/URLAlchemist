@@ -68,6 +68,58 @@ function validRecipe(): WorkspaceRecipeV1 {
   };
 }
 
+function validCustomBlockRecipe(): WorkspaceRecipeV1 {
+  return {
+    kind: 'workspace-recipe.v1',
+    workspaceType: 'custom-block',
+    name: 'Format Text',
+    description: 'Formats text through a reusable typed interface.',
+    trigger: {
+      type: 'NEVER',
+      hotkey: 'Ctrl+Shift+F',
+      inputSources: ['url'],
+      sourceFilters: [],
+    },
+    nodes: [
+      {
+        id: 'input',
+        type: 'CustomBlockInput',
+        settings: {
+          label: 'Source text',
+          customPortId: 'source',
+          customPortLabel: 'Source text',
+          customPortDataType: 'string',
+          customPortTooltip: 'Text to format.',
+        },
+      },
+      {
+        id: 'output',
+        type: 'CustomBlockOutput',
+        settings: {
+          label: 'Formatted text',
+          customPortId: 'formatted',
+          customPortLabel: 'Formatted text',
+          customPortDataType: 'string',
+          customPortTooltip: 'The formatted result.',
+        },
+      },
+    ],
+    connections: [{ from: 'input.value', to: 'output.value' }],
+    customBlock: {
+      blockId: 'format-text',
+      label: 'Format Text',
+      version: 4,
+      category: 'convert',
+      visibleWorkspaceTypes: ['data-modifier', 'content-blocker'],
+      description: 'Formats text.',
+      tips: ['Connect a string input.'],
+      inputs: [{ id: 'source', label: 'Source text', dataType: 'string', tooltip: 'Text to format.' }],
+      outputs: [{ id: 'formatted', label: 'Formatted text', dataType: 'string', tooltip: 'The formatted result.' }],
+      fields: [],
+    },
+  };
+}
+
 function ollamaSettings(aiWorkspaceInstructions = 'Prefer small graphs with descriptive labels.') {
   return {
     ollamaEndpoint: DEFAULT_SETTINGS.ollamaEndpoint,
@@ -153,11 +205,12 @@ describe('workspace recipe authoring boundary', () => {
     expect(() => parseWorkspaceRecipe({
       ...validRecipe(),
       workspaceType: 'custom-block',
+      name: 'Strict Block',
       customBlock: {
         blockId: 'strict-block',
         label: 'Strict Block',
         version: 1,
-        category: 'custom',
+        category: 'data',
         visibleWorkspaceTypes: ['data-modifier'],
         inputs: [{ id: 'input', label: 'Input', dataType: 'string' }],
         outputs: [{ id: 'output', label: 'Output', dataType: 'string' }],
@@ -168,6 +221,7 @@ describe('workspace recipe authoring boundary', () => {
     expect(() => parseWorkspaceRecipe({
       ...validRecipe(),
       workspaceType: 'custom-block',
+      name: 'Strict Block',
       trigger: { type: 'NEVER' },
       nodes: [
         { id: 'input', type: 'CustomBlockInput', settings: { customPortId: 'different', customPortLabel: 'Input', customPortDataType: 'string' } },
@@ -178,7 +232,7 @@ describe('workspace recipe authoring boundary', () => {
         blockId: 'strict-block',
         label: 'Strict Block',
         version: 1,
-        category: 'custom',
+        category: 'data',
         visibleWorkspaceTypes: ['data-modifier'],
         inputs: [{ id: 'input', label: 'Input', dataType: 'string' }],
         outputs: [{ id: 'result', label: 'Result', dataType: 'string' }],
@@ -198,6 +252,49 @@ describe('workspace recipe authoring boundary', () => {
         { id: 'second', conditionNode: 'condition', controlNode: 'branch' },
       ],
     })).toThrow('reuses a condition or control node');
+  });
+
+  it('rejects catch-all Custom Block categories and round-trips matching boundary tooltips', () => {
+    const recipe = validCustomBlockRecipe();
+    const parsed = parseWorkspaceRecipe(recipe);
+    expect(parsed.customBlock?.category).toBe('convert');
+    expect(parsed.customBlock?.inputs[0]?.tooltip).toBe('Text to format.');
+    expect(parsed.customBlock?.outputs[0]?.tooltip).toBe('The formatted result.');
+
+    const workspace = materializeWorkspaceRecipe(parsed, {
+      id: 'format-text-workspace',
+      version: 99,
+      createdAt: 10,
+      updatedAt: 20,
+      nodeIdPrefix: 'format-text',
+    });
+    expect(workspace.metadata.name).toBe('Format Text');
+    expect(workspace.metadata.version).toBe(4);
+    expect(workspace.customBlock?.label).toBe(workspace.metadata.name);
+    expect(workspace.customBlock?.version).toBe(workspace.metadata.version);
+
+    const roundTrip = workspaceToRecipe(workspace);
+    expect(roundTrip.customBlock?.inputs[0]?.tooltip).toBe('Text to format.');
+    expect(roundTrip.customBlock?.outputs[0]?.tooltip).toBe('The formatted result.');
+    expect(roundTrip.nodes.find((node) => node.type === 'CustomBlockInput')?.settings?.customPortTooltip).toBe('Text to format.');
+    expect(roundTrip.nodes.find((node) => node.type === 'CustomBlockOutput')?.settings?.customPortTooltip).toBe('The formatted result.');
+
+    expect(() => parseWorkspaceRecipe({
+      ...recipe,
+      customBlock: { ...recipe.customBlock!, category: 'custom' },
+    })).toThrow('customBlock.category is unsupported');
+
+    expect(() => parseWorkspaceRecipe({
+      ...recipe,
+      name: 'Different workspace name',
+    })).toThrow('name and customBlock.label must match');
+
+    expect(() => parseWorkspaceRecipe({
+      ...recipe,
+      nodes: recipe.nodes.map((node) => node.type === 'CustomBlockInput'
+        ? { ...node, settings: { ...node.settings, customPortTooltip: 'Different tooltip.' } }
+        : node),
+    })).toThrow('mismatched metadata and node tooltips');
   });
 
   it('materializes, validates, and round-trips a portable recipe without exposing internals', () => {

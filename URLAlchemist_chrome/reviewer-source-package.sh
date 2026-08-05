@@ -28,6 +28,7 @@ mkdir -p "$SOURCE_DIR" "$ARTIFACT_DIR"
 rsync -a \
   --exclude 'node_modules' \
   --exclude 'dist' \
+  --exclude 'dist.zip' \
   --exclude '.tmp' \
   --exclude '.vite' \
   --exclude '.DS_Store' \

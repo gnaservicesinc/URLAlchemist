@@ -45,7 +45,15 @@ import { compileWorkspace, getConnectionValidationError } from '../../shared/v2/
 import { formatEventHandler, formatRunType } from '../../shared/v2/labels';
 import { createSandboxGraphRuntime } from '../../shared/v2/sandboxRuntime';
 import { createWorkspaceBlockClipboard, pasteWorkspaceBlockClipboard, type WorkspaceBlockClipboard } from '../../shared/v2/workspaceClipboard';
-import { createDefaultContentBlockerWorkspace, createEdge, createWorkspaceNode } from '../../shared/v2/workspace';
+import {
+  createDefaultContentBlockerWorkspace,
+  createEdge,
+  createWorkspaceNode,
+  synchronizeCustomBlockIdentity,
+  synchronizeCustomBlockInvocationMetadata,
+  updateCustomBlockPortMetadata,
+  updateWorkspaceNodeSettings,
+} from '../../shared/v2/workspace';
 import type {
   AssetRef,
   BlockDefinition,
@@ -66,6 +74,7 @@ import type {
   WorkspaceNodeV2,
   WorkspaceType,
 } from '../../shared/v2/types';
+import { CUSTOM_BLOCK_CATEGORY_VALUES, isCustomBlockCategory } from '../../shared/v2/types';
 import { extractVariableReferences, normalizeVariableName, validateVariableName, variableDrivenInputHandles } from '../../shared/v2/variables';
 import { executeCompiledActionPackV2 } from '../../shared/v2/vm';
 import { toActivityDraft, updateActivityDraft, type ActivityDraft } from '../drafts';
@@ -111,6 +120,7 @@ interface WorkspaceEditorProps {
 
 interface WorkspaceBlockData {
   [key: string]: unknown;
+  advancedModeEnabled: boolean;
   blockedInputs: string[];
   definition: BlockDefinition;
   connectedInputs: string[];
@@ -206,6 +216,15 @@ function blockTitle(node: WorkspaceNodeV2, definition = getBlockDefinition(node.
   return node.settings.label || definition.label;
 }
 
+function definitionForWorkspaceNode(node: WorkspaceNodeV2, availableBlocks: BlockDefinition[]): BlockDefinition {
+  if (node.type === 'CustomBlock' && node.settings.customBlockId) {
+    return availableBlocks.find((definition) =>
+      definition.kind === 'CustomBlock' && definition.custom?.blockId === node.settings.customBlockId,
+    ) ?? getBlockDefinition(node.type);
+  }
+  return getBlockDefinition(node.type);
+}
+
 function shortDataType(type: string): string {
   switch (type) {
     case 'floatingPoint':
@@ -230,13 +249,13 @@ function graphPortFromCustomPort(portDefinition: CustomBlockPortDefinition): Gra
   };
 }
 
-function customBlockDefinition(block: CompiledCustomBlockV2): BlockDefinition {
+export function customBlockDefinition(block: CompiledCustomBlockV2): BlockDefinition {
   const base = getBlockDefinition('CustomBlock');
   return {
     ...base,
     label: block.label,
-    category: 'custom',
-    description: block.description ?? 'Runs a locally installed custom block.',
+    category: block.category,
+    description: block.description,
     tips: block.tips,
     custom: {
       blockId: block.blockId,
@@ -260,12 +279,12 @@ function customBlockDefinition(block: CompiledCustomBlockV2): BlockDefinition {
   };
 }
 
-function availableBlockDefinitions(workspaceType: WorkspaceType, customBlocks: CompiledCustomBlockV2[], baseDefinitions: BlockDefinition[] = BLOCK_DEFINITIONS): BlockDefinition[] {
+export function availableBlockDefinitions(workspaceType: WorkspaceType, customBlocks: CompiledCustomBlockV2[], baseDefinitions: BlockDefinition[] = BLOCK_DEFINITIONS): BlockDefinition[] {
   const staticDefinitions = baseDefinitions.filter((definition) => {
     if (definition.kind === 'CustomBlock') {
       return false;
     }
-    if (workspaceType !== 'custom-block' && (definition.kind === 'CustomBlockInput' || definition.kind === 'CustomBlockOutput')) {
+    if (definition.kind === 'CustomBlockInput' || definition.kind === 'CustomBlockOutput') {
       return false;
     }
     if (definition.visibleWorkspaceTypes && !definition.visibleWorkspaceTypes.includes(workspaceType)) {
@@ -274,7 +293,7 @@ function availableBlockDefinitions(workspaceType: WorkspaceType, customBlocks: C
     return true;
   });
   const generatedDefinitions = customBlocks
-    .filter((block) => block.visibleWorkspaceTypes.includes(workspaceType))
+    .filter((block) => isCustomBlockCategory(block.category) && block.visibleWorkspaceTypes.includes(workspaceType))
     .map(customBlockDefinition);
   return [...staticDefinitions, ...generatedDefinitions];
 }
@@ -283,7 +302,7 @@ function blockPickerKey(definition: BlockDefinition): string {
   return definition.custom?.blockId ? `${definition.kind}:${definition.custom.blockId}` : definition.kind;
 }
 
-function settingsForDefinition(definition: BlockDefinition): Partial<WorkspaceBlockSettings> {
+export function settingsForDefinition(definition: BlockDefinition): Partial<WorkspaceBlockSettings> {
   if (definition.kind !== 'CustomBlock' || !definition.custom) {
     return definition.defaultSettings;
   }
@@ -306,6 +325,15 @@ function settingsForDefinition(definition: BlockDefinition): Partial<WorkspaceBl
       tooltip: portDefinition.description,
     })),
   };
+}
+
+export function visibleCustomBlockFields(
+  fields: CustomBlockFieldDefinition[],
+  advancedModeEnabled: boolean,
+): CustomBlockFieldDefinition[] {
+  return fields.filter((field) =>
+    field.visibility !== 'hidden' && (field.visibility !== 'advanced' || advancedModeEnabled),
+  );
 }
 
 const BLOCK_SEARCH_TERMS: Partial<Record<BlockKind, string>> = {
@@ -504,27 +532,6 @@ function PortRiskBadge({ risk }: { risk?: RiskLevel }) {
   );
 }
 
-function updateNodeSettings(workspace: WorkspaceFileV2, nodeId: string, settings: Partial<WorkspaceBlockSettings>): WorkspaceFileV2 {
-  return {
-    ...workspace,
-    metadata: {
-      ...workspace.metadata,
-      updated_at: Date.now(),
-    },
-    nodes: workspace.nodes.map((node) =>
-      node.id === nodeId
-        ? {
-            ...node,
-            settings: {
-              ...node.settings,
-              ...settings,
-            },
-          }
-        : node,
-    ),
-  };
-}
-
 function mediaBlockAssetKind(nodeType: WorkspaceNodeV2['type'], asset?: AssetRef): WorkspaceBlockSettings['assetKind'] {
   if (asset?.kind === 'image' || asset?.kind === 'video' || asset?.kind === 'audio') {
     return asset.kind;
@@ -540,6 +547,7 @@ function mediaBlockAssetKind(nodeType: WorkspaceNodeV2['type'], asset?: AssetRef
 
 function renderBlockSettings(
   node: WorkspaceNodeV2,
+  advancedModeEnabled: boolean,
   connectedInputs: Set<string>,
   blockedInputs: Set<string>,
   variables: DeclaredVariable[],
@@ -1334,7 +1342,7 @@ function renderBlockSettings(
             {node.settings.customBlockName ? ` · ${node.settings.customBlockName}` : ''}
             {node.settings.customBlockVersion ? ` v${node.settings.customBlockVersion}` : ''}
           </div>
-          {(node.settings.customBlockFields ?? []).filter((field) => field.visibility !== 'hidden').map((field) => (
+          {visibleCustomBlockFields(node.settings.customBlockFields ?? [], advancedModeEnabled).map((field) => (
             <SettingField key={field.id} help={field.tooltip} label={field.label}>
               <input
                 className={inputClass}
@@ -1366,6 +1374,9 @@ function renderBlockSettings(
                 <option key={type} value={type}>{type}</option>
               ))}
             </select>
+          </SettingField>
+          <SettingField help="Help text shown for this port wherever the Custom Block is used." label="Tooltip">
+            <input className={inputClass} value={settingText(node.settings.customPortTooltip)} onChange={(event) => onSettingsChange({ customPortTooltip: event.target.value })} />
           </SettingField>
         </div>
       );
@@ -1527,7 +1538,7 @@ function renderBlockSettings(
 }
 
 const WorkspaceBlockNode = memo(function WorkspaceBlockNode({ data, selected }: NodeProps<WorkspaceFlowNode>) {
-  const { blockedInputs, connectedInputs, definition, inputs, invalidInputs, node, outputs, resourceAssets, variables, onCollapseToggle, onDeleteNode, onLockToggle, onOpenRegexBuilder, onSettingsChange, onUploadResource } = data;
+  const { advancedModeEnabled, blockedInputs, connectedInputs, definition, inputs, invalidInputs, node, outputs, resourceAssets, variables, onCollapseToggle, onDeleteNode, onLockToggle, onOpenRegexBuilder, onSettingsChange, onUploadResource } = data;
   const locked = Boolean(node.settings.locked);
   const collapsed = Boolean(node.settings.collapsed);
   const title = blockTitle(node, definition);
@@ -1586,7 +1597,7 @@ const WorkspaceBlockNode = memo(function WorkspaceBlockNode({ data, selected }: 
           />
           {collapsed ? (
             <div className="mt-0.5 flex flex-wrap gap-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
-              <span>{categoryLabel(definition.category)}</span>
+              {definition.category !== 'custom' ? <span>{categoryLabel(definition.category)}</span> : null}
               <span>{inputs.length} in</span>
               <span>{outputs.length} out</span>
             </div>
@@ -1650,6 +1661,7 @@ const WorkspaceBlockNode = memo(function WorkspaceBlockNode({ data, selected }: 
       <div className="workspace-block-body px-3 py-2">
         {renderBlockSettings(
           node,
+          advancedModeEnabled,
           new Set(connectedInputs),
           new Set(blockedInputs),
           data.variables,
@@ -2161,7 +2173,7 @@ function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITION
 
   const handleSettingsChange = useCallback(
     (nodeId: string, settings: Partial<WorkspaceBlockSettings>): void => {
-      onWorkspaceChange(updateNodeSettings(workspace, nodeId, settings));
+      onWorkspaceChange(updateWorkspaceNodeSettings(workspace, nodeId, settings));
     },
     [onWorkspaceChange, workspace],
   );
@@ -2192,7 +2204,7 @@ function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITION
         return;
       }
 
-      onWorkspaceChange(updateNodeSettings(workspace, nodeId, { locked: !node.settings.locked }));
+      onWorkspaceChange(updateWorkspaceNodeSettings(workspace, nodeId, { locked: !node.settings.locked }));
     },
     [onWorkspaceChange, workspace],
   );
@@ -2204,7 +2216,7 @@ function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITION
         return;
       }
 
-      onWorkspaceChange(updateNodeSettings(workspace, nodeId, { collapsed: !node.settings.collapsed }));
+      onWorkspaceChange(updateWorkspaceNodeSettings(workspace, nodeId, { collapsed: !node.settings.collapsed }));
     },
     [onWorkspaceChange, workspace],
   );
@@ -2243,7 +2255,7 @@ function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITION
       [
       ...createLogicalFlowContainerNodes(workspace, nodeMeasurements),
       ...workspace.nodes.map((node) => {
-        const definition = getBlockDefinition(node.type);
+        const definition = definitionForWorkspaceNode(node, availableBlocks);
         const inputs = getEffectivePortDefinitions(node, 'input');
         const outputs = getEffectivePortDefinitions(node, 'output');
         const invalidInputs = workspace.edges
@@ -2266,6 +2278,7 @@ function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITION
             : LOGICAL_FLOW_LAYOUT.expandedNodeWidth),
           ariaLabel: `${blockTitle(node, definition)} block${node.settings.locked ? ', locked' : ''}`,
           data: {
+            advancedModeEnabled,
             blockedInputs,
             connectedInputs,
             definition,
@@ -2288,7 +2301,7 @@ function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITION
         } satisfies WorkspaceFlowNode;
       }),
       ],
-    [workspace, invalidEdgeIds, resourceAssets, declaredVariables, handleCollapseToggle, handleDeleteNode, handleLockToggle, handleSettingsChange, nodeMeasurements, onUploadResource],
+    [workspace, availableBlocks, advancedModeEnabled, invalidEdgeIds, resourceAssets, declaredVariables, handleCollapseToggle, handleDeleteNode, handleLockToggle, handleSettingsChange, nodeMeasurements, onUploadResource],
   );
 
   const workspaceEdges = useMemo<WorkspaceCanvasEdge[]>(
@@ -3157,7 +3170,9 @@ function BlockPicker({ definitions = BLOCK_DEFINITIONS, onAddBlock, quickBlockKi
                   </span>
                   <span className="mt-1 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{categoryLabel(definition.category)}</span>
                   {definition.description ? <span className="mt-2 block text-xs font-normal leading-5 text-slate-600">{definition.description}</span> : null}
-                  {definition.tips?.[0] ? <span className="mt-1 block text-[11px] font-normal leading-5 text-slate-500">{definition.tips[0]}</span> : null}
+                  {definition.tips?.map((tip, index) => (
+                    <span key={`${index}:${tip}`} className="mt-1 block text-[11px] font-normal leading-5 text-slate-500">{tip}</span>
+                  ))}
                 </button>
               ))}
               {matchingBlocks.length === 0 ? (
@@ -3257,7 +3272,7 @@ export function WorkspaceEditor({
   advancedModeEnabled,
   allWorkspaces,
   isDirty,
-  workspace,
+  workspace: sourceWorkspace,
   resourceAssets,
   canUndo,
   customBlocks,
@@ -3285,6 +3300,10 @@ export function WorkspaceEditor({
   const [debugError, setDebugError] = useState<string | null>(null);
   const [debugTrace, setDebugTrace] = useState<Array<{ nodeId: string; op: string; message: string; valueType?: string; preview?: string }>>([]);
   const [focusRequest, setFocusRequest] = useState<{ requestId: number; nodeIds: string[] } | null>(null);
+  const workspace = useMemo(
+    () => synchronizeCustomBlockInvocationMetadata(sourceWorkspace, customBlocks),
+    [customBlocks, sourceWorkspace],
+  );
   const conditionWorkspaces = useMemo(() => {
     const byId = new Map(allWorkspaces.map((candidate) => [candidate.metadata.id, candidate]));
     byId.set(workspace.metadata.id, workspace);
@@ -3318,7 +3337,7 @@ export function WorkspaceEditor({
   const activeContentDefinitions = useMemo(() => [
     ...contentBlockerDefinitions(selectedContentSurface),
     ...customBlocks
-      .filter((block) => block.visibleWorkspaceTypes.includes('content-blocker'))
+      .filter((block) => isCustomBlockCategory(block.category) && block.visibleWorkspaceTypes.includes('content-blocker'))
       .map(customBlockDefinition),
   ], [customBlocks, selectedContentSurface]);
   const activeContentQuickKinds = contentBlockerQuickKinds(selectedContentSurface);
@@ -3326,7 +3345,7 @@ export function WorkspaceEditor({
     blockId: `custom-${workspace.metadata.id}`,
     label: workspace.metadata.name,
     version: workspace.metadata.version,
-    category: 'custom' as const,
+    category: '' as const,
     visibleWorkspaceTypes: ['data-modifier'] as WorkspaceType[],
     description: workspace.metadata.description,
     tips: [] as string[],
@@ -3336,7 +3355,7 @@ export function WorkspaceEditor({
   };
 
   function updateWorkspace(updates: Partial<WorkspaceFileV2>): void {
-    onWorkspaceChange({
+    onWorkspaceChange(synchronizeCustomBlockIdentity({
       ...workspace,
       ...updates,
       metadata: {
@@ -3344,7 +3363,7 @@ export function WorkspaceEditor({
         ...(updates.metadata ?? {}),
         updated_at: Date.now(),
       },
-    });
+    }));
   }
 
   function addToolbarBlock(definition: BlockDefinition): void {
@@ -3402,36 +3421,7 @@ export function WorkspaceEditor({
   }
 
   function updateCustomBlockPort(direction: 'input' | 'output', index: number, updates: Partial<CustomBlockPortDefinition>): void {
-    const key = direction === 'input' ? 'inputs' : 'outputs';
-    const ports = customBlockConfig[key];
-    const previous = ports[index];
-    if (!previous) {
-      return;
-    }
-    const nextPort = {
-      ...previous,
-      ...updates,
-      id: (updates.id ?? previous.id).trim() || previous.id,
-      label: (updates.label ?? previous.label).trim() || previous.label,
-    };
-    const nextPorts = ports.map((port, portIndex) => portIndex === index ? nextPort : port);
-    const nodeType = direction === 'input' ? 'CustomBlockInput' : 'CustomBlockOutput';
-    updateWorkspace({
-      customBlock: {
-        ...customBlockConfig,
-        [key]: nextPorts,
-      },
-      nodes: workspace.nodes.map((node) => node.type === nodeType && node.settings.customPortId === previous.id ? {
-        ...node,
-        settings: {
-          ...node.settings,
-          customPortId: nextPort.id,
-          customPortLabel: nextPort.label,
-          customPortDataType: nextPort.dataType,
-          label: nextPort.label,
-        },
-      } : node),
-    });
+    onWorkspaceChange(updateCustomBlockPortMetadata(workspace, direction, index, updates));
   }
 
   function addCustomBlockPort(direction: 'input' | 'output'): void {
@@ -3440,7 +3430,7 @@ export function WorkspaceEditor({
     const ports = customBlockConfig[key];
     const id = `${direction}${ports.length + 1}`;
     const label = direction === 'input' ? `Input ${ports.length + 1}` : `Output ${ports.length + 1}`;
-    const port = { id, label, dataType: 'Any' as GraphDataType };
+    const port = { id, label, dataType: 'Any' as GraphDataType, tooltip: '' };
     updateWorkspace({
       customBlock: {
         ...customBlockConfig,
@@ -3452,6 +3442,7 @@ export function WorkspaceEditor({
           customPortId: id,
           customPortLabel: label,
           customPortDataType: 'Any',
+          customPortTooltip: '',
           label,
           locked: true,
         }),
@@ -3470,7 +3461,12 @@ export function WorkspaceEditor({
       return;
     }
     const nodeType = direction === 'input' ? 'CustomBlockInput' : 'CustomBlockOutput';
-    const removedNodeIds = new Set(workspace.nodes.filter((node) => node.type === nodeType && node.settings.customPortId === removed.id).map((node) => node.id));
+    const boundaryNodes = workspace.nodes.filter((node) => node.type === nodeType);
+    const matchingBoundaryNodes = boundaryNodes.filter((node) => node.settings.customPortId === removed.id);
+    const removedBoundaryNode = matchingBoundaryNodes.length === 1
+      ? matchingBoundaryNodes[0]
+      : boundaryNodes[index];
+    const removedNodeIds = new Set(removedBoundaryNode ? [removedBoundaryNode.id] : []);
     updateWorkspace({
       customBlock: {
         ...customBlockConfig,
@@ -3486,12 +3482,7 @@ export function WorkspaceEditor({
     if (!field) {
       return;
     }
-    const nextField = {
-      ...field,
-      ...updates,
-      id: (updates.id ?? field.id).trim() || field.id,
-      label: (updates.label ?? field.label).trim() || field.label,
-    };
+    const nextField = { ...field, ...updates };
     updateCustomBlockConfig({
       fields: customBlockConfig.fields.map((candidate, fieldIndex) => fieldIndex === index ? nextField : candidate),
     });
@@ -3670,32 +3661,25 @@ export function WorkspaceEditor({
 
     return (
       <div className="mt-5 grid gap-4">
-        <div className="grid gap-4 rounded-lg border border-slate-200 bg-white/75 px-5 py-4 lg:grid-cols-4">
+        <div className="grid gap-4 rounded-lg border border-slate-200 bg-white/75 px-5 py-4 lg:grid-cols-2">
           <label className="field-shell">
             <span className="field-label">Block ID</span>
             <input className="field-input" value={customBlockConfig.blockId} onChange={(event) => updateCustomBlockConfig({ blockId: event.target.value })} />
           </label>
           <label className="field-shell">
-            <span className="field-label">Display Name</span>
-            <input className="field-input" value={customBlockConfig.label} onChange={(event) => updateCustomBlockConfig({ label: event.target.value })} />
-          </label>
-          <label className="field-shell">
-            <span className="field-label">Custom Block Version</span>
-            <input className="field-input" min={1} type="number" value={customBlockConfig.version} onChange={(event) => updateCustomBlockConfig({ version: Math.max(1, Number.parseInt(event.target.value || '1', 10)) })} />
-          </label>
-          <label className="field-shell">
             <span className="field-label">Category</span>
-            <select className="field-select" value={customBlockConfig.category} onChange={(event) => updateCustomBlockConfig({ category: event.target.value as BlockDefinition['category'] })}>
-              {Object.keys(CATEGORY_LABELS).map((category) => (
+            <select className="field-select" value={isCustomBlockCategory(customBlockConfig.category) ? customBlockConfig.category : ''} onChange={(event) => updateCustomBlockConfig({ category: event.target.value as BlockDefinition['category'] })}>
+              <option disabled value="">Select a category</option>
+              {CUSTOM_BLOCK_CATEGORY_VALUES.map((category) => (
                 <option key={category} value={category}>{categoryLabel(category as BlockDefinition['category'])}</option>
               ))}
             </select>
           </label>
-          <label className="field-shell lg:col-span-2">
+          <label className="field-shell">
             <span className="field-label">Description</span>
             <input className="field-input" value={customBlockConfig.description ?? ''} onChange={(event) => updateCustomBlockConfig({ description: event.target.value })} />
           </label>
-          <label className="field-shell lg:col-span-2">
+          <label className="field-shell">
             <span className="field-label">Tips</span>
             <input className="field-input" placeholder="Separate tips with |" value={(customBlockConfig.tips ?? []).join(' | ')} onChange={(event) => updateCustomBlockConfig({ tips: event.target.value.split('|').map((tip) => tip.trim()).filter(Boolean) })} />
           </label>

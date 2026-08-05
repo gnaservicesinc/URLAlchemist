@@ -74,6 +74,8 @@ function WorkspaceCard({
 > & { conditionWorkspaces: WorkspaceFileV2[]; workspace: WorkspaceFileV2 }) {
   const compileResult = useMemo(() => compileWorkspace(workspace, { conditionWorkspaces }), [conditionWorkspaces, workspace]);
   const isContentBlocker = workspace.workspaceType === 'content-blocker';
+  const isCustomBlock = workspace.workspaceType === 'custom-block';
+  const workspaceTypeLabel = isContentBlocker ? 'Content Blocker' : isCustomBlock ? 'Custom Block' : 'Data Modifier';
 
   return (
     <article className="rounded-lg border border-slate-200 bg-white/85 p-5 shadow-[0_12px_28px_rgba(31,41,55,0.07)]">
@@ -82,7 +84,7 @@ function WorkspaceCard({
           <p className="eyebrow">Workspace</p>
           <h3 className="mt-1 text-lg font-semibold text-slate-900">{workspace.metadata.name}</h3>
           <p className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-500">
-            {isContentBlocker ? 'Content Blocker' : 'Data Modifier'} · {isContentBlocker ? workspace.surfaces?.reduce((count, surface) => count + surface.nodes.length, 0) ?? 0 : workspace.nodes.length} blocks · Updated {formatTimestamp(workspace.metadata.updated_at)}
+            {workspaceTypeLabel} · {isContentBlocker ? workspace.surfaces?.reduce((count, surface) => count + surface.nodes.length, 0) ?? 0 : workspace.nodes.length} blocks · Updated {formatTimestamp(workspace.metadata.updated_at)}
           </p>
         </div>
         <span className={`risk-badge ${compileResult.ok ? 'risk-badge-soft' : 'risk-badge-danger'}`}>
@@ -123,7 +125,7 @@ function WorkspaceCard({
         </label>
         <label className="field-shell">
           <span className="field-label">Type</span>
-          <input className="field-input" readOnly value={isContentBlocker ? 'Content Blocker' : 'Data Modifier'} />
+          <input className="field-input" readOnly value={workspaceTypeLabel} />
         </label>
         <label className="field-shell md:col-span-2">
           <span className="field-label">Description</span>
@@ -150,8 +152,8 @@ function WorkspaceCard({
         <button className="ghost-button" type="button" onClick={() => onExportWorkspace(workspace)}>
           Export .workspace
         </button>
-        <button className="secondary-button" disabled={!compileResult.ok} type="button" onClick={() => isContentBlocker ? onCompileInstallWorkspace(workspace) : onCompileExportWorkspace(workspace)}>
-          {isContentBlocker ? 'Compile & Install' : 'Compile & Export'}
+        <button className="secondary-button" disabled={!compileResult.ok} type="button" onClick={() => isContentBlocker || isCustomBlock ? onCompileInstallWorkspace(workspace) : onCompileExportWorkspace(workspace)}>
+          {isCustomBlock ? 'Install Custom Block' : isContentBlocker ? 'Compile & Install' : 'Compile & Export'}
         </button>
         <button className="ghost-button" type="button" onClick={() => onDeleteWorkspace(workspace.metadata.id)}>
           Delete

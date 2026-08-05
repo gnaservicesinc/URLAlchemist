@@ -154,6 +154,26 @@ export type BlockKind = keyof typeof BLOCK_TYPE_IDS;
 export type BlockTypeId = (typeof BLOCK_TYPE_IDS)[BlockKind];
 export type RiskLevel = 'safe' | 'extended' | 'high';
 
+export const CUSTOM_BLOCK_CATEGORY_VALUES = [
+  'flow',
+  'logic',
+  'regex',
+  'math',
+  'storage',
+  'convert',
+  'data',
+  'interaction',
+  'media',
+  'debug',
+  'content-blocker',
+] as const;
+
+export type CustomBlockCategory = (typeof CUSTOM_BLOCK_CATEGORY_VALUES)[number];
+
+export function isCustomBlockCategory(value: unknown): value is CustomBlockCategory {
+  return typeof value === 'string' && (CUSTOM_BLOCK_CATEGORY_VALUES as readonly string[]).includes(value);
+}
+
 export interface GraphPortDefinition {
   id: string;
   label: string;
@@ -448,6 +468,7 @@ export interface WorkspaceBlockSettings {
   customPortId?: string;
   customPortLabel?: string;
   customPortDataType?: GraphDataType;
+  customPortTooltip?: string;
   customFieldValues?: Record<string, string>;
 }
 
@@ -516,7 +537,7 @@ export interface WorkspaceCustomBlockDefinition {
   blockId: string;
   label: string;
   version: number;
-  category: BlockDefinition['category'];
+  category: BlockDefinition['category'] | '';
   visibleWorkspaceTypes: WorkspaceType[];
   description?: string;
   tips?: string[];

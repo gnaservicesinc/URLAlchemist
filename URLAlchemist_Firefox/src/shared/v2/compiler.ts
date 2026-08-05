@@ -20,6 +20,7 @@ import {
   isTypeCompatible,
 } from './blockRegistry';
 import { URL_ALCHEMIST_VERSION } from './buildInfo';
+import { synchronizeCustomBlockInvocationMetadata } from './workspace';
 import type {
   BlockKind,
   CompiledActionPackV2,
@@ -57,6 +58,7 @@ import {
   INPUT_TRIGGER_HISTORY_LIMIT,
   MAX_ASSET_MAX_BYTES,
   MIN_INTERVAL_TRIGGER_MS,
+  isCustomBlockCategory,
 } from './types';
 
 const VM_STEP_BUDGET = 300;
@@ -868,6 +870,59 @@ function validateContentBlockerWorkspace(workspace: WorkspaceFileV2): WorkspaceV
   };
 }
 
+function validateCustomBlockMetadata(workspace: WorkspaceFileV2, errors: string[]): void {
+  const metadata = workspace.customBlock;
+  if (!metadata) {
+    return;
+  }
+  if (!isCustomBlockCategory(metadata.category)) {
+    errors.push('Custom Block category must be a specific Block Library category; choose a category other than Custom.');
+  }
+  if (metadata.label !== workspace.metadata.name) {
+    errors.push('Custom Block name must match Workspace Name.');
+  }
+  if (metadata.version !== workspace.metadata.version) {
+    errors.push('Custom Block version must match Workspace Version.');
+  }
+
+  const validateDirection = (
+    nodeType: Extract<BlockKind, 'CustomBlockInput' | 'CustomBlockOutput'>,
+    ports: typeof metadata.inputs,
+    label: string,
+  ): void => {
+    const boundaryNodes = workspace.nodes.filter((node) => node.type === nodeType);
+    if (boundaryNodes.length !== ports.length) {
+      errors.push(`Custom Block ${label} metadata must have exactly one matching ${nodeType} block per port.`);
+    }
+    const seenPortIds = new Set<string>();
+    ports.forEach((port) => {
+      if (seenPortIds.has(port.id)) {
+        errors.push(`Custom Block ${label} metadata has duplicate port id "${port.id}".`);
+        return;
+      }
+      seenPortIds.add(port.id);
+      const matchingNodes = boundaryNodes.filter((node) => node.settings.customPortId === port.id);
+      if (matchingNodes.length !== 1) {
+        errors.push(`Custom Block ${label} port "${port.id}" must have exactly one matching ${nodeType} block.`);
+        return;
+      }
+      const node = matchingNodes[0];
+      if ((node.settings.customPortLabel ?? '') !== port.label) {
+        errors.push(`Custom Block ${label} port "${port.id}" label does not match its ${nodeType} block.`);
+      }
+      if ((node.settings.customPortDataType ?? 'Any') !== port.dataType) {
+        errors.push(`Custom Block ${label} port "${port.id}" type does not match its ${nodeType} block.`);
+      }
+      if ((node.settings.customPortTooltip ?? '') !== (port.tooltip ?? '')) {
+        errors.push(`Custom Block ${label} port "${port.id}" tooltip does not match its ${nodeType} block.`);
+      }
+    });
+  };
+
+  validateDirection('CustomBlockInput', metadata.inputs, 'input');
+  validateDirection('CustomBlockOutput', metadata.outputs, 'output');
+}
+
 function validateWorkspace(workspace: WorkspaceFileV2): WorkspaceValidationState {
   if (workspace.workspaceType === 'content-blocker') {
     return validateContentBlockerWorkspace(workspace);
@@ -897,6 +952,8 @@ function validateWorkspace(workspace: WorkspaceFileV2): WorkspaceValidationState
   if (workspace.workspaceType === 'custom-block') {
     if (!workspace.customBlock) {
       errors.push('Custom Block workspace metadata is required.');
+    } else {
+      validateCustomBlockMetadata(workspace, errors);
     }
     if (!workspace.nodes.some((node) => node.type === 'CustomBlockInput')) {
       errors.push('Custom Block workspaces require at least one Custom Input block.');
@@ -2218,6 +2275,12 @@ function compileDecisionSurfaceProgram(
     if (instruction.op === 'LOG') {
       addRisk(risk, 'extended', `${surface.label}: Action Pack logging stores local run data.`, 'output');
     }
+    if (instruction.op === 'CUSTOM_BLOCK') {
+      const block = options.customBlocks?.find((candidate) => candidate.blockId === instruction.blockId);
+      if (block) {
+        mergeRiskSummary(risk, block.risk);
+      }
+    }
   });
 
   return {
@@ -2423,17 +2486,24 @@ function compileContentBlockerWorkspace(
 }
 
 export function compileWorkspace(workspace: WorkspaceFileV2, options: CompileOptions = {}): GraphCompileResult {
+  const customBlocks = (options.customBlocks ?? []).filter((block) => isCustomBlockCategory(block.category));
+  options = { ...options, customBlocks };
+  workspace = synchronizeCustomBlockInvocationMetadata(workspace, customBlocks);
   const validation = validateWorkspace(workspace);
   const workspaceWithValidation: WorkspaceFileV2 = {
     ...workspace,
     validationState: validation,
   };
 
-  const availableCustomBlockIds = new Set((options.customBlocks ?? []).map((block) => block.blockId));
-  const missingCustomBlocks = workspace.nodes
+  const availableCustomBlockIds = new Set(customBlocks.map((block) => block.blockId));
+  const customBlockInvocationNodes = [
+    ...workspace.nodes,
+    ...(workspace.surfaces ?? []).flatMap((surface) => surface.nodes),
+  ];
+  const missingCustomBlocks = customBlockInvocationNodes
     .filter((node) => node.type === 'CustomBlock' && node.settings.customBlockId && !availableCustomBlockIds.has(node.settings.customBlockId))
     .map((node) => node.settings.customBlockName || node.settings.customBlockId || 'Custom Block');
-  const recursionErrors = customBlockRecursionErrors(workspace, options.customBlocks ?? []);
+  const recursionErrors = customBlockRecursionErrors(workspace, customBlocks);
   if (missingCustomBlocks.length > 0) {
     const customValidation: WorkspaceValidationState = {
       ...validation,
@@ -2668,9 +2738,9 @@ export function compileWorkspace(workspace: WorkspaceFileV2, options: CompileOpt
         kind: 'custom-block.v2',
         schemaVersion: ACTION_PACK_SCHEMA_VERSION,
         blockId: workspace.customBlock.blockId,
-        label: workspace.customBlock.label || workspace.metadata.name,
-        version: workspace.customBlock.version,
-        category: workspace.customBlock.category,
+        label: workspace.metadata.name,
+        version: workspace.metadata.version,
+        category: workspace.customBlock.category as CompiledCustomBlockV2['category'],
         description: workspace.customBlock.description,
         tips: workspace.customBlock.tips,
         visibleWorkspaceTypes: workspace.customBlock.visibleWorkspaceTypes,

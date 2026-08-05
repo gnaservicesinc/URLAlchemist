@@ -926,6 +926,7 @@ export const BLOCK_REGISTRY: Record<BlockKind, BlockDefinition> = {
       customPortId: 'input',
       customPortLabel: 'Input',
       customPortDataType: 'Any',
+      customPortTooltip: '',
     },
     risk: 'safe',
   },
@@ -942,6 +943,7 @@ export const BLOCK_REGISTRY: Record<BlockKind, BlockDefinition> = {
       customPortId: 'result',
       customPortLabel: 'Result',
       customPortDataType: 'Any',
+      customPortTooltip: '',
     },
     risk: 'safe',
   },
@@ -1113,11 +1115,15 @@ export function getEffectivePortDefinitions(
   }
 
   if (node.type === 'CustomBlockInput' && direction === 'output') {
-    return [port('value', node.settings.customPortLabel ?? 'Value', node.settings.customPortDataType ?? 'Any')];
+    return [port('value', node.settings.customPortLabel ?? 'Value', node.settings.customPortDataType ?? 'Any', {
+      description: node.settings.customPortTooltip,
+    })];
   }
 
   if (node.type === 'CustomBlockOutput' && direction === 'input') {
-    return [port('value', node.settings.customPortLabel ?? 'Value', node.settings.customPortDataType ?? 'Any')];
+    return [port('value', node.settings.customPortLabel ?? 'Value', node.settings.customPortDataType ?? 'Any', {
+      description: node.settings.customPortTooltip,
+    })];
   }
 
   const definition = getBlockDefinition(node.type);
