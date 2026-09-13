@@ -1832,6 +1832,26 @@ describe('v2 workspace compiler and VM', () => {
     expect(result.finalUrl).toBe('https://example.com/from-payload');
   });
 
+  it('keeps clipboard replacement tokens literal in the compiled regex VM', async () => {
+    const workspace = createDefaultWorkspace();
+    const dataIn = workspace.nodes.find((node) => node.type === 'DataFlowIn')!;
+    const dataOut = workspace.nodes.find((node) => node.type === 'DataFlowOut')!;
+    const regex = createWorkspaceNode('RegExpression', { x: 260, y: 120 }, {
+      pattern: '(path)', action: 'SUBSTITUTE', matchMode: 'STANDARD',
+      payload: '$1-{clipboard}-{clipboard}', payloadVars: true,
+    });
+    const compiled = compileWorkspace({ ...workspace, nodes: [...workspace.nodes, regex], edges: [
+      createEdge(dataIn.id, 'url', regex.id, 'input'),
+      createEdge(regex.id, 'result', dataOut.id, 'url'),
+    ] });
+    expect(compiled.ok).toBe(true);
+    const clipboard = "$1-$&-$$-$`-$'-{date}";
+    const result = await executeCompiledActionPackV2('https://example.com/path', compiled.pack!,
+      { ...runtime, readClipboard: async () => clipboard }, DEFAULT_SETTINGS);
+    expect(result.issues).toEqual([]);
+    expect(result.finalUrl).toBe(`https://example.com/path-${clipboard}-${clipboard}`);
+  });
+
   it('executes remote GET through the transparent runtime hook', async () => {
     const workspace = createDefaultWorkspace();
     const dataIn = workspace.nodes.find((node) => node.type === 'DataFlowIn')!;

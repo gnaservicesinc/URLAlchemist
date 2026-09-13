@@ -173,6 +173,19 @@ describe('simulateActionPack', () => {
     expect(result.finalUrl).toBe('https://example.com/path-clipboard-token-2026-03-05T12:00:00.000Z');
   });
 
+  it('keeps clipboard replacement tokens literal while expanding authored groups', async () => {
+    const clipboard = "$1-$&-$$-$`-$'-{date}";
+    const pack = createPack({ activities: [{
+      id: 'literal-clipboard', order: 1, action: 'SUBSTITUTE', pattern: '(path)',
+      match_mode: 'STANDARD', nth_occurrence: 1,
+      payload: '$1-{clipboard}-{clipboard}', payload_vars: true,
+    }] });
+    const result = await simulateActionPack('https://example.com/path', pack,
+      { ...runtime, readClipboard: async () => clipboard }, DEFAULT_SETTINGS);
+    expect(result.issues).toEqual([]);
+    expect(result.finalUrl).toBe(`https://example.com/path-${clipboard}-${clipboard}`);
+  });
+
   it('blocks file urls when local file access is disabled', async () => {
     const pack = createPack({
       activities: [

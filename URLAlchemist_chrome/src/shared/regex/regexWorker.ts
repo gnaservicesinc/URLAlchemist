@@ -25,4 +25,7 @@ workerSelf.onmessage = (event: MessageEvent<RegexWorkerRequestEnvelope>) => {
   workerSelf.postMessage(response);
 };
 
+// Start the execution deadline only after the module has initialized.
+workerSelf.postMessage({ ready: true });
+
 export {};

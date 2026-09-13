@@ -21,8 +21,8 @@
       "actionPackPath": "bundled-actionpacks/action-packs/clean-share-link.actionpack",
       "kind": "action-pack",
       "artifactHashes": {
-        "workspaceSha256": "9baec7ab37a53286947b4fb9f4a0bd6a8e698dd0382b290366739b67df01c567",
-        "actionPackSha256": "d919d81f07f10d59294641697003b6b512bd522da4844bb57a3b3e5143355ef2"
+        "workspaceSha256": "25f748f6489f6ebbe47a36f949e32e651915b74630734a876574e462d39fd627",
+        "actionPackSha256": "06448217aca06e4364442ba4b027b50b28a1e8a07ed06c61f5bf72456928fabc"
       }
     },
     {
@@ -43,8 +43,8 @@
       "actionPackPath": "bundled-actionpacks/action-packs/open-github-pr-files.actionpack",
       "kind": "action-pack",
       "artifactHashes": {
-        "workspaceSha256": "d6156f3f3f103269dc8b39c74f7284bd8ad2025f0a49890467421e79534d081d",
-        "actionPackSha256": "4eab106d2bb49961a25fc57923340507e93a174f17641ae02c6eef5abe3f51bd"
+        "workspaceSha256": "b7c9efeb6746173ccd6c0860c8bd5b865ac936893a569d5e08cc9262a2447e66",
+        "actionPackSha256": "5a34ed9199b1f52dac3cc9da7182603b7859a85835d809310d3604d04d1f2a11"
       }
     },
     {
@@ -65,8 +65,8 @@
       "actionPackPath": "bundled-actionpacks/action-packs/search-selected-text.actionpack",
       "kind": "action-pack",
       "artifactHashes": {
-        "workspaceSha256": "899e23f255a6afc5f22828141ed748b10bf8ef0dd05103204f11c32d399f8359",
-        "actionPackSha256": "f8f2395d4011bfbbdc2f6b39aaacf6e3c72430ead64e1c6c3f28c193fc68d27c"
+        "workspaceSha256": "5ad160bcb331a3e3ba565d0ea85845a56b6ec581ac2eb00e8098ff4a5c7165e0",
+        "actionPackSha256": "6e4f633e4f3e4655996ef5c47eb0b1dcae9641b7b03294f833e2f7c9741afa64"
       }
     },
     {
@@ -87,8 +87,8 @@
       "actionPackPath": "bundled-actionpacks/action-packs/copy-markdown-citation.actionpack",
       "kind": "action-pack",
       "artifactHashes": {
-        "workspaceSha256": "72aee3b8cddf92837e94ef02651949402541a289fb8035397860c6bf0de87c5a",
-        "actionPackSha256": "59ba21e1475b1f97eebc613c40af344c1f15a060c017cee30691667068617b15"
+        "workspaceSha256": "e7735087a06e55bffe6b479e92319a22dbbf0b54777a4521c0a343d4557790fb",
+        "actionPackSha256": "8a5d6445f151988a92167103e8d427f520a86e78d49612cee7221a2a36f798fc"
       }
     },
     {
@@ -109,8 +109,8 @@
       "actionPackPath": "bundled-actionpacks/action-packs/normalize-clipboard-text.actionpack",
       "kind": "action-pack",
       "artifactHashes": {
-        "workspaceSha256": "22248e8c89812d0dd1ccec34c4982ab91feeb615a4a57fd15d4ca7cf000c60a4",
-        "actionPackSha256": "fd9bc246eb8d1e0d236072a1ef7c35f2c77b2a4da13fa0db2c86113609094cb8"
+        "workspaceSha256": "6dfe2fa8ac811b440aba698e4bc7d10bb3366536d9ac0c96ca4f1e76d1a8953d",
+        "actionPackSha256": "173e044fd205265df1e91404ee2cd9f66e9ed144a2bc8dc7809b80fcece82522"
       }
     },
     {
@@ -131,8 +131,8 @@
       "actionPackPath": "bundled-actionpacks/action-packs/research-trail.actionpack",
       "kind": "action-pack",
       "artifactHashes": {
-        "workspaceSha256": "b952f0b62c66fa822a3b09d2af27bd50f7359cf1350920a3e533f4db88f73879",
-        "actionPackSha256": "2bd377c829061f4662c196173f76f000de83b5d28b0d798568c137c49dc1ae40"
+        "workspaceSha256": "d6119218101ecd73b8429a629db33cd8b6ecd7bd8afd79865dd3c536dbbbdf0b",
+        "actionPackSha256": "5ad48651f969626ca3ca971658eb2d19da39e6b34787e5d562c6a91e241cf96a"
       }
     },
     {
@@ -153,8 +153,8 @@
       "actionPackPath": "bundled-actionpacks/action-packs/redact-emails-for-screen-sharing.actionpack",
       "kind": "action-pack",
       "artifactHashes": {
-        "workspaceSha256": "c3760f410ec0be156349678aa5257f1c11893e38bd50594e56cb8a745cd84981",
-        "actionPackSha256": "3882522a2116629485ca292b469f8f216b0d9273c2b6e1de4793810387dfb929"
+        "workspaceSha256": "090d088bad99e98d4a296b7d5feb7c8feb212285b152e9b49527d40260b1e087",
+        "actionPackSha256": "7755a179337fb3029e1198642307bb398724d1af7428618fb873ba8544efbf9e"
       }
     },
     {
@@ -175,8 +175,8 @@
       "actionPackPath": "bundled-actionpacks/action-packs/fetch-and-preview-text.actionpack",
       "kind": "action-pack",
       "artifactHashes": {
-        "workspaceSha256": "ac6acecb5fda49ec6a7ae5ef409414964149e86a03936fe958092d0b84740333",
-        "actionPackSha256": "f9268898fa8953c8a5ca6db89331022d48e13bf350eb1b2786b8630f0be9ec27"
+        "workspaceSha256": "0039da343b3818fbb2095c9ff63418ded7ba31a20cdddda1081caedeb69ae8de",
+        "actionPackSha256": "a4fb91d50a3dabb2561ccb2e17e37f3b60a8117885873d687d736534b6d03219"
       }
     },
     {
@@ -197,8 +197,8 @@
       "actionPackPath": "bundled-actionpacks/action-packs/confirmed-webhook-test.actionpack",
       "kind": "action-pack",
       "artifactHashes": {
-        "workspaceSha256": "840eb95bfda7039390317f26a1549fb58f44f34bffefb214553d8673a73a321a",
-        "actionPackSha256": "f20dd21021964080a1c1cd13ed249641a3aef6ca4723319b6a88edf4a94ca481"
+        "workspaceSha256": "1118fdd88449ade8b5e03299097823785da2cf382fa95250c716c6901f0a5dc0",
+        "actionPackSha256": "b3d03ffd294d0c01ad720ad7a527a35d68371c4afc5c4b153a5006f16159b0c1"
       }
     },
     {
@@ -219,8 +219,8 @@
       "actionPackPath": "bundled-actionpacks/action-packs/20-20-20-break-reminder.actionpack",
       "kind": "action-pack",
       "artifactHashes": {
-        "workspaceSha256": "dfb8371d2464790e6561d1f0e6135ca7a5e541c4f85ee7f0ea6c158ae89f4c92",
-        "actionPackSha256": "41595988d448b8be42bea23440d479e1cbec7d8dd584eb961ccaffa0927461d3"
+        "workspaceSha256": "b2a8e357ec2aae90429ff224bfdac061a45346544817e8bd892ed53219c0d412",
+        "actionPackSha256": "ed1c2e239f6a6abd071764d22614244a1f517d9f3685c32adaaddb9053628584"
       }
     },
     {
@@ -242,8 +242,8 @@
       "actionPackPath": "bundled-actionpacks/action-packs/focus-sprint-timer.actionpack",
       "kind": "action-pack",
       "artifactHashes": {
-        "workspaceSha256": "463f5a754bf6aadd48de3863fb5f81613a922076c78620b9dd5844b5654554a0",
-        "actionPackSha256": "b6e58660b59a3fc362542887d3f565d210d1fc1627bb796e7e03abc0895e9631"
+        "workspaceSha256": "3a9d659cf484c79fd5a81aff2b61ed6a4c51693540865d1cc0bfd18ceaa7bc59",
+        "actionPackSha256": "c0ed0adfa064144b43e32dc549e814cd603a93178025b45af8887e938ac4f860"
       }
     },
     {
@@ -263,7 +263,7 @@
       "workspacePath": "bundled-actionpacks/workspaces/normalize-text-custom-block-source.workspace",
       "kind": "custom-block-source",
       "artifactHashes": {
-        "workspaceSha256": "27de4bf1f95a92e70a7a33f24c965c0862d92592d63accbe5f2809de2e7d5c0c"
+        "workspaceSha256": "6acc11c3110f6334c2209a260dd99c6b12a7cce3aea137443edcb3a15c368d1e"
       }
     }
   ]
