@@ -44,6 +44,14 @@ export async function requestJson(fetcher, url, init, label, { allow404 = false 
   let response;
   try { response = await fetcher(url, { ...init, redirect: 'error', signal: AbortSignal.timeout(120000) }); }
   catch { fail(`${label} request failed or timed out; check the store dashboard before retrying`); }
+  if (response.status === 429) {
+    const header = response.headers?.get('retry-after') || '';
+    const seconds = /^\d+$/.test(header) ? Number(header) : Math.ceil((Date.parse(header) - Date.now()) / 1000);
+    const retryMs = Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 60000;
+    const error = new ReleaseError(`${label} rate limited this request; retry after ${Math.ceil(retryMs / 1000)} seconds`);
+    error.retryMs = retryMs;
+    throw error;
+  }
   if (allow404 && response.status === 404) return null;
   if (!response.ok) {
     // Include only known field names, never reflected values or signed URLs.

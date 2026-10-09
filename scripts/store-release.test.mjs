@@ -193,6 +193,24 @@ test('AMO retries recognize the exact release after signing changes XPI hash', a
   assert.ok(mock.calls.every(call => call.method === 'GET')); mock.done();
 });
 
+test('AMO honors rate limits with fresh JWTs and the same refused upload body', async () => {
+  const mock = sequence([{ guid: storeIds.firefox }, () => response({}, 404), () => new Response('{}', { status: 429, headers: { 'Retry-After': '65' } }), { uuid: '12345678123412341234123456789abc', channel: 'listed', version, processed: true, valid: true, submitted: false }, amoVersion(), amoVersion()]);
+  const waits = [];
+  assert.equal((await firefoxRelease({ config: firefoxConfig, version, archive, source, fetcher: mock.fetcher, wait: async ms => waits.push(ms) })).state, 'unreviewed');
+  assert.deepEqual(waits, [66000]);
+  assert.notEqual(mock.calls[2].headers.Authorization, mock.calls[3].headers.Authorization);
+  assert.equal(mock.calls[2].body, mock.calls[3].body);
+  mock.done();
+});
+
+test('AMO stops long rate limits and never retries ambiguous failures', async () => {
+  for (const fetcher of [async () => new Response('{}', { status: 429, headers: { 'Retry-After': '3600' } }), async () => { throw Error('ambiguous network failure'); }]) {
+    let calls = 0;
+    await assert.rejects(firefoxRelease({ config: firefoxConfig, version, archive, source, fetcher: async (...args) => { calls++; return fetcher(...args); } }), ReleaseError);
+    assert.equal(calls, 1);
+  }
+});
+
 test('AMO retry repairs missing source only for a proven matching release', async () => {
   const mock = sequence([{ guid: storeIds.firefox }, amoVersion({ source: null }), (_url, init) => { assert.equal(init.method, 'PATCH'); assert.equal(init.body.get('source').size, source.length); return response(amoVersion()); }, amoVersion()]);
   const result = await firefoxRelease({ config: firefoxConfig, version, archive, source, fetcher: mock.fetcher });

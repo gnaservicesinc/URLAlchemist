@@ -36,8 +36,19 @@ export function reviewerNotes(notes, proof) {
 export async function firefoxRelease({ config, version, archive, source, notes = '', approvalNotes = '', statusOnly = false, fetcher = fetch, wait = pause }) {
   if (!config.issuer || !config.secret || !/^\d+\.\d+\.\d+$/.test(version || '')) fail('Invalid Firefox release configuration');
   const addon = `${origin}/addons/addon/${encodeURIComponent(storeIds.firefox)}`;
-  const request = (url, method = 'GET', body, type, options) => requestJson(fetcher, url,
-    { method, body, headers: { Authorization: authorization(config), ...(type ? { 'Content-Type': type } : {}) } }, 'Firefox AMO', options);
+  const request = async (url, method = 'GET', body, type, options) => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await requestJson(fetcher, url, { method, body, headers: { Authorization: authorization(config), ...(type ? { 'Content-Type': type } : {}) } }, 'Firefox AMO', options);
+      } catch (error) {
+        // Only retry an explicit throttle refusal, using a fresh JWT. An
+        // ambiguous timeout may already have created a version; don't replay it.
+        if (!error.retryMs || error.retryMs > 600000 || attempt >= 4) throw error;
+        console.error(`Firefox AMO rate limit: waiting ${Math.ceil(error.retryMs / 1000) + 1} seconds before retry`);
+        await wait(error.retryMs + 1000);
+      }
+    }
+  };
   const identity = await request(`${addon}/`);
   if (identity.guid !== storeIds.firefox) fail('AMO returned a different add-on identity');
   let current = await request(`${addon}/versions/v${version}/`, 'GET', undefined, undefined, { allow404: true });

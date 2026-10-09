@@ -84,7 +84,9 @@ version, and it verifies that reviewer source remains attached. An existing
 version submitted through a different process requires dashboard inspection.
 
 If an API request times out, inspect the dashboard or run a status check before
-retrying. The scripts fail on unconfirmed versions, rejected/disabled AMO files,
+retrying. Explicit AMO rate-limit responses honor `Retry-After` with fresh JWTs
+and up to four retries; waits above ten minutes stop safely for a later retry.
+The scripts fail on unconfirmed versions, rejected/disabled AMO files,
 invalid uploads, mismatched identities, and missing reviewer source. They never
 print credentials, access tokens, or raw API error bodies.
 
