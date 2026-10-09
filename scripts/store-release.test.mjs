@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, writeFile, readFile, rm, copyFile } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { chromeRelease, configuration as chromeConfiguration } from './chrome-store.mjs';
-import { firefoxRelease, authorization, releaseProof, configuration as firefoxConfiguration } from './firefox-store.mjs';
+import { firefoxRelease, authorization, releaseProof, reviewerNotes, configuration as firefoxConfiguration } from './firefox-store.mjs';
 import { cliMode, digest, ReleaseError, requestJson, root, storeIds, verifiedArchive, verifiedSource } from './release-utils.mjs';
 
 const version = '2.8.0';
@@ -127,6 +127,16 @@ test('AMO JWT is signed and short-lived', () => {
   assert.notEqual(authorization(firefoxConfig, 123456), authorization(firefoxConfig, 123456));
 });
 
+test('AMO reviewer summary fits its field limit and retains complete release proof', () => {
+  const proof = releaseProof(archive, source);
+  for (const notes of ['Build instructions', 'x'.repeat(8110)]) {
+    const summary = reviewerNotes(notes, proof);
+    assert.ok(summary.length <= 3000);
+    assert.ok(summary.includes('REVIEWER_NOTES.md in the attached source archive'));
+    assert.ok(summary.endsWith(proof));
+  }
+});
+
 test('AMO status checks identity and never uploads', async () => {
   const mock = sequence([{ guid: storeIds.firefox }, amoVersion({ file: { status: 'public' } })]);
   const result = await firefoxRelease({ config: firefoxConfig, version, statusOnly: true, fetcher: mock.fetcher });
@@ -146,12 +156,14 @@ test('AMO creates a listed version with reviewer source and release digests in t
     return response(amoVersion());
   }, amoVersion(), amoVersion()]);
   const waits = [];
-  const result = await firefoxRelease({ config: firefoxConfig, version, archive, source, notes: 'User release notes', approvalNotes: 'Reviewer build notes', fetcher: mock.fetcher, wait: async ms => waits.push(ms) });
+  const result = await firefoxRelease({ config: firefoxConfig, version, archive, source, notes: 'User release notes', approvalNotes: 'Reviewer build notes'.repeat(500), fetcher: mock.fetcher, wait: async ms => waits.push(ms) });
   assert.equal(result.channel, 'listed'); assert.equal(result.state, 'unreviewed'); assert.equal(result.reviewerSourceAttached, true);
   assert.deepEqual(waits, [10000]);
   assert.equal(mock.calls[2].body.get('channel'), 'listed');
   assert.equal(mock.calls[2].body.get('upload').size, archive.length);
   assert.deepEqual(JSON.parse(mock.calls[5].body).release_notes, { 'en-US': 'User release notes' });
+  assert.ok(mock.calls[4].body.get('approval_notes').length <= 3000);
+  assert.ok(JSON.parse(mock.calls[5].body).approval_notes.length <= 3000);
   mock.done();
 });
 

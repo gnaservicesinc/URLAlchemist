@@ -22,6 +22,14 @@ export function releaseProof(archive, source) {
   return `URL Alchemist release archive SHA-256: ${digest(archive)}\nURL Alchemist reviewer source SHA-256: ${digest(source)}`;
 }
 
+export function reviewerNotes(notes, proof) {
+  // AMO limits approval_notes to 3000 characters. Full build/review notes stay
+  // in the attached source ZIP; retain the entire retry proof in the API field.
+  const reference = 'Complete instructions: URLAlchemist_Firefox/REVIEWER_NOTES.md in the attached source archive.';
+  const budget = 3000 - reference.length - proof.length - 4;
+  return `${reference}\n\n${notes.trim().slice(0, budget)}\n\n${proof}`;
+}
+
 export async function firefoxRelease({ config, version, archive, source, notes = '', approvalNotes = '', statusOnly = false, fetcher = fetch, wait = pause }) {
   if (!config.issuer || !config.secret || !/^\d+\.\d+\.\d+$/.test(version || '')) fail('Invalid Firefox release configuration');
   const addon = `${origin}/addons/addon/${encodeURIComponent(storeIds.firefox)}`;
@@ -33,6 +41,8 @@ export async function firefoxRelease({ config, version, archive, source, notes =
   if (statusOnly) return { store: 'firefox', guid: storeIds.firefox, version, versionId: current?.id || null, state: current?.file?.status || 'not-submitted', channel: current?.channel || null, reviewerSourceAttached: Boolean(current?.source) };
   if (!archive?.length || !source?.length) fail('Firefox release and reviewer source archives must not be empty');
   const proof = releaseProof(archive, source);
+  const approvalSummary = reviewerNotes(approvalNotes, proof);
+  if (notes.length > 3000) fail('Firefox release notes exceed the AMO 3000-character limit');
   const alreadySubmitted = Boolean(current);
   if (current) {
     if (!Number.isSafeInteger(current.id) || current.version !== version || current.channel !== 'listed' || !current.approval_notes?.includes(proof)) fail('Existing AMO version does not have matching release/source digests in reviewer notes; inspect AMO before retrying');
@@ -60,14 +70,14 @@ export async function firefoxRelease({ config, version, archive, source, notes =
     create.set('upload', uuid);
     create.set('source', new Blob([source], { type: 'application/zip' }), `URLAlchemist_Firefox_${version}_source.zip`);
     create.set('license', 'GPL-3.0-only');
-    create.set('approval_notes', `${approvalNotes}\n\n${proof}`.trim());
+    create.set('approval_notes', approvalSummary);
     current = await request(`${addon}/versions/`, 'POST', create);
   }
   if (!Number.isSafeInteger(current.id) || current.version !== version || current.channel !== 'listed' || !current.approval_notes?.includes(proof) || !current.source) {
     fail('AMO version or reviewer source confirmation differs from the release; inspect AMO before retrying');
   }
   if (notes || approvalNotes) {
-    const update = { ...(notes ? { release_notes: { 'en-US': notes } } : {}), approval_notes: `${approvalNotes}\n\n${proof}`.trim() };
+    const update = { ...(notes ? { release_notes: { 'en-US': notes } } : {}), approval_notes: approvalSummary };
     await request(`${addon}/versions/${current.id}/`, 'PATCH', JSON.stringify(update), 'application/json');
   }
   const confirmation = await request(`${addon}/versions/${current.id}/`);

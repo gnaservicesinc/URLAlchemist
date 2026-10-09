@@ -45,7 +45,16 @@ export async function requestJson(fetcher, url, init, label, { allow404 = false 
   try { response = await fetcher(url, { ...init, redirect: 'error', signal: AbortSignal.timeout(120000) }); }
   catch { fail(`${label} request failed or timed out; check the store dashboard before retrying`); }
   if (allow404 && response.status === 404) return null;
-  if (!response.ok) fail(`${label} failed (HTTP ${response.status}); check credentials, store metadata, and the dashboard`);
+  if (!response.ok) {
+    // Include only known field names, never reflected values or signed URLs.
+    let fields = [];
+    try {
+      const error = await response.json();
+      fields = Object.keys(error).filter(key => ['upload', 'source', 'license', 'release_notes', 'approval_notes', 'compatibility', 'detail', 'non_field_errors'].includes(key));
+    } catch {}
+    const operation = new URL(url).pathname.split('/').filter(Boolean).slice(-2).join('/');
+    fail(`${label} ${init.method || 'GET'} ${operation} failed (HTTP ${response.status}${fields.length ? `; fields: ${fields.join(', ')}` : ''}); check credentials, store metadata, and the dashboard`);
+  }
   try { return await response.json(); }
   catch { fail(`${label} returned invalid JSON; check the dashboard before retrying`); }
 }
