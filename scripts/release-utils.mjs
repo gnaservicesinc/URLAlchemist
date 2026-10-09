@@ -5,7 +5,7 @@ import { resolve, dirname, basename } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
-export const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+export const root = process.env.STORE_RELEASE_ROOT ? resolve(process.env.STORE_RELEASE_ROOT) : resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const storeIds = Object.freeze({
   chrome: 'ijonigkmhlokmdhcjcjinhpionfnjdeo',
   firefox: 'url-alchemist@gnaservicesinc.com',

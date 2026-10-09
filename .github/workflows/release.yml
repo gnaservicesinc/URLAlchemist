@@ -165,6 +165,7 @@ jobs:
     env:
       RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
       RELEASE_DIR: ${{ github.workspace }}/.release-local/release
+      STORE_RELEASE_ROOT: ${{ github.workspace }}
       GH_TOKEN: ${{ github.token }}
       AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
       AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
@@ -174,14 +175,20 @@ jobs:
         with:
           ref: ${{ needs.prepare.outputs.sha }}
           persist-credentials: false
+      - name: Check out submission tools from this workflow revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          path: .release-local/store-tools
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
       - name: Check AMO credentials without printing them
         run: |
           node --input-type=module <<'JS'
-          import { configuration } from './scripts/firefox-store.mjs';
-          import { reportFailure } from './scripts/release-utils.mjs';
+          import { configuration } from './.release-local/store-tools/scripts/firefox-store.mjs';
+          import { reportFailure } from './.release-local/store-tools/scripts/release-utils.mjs';
           try { configuration(); } catch (error) { reportFailure(error); }
           JS
       - name: Download exact published release and reviewer source
@@ -190,7 +197,7 @@ jobs:
       - name: Submit listed Firefox version with reviewer source or read status
         run: |
           mkdir -p .release-local
-          node scripts/firefox-store.mjs "$MODE" | tee .release-local/firefox-result.json
+          node .release-local/store-tools/scripts/firefox-store.mjs "$MODE" | tee .release-local/firefox-result.json
       - name: Record Firefox outcome
         if: always()
         run: node scripts/store-summary.mjs firefox .release-local/firefox-result.json

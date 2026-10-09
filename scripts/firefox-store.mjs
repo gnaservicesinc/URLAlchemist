@@ -46,7 +46,9 @@ export async function firefoxRelease({ config, version, archive, source, notes =
     form.set('upload', new Blob([archive], { type: 'application/x-xpinstall' }), `URLAlchemist_Firefox_${version}.xpi`);
     form.set('channel', 'listed');
     let upload = await request(`${origin}/addons/upload/`, 'POST', form);
-    if (!/^[0-9a-f-]{36}$/i.test(upload.uuid || '')) fail('AMO returned an invalid upload identity');
+    // AMO serializes UUIDField(format='hex') as 32 hexadecimal characters.
+    // Accept canonical UUIDs too, while excluding arbitrary path characters.
+    if (!/^(?:[0-9a-f]{32}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/i.test(upload.uuid || '')) fail('AMO returned an invalid upload identity');
     const uuid = upload.uuid;
     for (let attempt = 0; !upload.processed && attempt < 90; attempt++) {
       await wait(10000);

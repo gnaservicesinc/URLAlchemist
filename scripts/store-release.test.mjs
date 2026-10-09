@@ -135,7 +135,7 @@ test('AMO status checks identity and never uploads', async () => {
 });
 
 test('AMO creates a listed version with reviewer source and release digests in the same request', async () => {
-  const uuid = '12345678-1234-1234-1234-123456789abc';
+  const uuid = '12345678123412341234123456789abc';
   const uploaded = { uuid, channel: 'listed', version, processed: true, valid: true, submitted: false };
   const mock = sequence([{ guid: storeIds.firefox }, () => response({}, 404), { ...uploaded, processed: false }, uploaded, (_url, init) => {
     assert.ok(init.body instanceof FormData);
@@ -153,6 +153,19 @@ test('AMO creates a listed version with reviewer source and release digests in t
   assert.equal(mock.calls[2].body.get('upload').size, archive.length);
   assert.deepEqual(JSON.parse(mock.calls[5].body).release_notes, { 'en-US': 'User release notes' });
   mock.done();
+});
+
+test('AMO supports canonical upload UUIDs and rejects malformed IDs before polling or submission', async () => {
+  const uuid = '12345678-1234-1234-1234-123456789abc';
+  const mock = sequence([{ guid: storeIds.firefox }, () => response({}, 404), { uuid, channel: 'listed', version, processed: true, valid: true, submitted: false }, amoVersion(), amoVersion()]);
+  assert.equal((await firefoxRelease({ config: firefoxConfig, version, archive, source, fetcher: mock.fetcher })).state, 'unreviewed');
+  assert.equal(mock.calls[3].body.get('upload'), uuid);
+  mock.done();
+  for (const invalid of ['-'.repeat(36), '../other-upload', 'g'.repeat(32), '12345678123412341234123456789abc/']) {
+    const rejected = sequence([{ guid: storeIds.firefox }, () => response({}, 404), { uuid: invalid }]);
+    await assert.rejects(firefoxRelease({ config: firefoxConfig, version, archive, source, fetcher: rejected.fetcher }), /invalid upload identity/);
+    rejected.done();
+  }
 });
 
 test('AMO retries recognize the exact release after signing changes XPI hash', async () => {
@@ -201,6 +214,19 @@ async function fixture(t, files, filename = 'release.zip') {
   const checksums = resolve(directory, 'SHA256SUMS'); await writeFile(checksums, `${digest(bytes)}  ${filename}\n`);
   return { path, checksums, bytes };
 }
+
+test('workflow submission tools use the tagged checkout for release metadata', async t => {
+  const parent = resolve(root, '.release-local'); await mkdir(parent, { recursive: true });
+  const directory = await mkdtemp(resolve(parent, 'tagged-release-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  for (const target of ['URLAlchemist_chrome', 'URLAlchemist_Firefox']) {
+    await mkdir(resolve(directory, target, 'public'), { recursive: true });
+    await writeFile(resolve(directory, target, 'package.json'), JSON.stringify({ version: '1.2.3' }));
+    await writeFile(resolve(directory, target, 'public/manifest.json'), JSON.stringify({ version: '1.2.3', browser_specific_settings: { gecko: { id: storeIds.firefox } } }));
+  }
+  const output = execFileSync(process.execPath, ['--input-type=module', '-e', "import { metadata } from './scripts/release-utils.mjs'; console.log(JSON.stringify(await metadata()));"], { cwd: root, env: { ...process.env, STORE_RELEASE_ROOT: directory }, encoding: 'utf8' });
+  assert.deepEqual(JSON.parse(output), { version: '1.2.3', tag: 'v1.2.3' });
+});
 
 test('archive verification rejects a changed digest, wrong version, and missing root manifest', async t => {
   const valid = await fixture(t, { 'manifest.json': JSON.stringify({ version, manifest_version: 3 }) });

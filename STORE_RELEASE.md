@@ -59,7 +59,10 @@ GitHub cannot return the plaintext of an existing encrypted Actions secret.
 5. Inspect each job and its summary. Check the GitHub Release assets and each
    store's actual response before reporting the outcome.
 
-The workflow does not overwrite an existing GitHub Release. A retry of a store
+The workflow does not overwrite an existing GitHub Release. Firefox retries use
+the submission tools from the selected workflow revision with the tagged release
+metadata and exact published archives, allowing API fixes without changing tags.
+A retry of a store
 uses the immutable packages already attached to that release, avoiding a rebuild
 with different bytes or timestamps.
 
