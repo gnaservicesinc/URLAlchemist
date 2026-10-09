@@ -213,6 +213,58 @@ function symbol(nodeId: string, portId: string): string {
   return `${nodeId}.${portId}`;
 }
 
+function logMessageInstructions(node: WorkspaceNodeV2, input: string): { instructions: GraphVmInstruction[]; message: string } {
+  const context = node.settings.literalValue ?? '';
+  if (!context) {
+    return { instructions: [], message: input };
+  }
+
+  // Resolve only authored context. Connected values stay literal, even when they
+  // contain variable tokens, replacement syntax, or another {value} marker.
+  const contextParts = context.split('{value}');
+  const separator = contextParts.length === 1 && !/\s$/.test(context) ? ' ' : '';
+  if (contextParts.length === 1) {
+    contextParts.push('');
+  }
+
+  const instructions: GraphVmInstruction[] = [];
+  const parts: string[] = [];
+  contextParts.forEach((text, index) => {
+    if (index > 0) {
+      parts.push(input);
+    }
+    if (text) {
+      const output = symbol(node.id, `logContext${index}`);
+      instructions.push({ op: 'SUBSTITUTE', nodeId: node.id, output, template: text, values: [] });
+      parts.push(output);
+    }
+  });
+
+  let message = parts[0];
+  for (let index = 1, group = 0; index < parts.length; index += 23, group += 1) {
+    const values = [message, ...parts.slice(index, index + 23)];
+    const output = symbol(node.id, `logMessage${group}`);
+    instructions.push({
+      op: 'SUBSTITUTE',
+      nodeId: node.id,
+      output,
+      template: values.map((_value, valueIndex) => `${group === 0 && valueIndex === 1 ? separator : ''}$${valueIndex + 1}`).join(''),
+      values,
+    });
+    message = output;
+  }
+  return { instructions, message };
+}
+
+function validateLogSettings(node: WorkspaceNodeV2, errors: string[], prefix: string): void {
+  if (!['debug', 'info', 'warn', 'error'].includes(node.settings.logSeverity ?? 'info')) {
+    errors.push(`${prefix}: severity must be Debug, Info, Warn, or Error.`);
+  }
+  if ((node.settings.literalValue ?? '').length > 4_000) {
+    errors.push(`${prefix}: Message must be 4000 characters or less.`);
+  }
+}
+
 function edgeKey(edge: WorkspaceEdgeV2): string {
   return `${edge.target}:${edge.targetHandle}`;
 }
@@ -768,6 +820,7 @@ function validateSurfaceConnections(
 
     if (node.type === 'SaveStringToLog') {
       addRisk(risk, 'extended', `${surface.label}: Action Pack logging stores local run data.`, 'output');
+      validateLogSettings(node, errors, `${surface.label}: ${node.settings.label || definition.label}`);
     }
   });
 
@@ -1146,8 +1199,8 @@ function validateWorkspace(workspace: WorkspaceFileV2): WorkspaceValidationState
       }
     }
 
-    if (node.type === 'SaveStringToLog' && !['debug', 'info', 'warn', 'error'].includes(node.settings.logSeverity ?? 'info')) {
-      errors.push(`${node.settings.label || definition.label}: severity must be Debug, Info, Warn, or Error.`);
+    if (node.type === 'SaveStringToLog') {
+      validateLogSettings(node, errors, node.settings.label || definition.label);
     }
 
     if (node.type === 'Substitution') {
@@ -1738,16 +1791,20 @@ function instructionForNode(
         matchDecision: node.settings.contentBlockerMatchDecision === 1 ? 1 : 2,
       });
       break;
-    case 'SaveStringToLog':
+    case 'SaveStringToLog': {
+      const input = connectedInput(edgesByTarget, node.id, 'message');
+      const formatted = input ? logMessageInstructions(node, input) : undefined;
+      instructions.push(...(formatted?.instructions ?? []));
       instructions.push({
         op: 'LOG',
         nodeId: node.id,
-        message: connectedInput(edgesByTarget, node.id, 'message'),
+        message: formatted?.message,
         output: symbol(node.id, 'result'),
         severity: node.settings.logSeverity ?? 'info',
-        fallbackMessage: node.settings.literalValue ?? '',
+        fallbackMessage: input ? '' : node.settings.literalValue ?? '',
       });
       break;
+    }
     case 'Abort':
       instructions.push({
         op: 'ABORT',
@@ -1905,6 +1962,13 @@ function buildSymbolTable(workspace: WorkspaceFileV2): Record<string, GraphDataT
     }
     if (node.type === 'DecisionOut') {
       symbolTable[symbol(node.id, 'decision')] = 'number';
+    }
+    if (node.type === 'SaveStringToLog') {
+      logMessageInstructions(node, '').instructions.forEach((instruction) => {
+        if (instruction.op === 'SUBSTITUTE') {
+          symbolTable[instruction.output] = 'string';
+        }
+      });
     }
   });
 

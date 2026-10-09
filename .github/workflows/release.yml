@@ -1,0 +1,196 @@
+name: Release and submit browser stores
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing annotated release tag (for example v2.8.0)
+        type: string
+        required: true
+      operation:
+        description: Build a new release, retry a store, or read submission status
+        type: choice
+        default: release
+        options: [release, submit-chrome, submit-firefox, status-chrome, status-firefox]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: browser-store-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.identity.outputs.tag }}
+      version: ${{ steps.identity.outputs.version }}
+      sha: ${{ steps.identity.outputs.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - name: Verify release tag and both browser identities
+        id: identity
+        env:
+          REQUESTED_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          node --input-type=module <<'JS'
+          import { appendFileSync } from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          import { metadata, fail } from './scripts/release-utils.mjs';
+          const { version, tag } = await metadata();
+          if (process.env.REQUESTED_TAG !== tag) fail('Release tag must match both browser package/manifest versions');
+          const git = (...args) => execFileSync('git', args, { encoding: 'utf8' }).trim();
+          if (git('cat-file', '-t', `refs/tags/${tag}`) !== 'tag') fail('Release requires an annotated tag');
+          const sha = git('rev-parse', `refs/tags/${tag}^{commit}`);
+          if (sha !== git('rev-parse', 'HEAD')) fail('Checkout differs from the release tag');
+          appendFileSync(process.env.GITHUB_OUTPUT, `tag=${tag}\nversion=${version}\nsha=${sha}\n`);
+          JS
+
+  release:
+    needs: prepare
+    if: github.event_name == 'push' || inputs.operation == 'release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+      RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            URLAlchemist_chrome/package-lock.json
+            URLAlchemist_Firefox/package-lock.json
+      - name: Install packaging tools and locked dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y zip unzip rsync
+          npm --prefix URLAlchemist_chrome ci
+          npm --prefix URLAlchemist_Firefox ci
+          echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct "$RELEASE_SHA")" >> "$GITHUB_ENV"
+      - name: Test, build, and verify release archives
+        run: |
+          npm test
+          npm run build
+          npm run release:package
+          RELEASE_DIR="$PWD/.release-local/release" node scripts/chrome-store.mjs --dry-run
+          RELEASE_DIR="$PWD/.release-local/release" node scripts/firefox-store.mjs --dry-run
+      - name: Create GitHub Release with exact store and reviewer artifacts
+        run: |
+          gh release create "$RELEASE_TAG" --verify-tag --title "URL Alchemist $RELEASE_VERSION" --notes-file RELEASE_NOTES.md \
+            ".release-local/release/URLAlchemist_Chrome_${RELEASE_VERSION}.zip" \
+            ".release-local/release/URLAlchemist_Chrome_${RELEASE_VERSION}_source.zip" \
+            ".release-local/release/URLAlchemist_Chrome_${RELEASE_VERSION}_source.tar.gz" \
+            ".release-local/release/URLAlchemist_Firefox_${RELEASE_VERSION}.xpi" \
+            ".release-local/release/URLAlchemist_Firefox_${RELEASE_VERSION}_source.zip" \
+            ".release-local/release/URLAlchemist_Firefox_${RELEASE_VERSION}_source.tar.gz" \
+            .release-local/release/SHA256SUMS.txt
+          echo "GitHub Release $RELEASE_TAG created. Browser store submissions run independently below; store review and publication are separate." >> "$GITHUB_STEP_SUMMARY"
+
+  chrome:
+    needs: [prepare, release]
+    if: >-
+      always() && needs.prepare.result == 'success' &&
+      (needs.release.result == 'success' || needs.release.result == 'skipped') &&
+      (github.event_name == 'push' || inputs.operation == 'release' || inputs.operation == 'submit-chrome' || inputs.operation == 'status-chrome')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+      RELEASE_DIR: ${{ github.workspace }}/.release-local/release
+      GH_TOKEN: ${{ github.token }}
+      CWS_PUBLISHER_ID: ${{ vars.CWS_PUBLISHER_ID }}
+      CWS_SERVICE_ACCOUNT_JSON: ${{ secrets.CWS_SERVICE_ACCOUNT_JSON }}
+      CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+      CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+      CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+      MODE: ${{ inputs.operation == 'status-chrome' && '--status' || '--submit' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - name: Check Chrome credentials without printing them
+        run: |
+          node --input-type=module <<'JS'
+          import { configuration } from './scripts/chrome-store.mjs';
+          import { reportFailure } from './scripts/release-utils.mjs';
+          try { configuration(); } catch (error) { reportFailure(error); }
+          JS
+      - name: Download exact published release artifacts
+        if: env.MODE == '--submit'
+        run: gh release download "$RELEASE_TAG" --dir "$RELEASE_DIR" --pattern 'URLAlchemist_Chrome_*.zip' --pattern SHA256SUMS.txt
+      - name: Submit Chrome for review or read status
+        run: |
+          mkdir -p .release-local
+          node scripts/chrome-store.mjs "$MODE" | tee .release-local/chrome-result.json
+      - name: Record Chrome outcome
+        if: always()
+        run: node scripts/store-summary.mjs chrome .release-local/chrome-result.json
+
+  firefox:
+    needs: [prepare, release]
+    if: >-
+      always() && needs.prepare.result == 'success' &&
+      (needs.release.result == 'success' || needs.release.result == 'skipped') &&
+      (github.event_name == 'push' || inputs.operation == 'release' || inputs.operation == 'submit-firefox' || inputs.operation == 'status-firefox')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+      RELEASE_DIR: ${{ github.workspace }}/.release-local/release
+      GH_TOKEN: ${{ github.token }}
+      AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+      AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+      MODE: ${{ inputs.operation == 'status-firefox' && '--status' || '--submit' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - name: Check AMO credentials without printing them
+        run: |
+          node --input-type=module <<'JS'
+          import { configuration } from './scripts/firefox-store.mjs';
+          import { reportFailure } from './scripts/release-utils.mjs';
+          try { configuration(); } catch (error) { reportFailure(error); }
+          JS
+      - name: Download exact published release and reviewer source
+        if: env.MODE == '--submit'
+        run: gh release download "$RELEASE_TAG" --dir "$RELEASE_DIR" --pattern 'URLAlchemist_Firefox_*.xpi' --pattern 'URLAlchemist_Firefox_*_source.zip' --pattern SHA256SUMS.txt
+      - name: Submit listed Firefox version with reviewer source or read status
+        run: |
+          mkdir -p .release-local
+          node scripts/firefox-store.mjs "$MODE" | tee .release-local/firefox-result.json
+      - name: Record Firefox outcome
+        if: always()
+        run: node scripts/store-summary.mjs firefox .release-local/firefox-result.json

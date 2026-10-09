@@ -62,7 +62,7 @@ Transitive open-source dependencies are resolved by npm from `package-lock.json`
 
 - Action Packs are binary files decoded and validated by the extension before installation.
 - Imported Action Packs open in a staging review flow and are not saved automatically.
-- Version 2.7.3 uses workspace/action-pack schema 9. Legacy V1 `.urlpack` import/conversion remains available, and older V2 schemas are migrated before validation.
+- Version 2.8.0 uses workspace/action-pack schema 9. Legacy V1 `.urlpack` import/conversion remains available, and older V2 schemas are migrated before validation.
 - Custom Block installation now requires a specific library category. Workspace Name/Version are the single block identity, each input/output ID, label, type, and tooltip must match its boundary node, and existing caller nodes refresh installed metadata without guessing how renamed ports should reconnect.
 - Version-file update metadata/export support was removed; old version-file metadata is stripped during migration and export.
 - Large local media resources are stored in IndexedDB by SHA-256 and referenced from workspaces/installed Action Packs. They are excluded from browser sync and bundled into exported artifacts only.

@@ -32,6 +32,18 @@ rsync -a \
   --exclude '.tmp' \
   --exclude '.vite' \
   --exclude '.DS_Store' \
+  --exclude '.git' \
+  --exclude '.env' \
+  --exclude '.env.*' \
+  --exclude '.release-local' \
+  --exclude '.playwright-cli' \
+  --exclude 'coverage' \
+  --exclude '*.zip' \
+  --exclude '*.xpi' \
+  --exclude '*.crx' \
+  --exclude '*.tar.gz' \
+  --exclude '*.pem' \
+  --exclude '*.key' \
   --exclude 'public/bundled-actionpacks' \
   --exclude 'RELEASE_BUILD_TIME.txt' \
   --exclude "$PACKAGE_NAME" \

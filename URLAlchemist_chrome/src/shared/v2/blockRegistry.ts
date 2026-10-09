@@ -653,7 +653,7 @@ export const BLOCK_REGISTRY: Record<BlockKind, BlockDefinition> = {
     typeId: BLOCK_TYPE_IDS.SaveStringToLog,
     label: 'Save string to log',
     category: 'debug',
-    inputs: [port('message', 'Message', 'string')],
+    inputs: [port('message', 'Message', 'string', { description: 'String combined with the Message context. Use {value} in the context to choose its position; otherwise it follows the text.' })],
     outputs: [port('result', 'Result', 'bool')],
     flags: defaultFlags,
     defaultSettings: {

@@ -7,7 +7,11 @@
     "build:chrome": "npm --prefix ./URLAlchemist_chrome run build",
     "build:firefox": "npm --prefix ./URLAlchemist_Firefox run build",
     "generate:bundled": "npm --prefix ./URLAlchemist_chrome run generate:bundled && npm --prefix ./URLAlchemist_Firefox run generate:bundled",
-    "test": "npm run test:chrome && npm run test:firefox",
+    "test": "npm run test:release && npm run test:chrome && npm run test:firefox",
+    "test:release": "node --test scripts/store-release.test.mjs",
+    "release:package": "node scripts/package-release.mjs",
+    "store:chrome": "node scripts/chrome-store.mjs",
+    "store:firefox": "node scripts/firefox-store.mjs",
     "test:chrome": "npm --prefix ./URLAlchemist_chrome run test",
     "test:firefox": "npm --prefix ./URLAlchemist_Firefox run test",
     "version:update": "bash ./change_version.sh"

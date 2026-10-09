@@ -995,6 +995,168 @@ describe('v2 workspace compiler and VM', () => {
     expect(entries.map((entry) => entry.message)).toEqual(['$string_1', '\\$string_1']);
   });
 
+  it.each([
+    { context: '', value: 'hello', expected: 'hello' },
+    { context: 'Selected text:', value: 'hello', expected: 'Selected text: hello' },
+    { context: 'Selected text: ', value: 'hello', expected: 'Selected text: hello' },
+    { context: 'Selected text:\n', value: 'hello', expected: 'Selected text:\nhello' },
+    { context: 'Received [{value}]', value: 'hello', expected: 'Received [hello]' },
+    { context: '{value} / {value}', value: '$1 $name {value} $& \\$name', expected: '$1 $name {value} $& \\$name / $1 $name {value} $& \\$name' },
+    { context: '{value}2 \\{value}', value: 'hello', expected: 'hello2 \\hello' },
+    { context: 'Selected text:', value: '', expected: 'Selected text: ' },
+  ])('combines connected log strings with Message context: $context', async ({ context, value, expected }) => {
+    const workspace = createDefaultWorkspace();
+    const constant = createWorkspaceNode('Constant', { x: 120, y: 80 }, {
+      literalValue: value,
+      literalDataType: 'string',
+    });
+    const log = createWorkspaceNode('SaveStringToLog', { x: 420, y: 80 }, {
+      literalValue: context,
+      logSeverity: 'warn',
+    });
+    const compiled = compileWorkspace({
+      ...workspace,
+      nodes: [...workspace.nodes.filter((node) => node.type !== 'DataFlowOut'), constant, log],
+      edges: [createEdge(constant.id, 'value', log.id, 'message')],
+    });
+    const entries: Array<{ severity: string; message: string; nodeId: string }> = [];
+
+    expect(compiled.ok, compiled.validation.errors.join('; ')).toBe(true);
+    const imported = await importCompiledActionPackV2Binary(await exportCompiledActionPackV2Binary(compiled.pack!));
+    expect(imported.schemaVersion).toBe(ACTION_PACK_SCHEMA_VERSION);
+    const result = await executeCompiledActionPackV2('https://example.com/', imported.pack, {
+      ...runtime,
+      writeLog: async (entry) => { entries.push(entry); },
+    }, DEFAULT_SETTINGS);
+
+    expect(result.issues).toEqual([]);
+    expect(entries).toEqual([expect.objectContaining({ severity: 'warn', message: expected, nodeId: log.id })]);
+  });
+
+  it('resolves variables only in authored log context while keeping the connected value literal', async () => {
+    const workspace = createDefaultWorkspace();
+    const declaration = createWorkspaceNode('Declarations', { x: 120, y: 80 }, {
+      variableName: 'name',
+      literalValue: '$1 $missing {value}',
+      literalDataType: 'string',
+    });
+    const constant = createWorkspaceNode('Constant', { x: 120, y: 220 }, {
+      literalValue: '$name $1 {value} $&',
+      literalDataType: 'string',
+    });
+    const log = createWorkspaceNode('SaveStringToLog', { x: 420, y: 80 }, {
+      literalValue: '$name: [{value}] \\$name',
+    });
+    const compiled = compileWorkspace({
+      ...workspace,
+      nodes: [...workspace.nodes.filter((node) => node.type !== 'DataFlowOut'), declaration, constant, log],
+      edges: [createEdge(constant.id, 'value', log.id, 'message')],
+    });
+    const messages: string[] = [];
+
+    expect(compiled.ok, compiled.validation.errors.join('; ')).toBe(true);
+    expect(validateCompiledActionPackV2(compiled.pack).ok).toBe(true);
+    const result = await executeCompiledActionPackV2('https://example.com/', compiled.pack!, {
+      ...runtime,
+      writeLog: async ({ message }) => { messages.push(message); },
+    }, DEFAULT_SETTINGS);
+
+    expect(result.issues).toEqual([]);
+    expect(messages).toEqual(['$1 $missing {value}: [$name $1 {value} $&] $name']);
+  });
+
+  it('keeps variable validation active when a log has a connected input', () => {
+    const workspace = createDefaultWorkspace();
+    const constant = createWorkspaceNode('Constant', { x: 120, y: 80 }, { literalValue: 'input', literalDataType: 'string' });
+    const log = createWorkspaceNode('SaveStringToLog', { x: 420, y: 80 }, { literalValue: '$missing: {value}' });
+    const compiled = compileWorkspace({
+      ...workspace,
+      nodes: [...workspace.nodes.filter((node) => node.type !== 'DataFlowOut'), constant, log],
+      edges: [createEdge(constant.id, 'value', log.id, 'message')],
+    });
+
+    expect(compiled.ok).toBe(false);
+    expect(compiled.validation.errors.join(' ')).toContain('$missing is not declared');
+    expect(compiled.validation.invalidEdgeIds).toEqual([]);
+  });
+
+  it('builds bounded substitution groups for repeated log placeholders', async () => {
+    const workspace = createDefaultWorkspace();
+    const constant = createWorkspaceNode('Constant', { x: 120, y: 80 }, { literalValue: '$1', literalDataType: 'string' });
+    const log = createWorkspaceNode('SaveStringToLog', { x: 420, y: 80 }, { literalValue: '({value})'.repeat(40) });
+    const compiled = compileWorkspace({
+      ...workspace,
+      nodes: [...workspace.nodes.filter((node) => node.type !== 'DataFlowOut'), constant, log],
+      edges: [createEdge(constant.id, 'value', log.id, 'message')],
+    });
+    const messages: string[] = [];
+
+    expect(compiled.ok, compiled.validation.errors.join('; ')).toBe(true);
+    expect(validateCompiledActionPackV2(compiled.pack).ok).toBe(true);
+    const result = await executeCompiledActionPackV2('https://example.com/', compiled.pack!, {
+      ...runtime,
+      writeLog: async ({ message }) => { messages.push(message); },
+    }, DEFAULT_SETTINGS);
+
+    expect(result.issues).toEqual([]);
+    expect(messages).toEqual(['($1)'.repeat(40)]);
+  });
+
+  it('accepts a 4000-character log context and rejects oversized contexts before building', async () => {
+    const workspace = createDefaultWorkspace();
+    const constant = createWorkspaceNode('Constant', { x: 120, y: 80 }, { literalValue: 'input', literalDataType: 'string' });
+    const log = createWorkspaceNode('SaveStringToLog', { x: 420, y: 80 }, { literalValue: 'x'.repeat(4000) });
+    const source = {
+      ...workspace,
+      nodes: [...workspace.nodes.filter((node) => node.type !== 'DataFlowOut'), constant, log],
+      edges: [createEdge(constant.id, 'value', log.id, 'message')],
+    };
+    const compiled = compileWorkspace(source);
+    const messages: string[] = [];
+
+    expect(compiled.ok, compiled.validation.errors.join('; ')).toBe(true);
+    expect(validateCompiledActionPackV2(compiled.pack).ok).toBe(true);
+    await executeCompiledActionPackV2('https://example.com/', compiled.pack!, {
+      ...runtime,
+      writeLog: async ({ message }) => { messages.push(message); },
+    }, DEFAULT_SETTINGS);
+    expect(messages).toEqual([`${'x'.repeat(3997)}...`]);
+
+    const oversized = compileWorkspace({
+      ...source,
+      nodes: source.nodes.map((node) => node.id === log.id ? { ...node, settings: { ...node.settings, literalValue: 'x'.repeat(4001) } } : node),
+    });
+    expect(oversized.ok).toBe(false);
+    expect(oversized.validation.errors.join(' ')).toContain('Message must be 4000 characters or less');
+  });
+
+  it('preserves standalone placeholder text and the connected-input behavior of existing LOG bytecode', async () => {
+    const workspace = createDefaultWorkspace();
+    const constant = createWorkspaceNode('Constant', { x: 120, y: 80 }, { literalValue: '$1 {value}', literalDataType: 'string' });
+    const connected = createWorkspaceNode('SaveStringToLog', { x: 420, y: 80 });
+    const standalone = createWorkspaceNode('SaveStringToLog', { x: 420, y: 220 }, { literalValue: 'Literal {value}' });
+    const compiled = compileWorkspace({
+      ...workspace,
+      nodes: [...workspace.nodes.filter((node) => node.type !== 'DataFlowOut'), constant, connected, standalone],
+      edges: [createEdge(constant.id, 'value', connected.id, 'message')],
+    });
+    expect(compiled.ok, compiled.validation.errors.join('; ')).toBe(true);
+    const legacyPack = structuredClone(compiled.pack!);
+    [...legacyPack.vm.instructions, ...(legacyPack.vm.eventHandlers?.trigger ?? [])].forEach((instruction) => {
+      if (instruction.op === 'LOG' && instruction.nodeId === connected.id) {
+        instruction.fallbackMessage = 'Previously ignored fallback {value}';
+      }
+    });
+    expect(validateCompiledActionPackV2(legacyPack).ok).toBe(true);
+    const messages: string[] = [];
+    await executeCompiledActionPackV2('https://example.com/', legacyPack, {
+      ...runtime,
+      writeLog: async ({ message }) => { messages.push(message); },
+    }, DEFAULT_SETTINGS);
+
+    expect(messages.sort()).toEqual(['$1 {value}', 'Literal {value}']);
+  });
+
   it('blocks missing and type-mismatched log variables', () => {
     const workspace = createDefaultWorkspace();
     const numberDeclaration = createWorkspaceNode('Declarations', { x: 120, y: 80 }, {
@@ -2415,6 +2577,7 @@ describe('v2 workspace compiler and VM', () => {
   it('executes every bundled example with realistic stubbed browser services', async () => {
     const session = new Map<string, GraphValue>();
     const destinationWrites: string[] = [];
+    const logMessages: string[] = [];
     const packs = createBundledExampleActionPacks();
     const exampleRuntime: GraphRuntime = {
       ...runtime,
@@ -2491,6 +2654,7 @@ describe('v2 workspace compiler and VM', () => {
         destinationWrites.push(destination);
       },
       mutatePageText: async () => undefined,
+      writeLog: async ({ message }) => { logMessages.push(message); },
     };
 
     for (const pack of packs) {
@@ -2512,6 +2676,7 @@ describe('v2 workspace compiler and VM', () => {
     expect(session.get('focus-sprint:paused')).toEqual({ type: 'number', value: 0 });
     expect(destinationWrites).toContain('pageText');
     expect(destinationWrites).toContain('clipboard');
+    expect(logMessages).toContain('Research trail:\nPrevious page\nNo previous page yet\nRun this again after visiting another page.\n\nCurrent page\nExample Page\nhttps://example.com/path?utm_source=newsletter&ref=abc&id=123&keep=1');
   });
 
   it('only reads connected high-risk sources and gates page redaction behind confirmation', async () => {
