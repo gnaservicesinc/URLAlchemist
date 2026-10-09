@@ -127,13 +127,19 @@ test('AMO JWT is signed and short-lived', () => {
   assert.notEqual(authorization(firefoxConfig, 123456), authorization(firefoxConfig, 123456));
 });
 
-test('AMO reviewer summary fits its field limit and retains complete release proof', () => {
+test('AMO reviewer summary fits the multipart wire limit and retains complete release proof', async () => {
   const proof = releaseProof(archive, source);
-  for (const notes of ['Build instructions', 'x'.repeat(8110)]) {
+  assert.ok(!proof.includes('\n'));
+  for (const notes of ['Build instructions', 'x'.repeat(8110), 'Build step\n'.repeat(1000), 'Build step\r\n'.repeat(1000)]) {
     const summary = reviewerNotes(notes, proof);
     assert.ok(summary.length <= 3000);
     assert.ok(summary.includes('REVIEWER_NOTES.md in the attached source archive'));
     assert.ok(summary.endsWith(proof));
+    const form = new FormData(); form.set('approval_notes', summary);
+    const wire = await new Response(form).text();
+    const encoded = wire.split('name="approval_notes"\r\n\r\n')[1].split('\r\n--')[0];
+    assert.ok(encoded.length <= 3000);
+    assert.ok(encoded.endsWith(proof));
   }
 });
 

@@ -19,15 +19,18 @@ export function authorization(config, now = Math.floor(Date.now() / 1000)) {
 // AMO signs the XPI after upload, changing file.hash. Keep the original release
 // and reviewer-source digests in private reviewer notes to identify safe retries.
 export function releaseProof(archive, source) {
-  return `URL Alchemist release archive SHA-256: ${digest(archive)}\nURL Alchemist reviewer source SHA-256: ${digest(source)}`;
+  return `URL Alchemist release archive SHA-256: ${digest(archive)}; URL Alchemist reviewer source SHA-256: ${digest(source)}`;
 }
 
 export function reviewerNotes(notes, proof) {
   // AMO limits approval_notes to 3000 characters. Full build/review notes stay
   // in the attached source ZIP; retain the entire retry proof in the API field.
   const reference = 'Complete instructions: URLAlchemist_Firefox/REVIEWER_NOTES.md in the attached source archive.';
-  const budget = 3000 - reference.length - proof.length - 4;
-  return `${reference}\n\n${notes.trim().slice(0, budget)}\n\n${proof}`;
+  // FormData encodes text line endings as CRLF. Count that wire representation
+  // before slicing so AMO sees the same length that we validate here.
+  const normalized = notes.trim().replace(/\r\n|\r|\n/g, '\r\n');
+  const budget = 3000 - reference.length - proof.length - 8;
+  return `${reference}\r\n\r\n${normalized.slice(0, budget).trimEnd()}\r\n\r\n${proof}`;
 }
 
 export async function firefoxRelease({ config, version, archive, source, notes = '', approvalNotes = '', statusOnly = false, fetcher = fetch, wait = pause }) {
