@@ -1112,7 +1112,8 @@ async function executeInstruction(
         ? rawPayload.replaceAll('{date}', new Date().toISOString())
         : rawPayload.replace(/\$/g, '$$$$');
       if (instruction.payloadVars && payload.includes('{clipboard}')) {
-        payload = payload.replaceAll('{clipboard}', (await runtime.readClipboard()).replace(/\$/g, '$$$$'));
+        const clipboard = (await runtime.readClipboard()).replace(/\$/g, '$$$$');
+        payload = payload.replaceAll('{clipboard}', () => clipboard);
       }
       const transformed = await runtime.regex.transform({
         input,

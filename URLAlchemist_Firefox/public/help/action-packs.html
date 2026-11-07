@@ -27,6 +27,7 @@
 <h2>Logs</h2>
 <p>Each installed Action Pack has a local log in Manage Resources. Every run records a timestamp, exit code, handler, issue count, and URL summary.</p>
 <p>The <strong>Save string to log</strong> block writes a formatted entry with a severity level. You can view, export, or clear a pack log from Manage Resources.</p>
+<p>Its <strong>Message</strong> field stays editable when a string is connected. Write <code>Selected text: {value}</code> to place the connected string inside your context, or write <code>Selected text:</code> to append it after a space. A blank Message logs the connected string alone. Connected strings are kept literal, including any dollar tokens or <code>{value}</code> text they contain; declared variables are resolved only in your authored Message. Without a connection, Message is used on its own.</p>
 <p>Logging is controlled per installed pack. Fresh installs default logging off; migrated existing packs keep logging on to preserve behavior.</p>
 <p>Logs stay local and rotate automatically: URL Alchemist keeps the newest 300 entries or about 256 KB per Action Pack, whichever comes first.</p>
 <h2>Pairing</h2>

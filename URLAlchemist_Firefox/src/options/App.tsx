@@ -57,6 +57,7 @@ import { SecurityPanel } from './components/SecurityPanel';
 import { SettingsPanel } from './components/SettingsPanel';
 import { StagingModal } from './components/StagingModal';
 import { WorkspaceEditor, type WorkspaceChangeOptions } from './components/WorkspaceEditor';
+import { WorkspaceHome } from './components/WorkspaceHome';
 import { useStoredExtensionState } from './hooks/useStoredExtensionState';
 
 type BrowserChromeApi = {
@@ -76,18 +77,19 @@ type BrowserChromeApi = {
   };
 };
 
-type OptionsTab = 'bundled' | 'examples' | 'manage-resources' | 'import' | 'workspace-editor' | 'security' | 'settings' | 'help' | 'about';
+type OptionsTab = 'workspaces' | 'bundled' | 'examples' | 'manage-resources' | 'import' | 'workspace-editor' | 'security' | 'settings' | 'help' | 'about';
 
-const OPTIONS_TABS: Array<{ id: OptionsTab; label: string }> = [
-  { id: 'bundled', label: 'Bundled' },
-  { id: 'examples', label: 'Examples' },
-  { id: 'manage-resources', label: 'Manage Resources' },
-  { id: 'import', label: 'Import' },
-  { id: 'workspace-editor', label: 'Workspace Editor' },
-  { id: 'security', label: 'Security' },
-  { id: 'settings', label: 'Settings' },
-  { id: 'help', label: 'Help' },
-  { id: 'about', label: 'About' },
+const OPTIONS_TABS: Array<{ id: OptionsTab; label: string; icon: string; group: string }> = [
+  { id: 'workspaces', label: 'Workspaces', icon: '▦', group: 'Create' },
+  { id: 'workspace-editor', label: 'Workspace editor', icon: '↗', group: 'Create' },
+  { id: 'examples', label: 'Example workspaces', icon: '◇', group: 'Create' },
+  { id: 'bundled', label: 'Starter Action Packs', icon: '◈', group: 'Library' },
+  { id: 'manage-resources', label: 'Manage library', icon: '▤', group: 'Library' },
+  { id: 'import', label: 'Import files', icon: '↓', group: 'Library' },
+  { id: 'security', label: 'Security & activity', icon: '◎', group: 'Preferences' },
+  { id: 'settings', label: 'Settings', icon: '⚙', group: 'Preferences' },
+  { id: 'help', label: 'Help & guides', icon: '?', group: 'Preferences' },
+  { id: 'about', label: 'About', icon: 'ⓘ', group: 'Preferences' },
 ];
 
 const ALLOWED_BUNDLED_ARTIFACT_PATHS = new Set(
@@ -317,7 +319,7 @@ function createOptionsRuntimes(settings: GlobalSettings): { graph: GraphRuntime;
 
 function App() {
   const { state, setState, loading } = useStoredExtensionState();
-  const [activeTab, setActiveTab] = useState<OptionsTab>('bundled');
+  const [activeTab, setActiveTab] = useState<OptionsTab>('workspaces');
   const [workspace, setWorkspace] = useState<WorkspaceFileV2>(() => createDefaultWorkspace());
   const [workspaceLoaded, setWorkspaceLoaded] = useState(false);
   const [workspaceDirty, setWorkspaceDirty] = useState(false);
@@ -357,6 +359,11 @@ function App() {
   const pendingOllamaDraftIsStale = Boolean(
     pendingOllamaDraft && pendingOllamaDraft.sourceWorkspaceFingerprint !== currentWorkspaceFingerprint,
   );
+
+  useEffect(() => {
+    const page = activeTab === 'workspace-editor' ? workspace.metadata.name : OPTIONS_TABS.find((tab) => tab.id === activeTab)?.label;
+    document.title = `${page} · URL Alchemist`;
+  }, [activeTab, workspace.metadata.name]);
 
   async function refreshResources(): Promise<void> {
     setResourceAssets((await listResources()).map(resourceToAssetRef));
@@ -770,7 +777,9 @@ function App() {
     setWorkspace(savedWorkspace);
     setWorkspaceDirty(false);
     setUndoStack([]);
-    setWorkspaceMessage(`Opened workspace "${savedWorkspace.metadata.name}".`);
+    setWorkspaceMessage(null);
+    setWorkspaceToast(`Opened workspace "${savedWorkspace.metadata.name}".`);
+    setActiveTab('workspace-editor');
     void clearOpenWorkspaceDraft();
   }
 
@@ -785,9 +794,11 @@ function App() {
         ? createDefaultCustomBlockWorkspace()
         : createDefaultWorkspace();
     setWorkspace(nextWorkspace);
-    setWorkspaceDirty(false);
+    setActiveTab('workspace-editor');
+    setWorkspaceDirty(true);
     setUndoStack([]);
-    setWorkspaceMessage(`Started a new ${type === 'content-blocker' ? 'Content Blocker' : type === 'custom-block' ? 'Custom Block' : 'Data Modifier'} workspace.`);
+    setWorkspaceMessage(null);
+    setWorkspaceToast(`Started a new ${type === 'content-blocker' ? 'Content Blocker' : type === 'custom-block' ? 'Custom Block' : 'Data Modifier'} workspace.`);
     void clearOpenWorkspaceDraft();
   }
 
@@ -810,7 +821,8 @@ function App() {
     setWorkspaceDirty(false);
     setUndoStack([]);
     await clearOpenWorkspaceDraft();
-    setWorkspaceMessage(`Saved workspace "${workspace.metadata.name}".`);
+    setWorkspaceMessage(null);
+    setWorkspaceToast(`Saved workspace "${workspace.metadata.name}".`);
   }
 
   async function storeLocalResource(file: File): Promise<AssetRef> {
@@ -1132,6 +1144,9 @@ function App() {
   }
 
   async function openBundledWorkspace(example: BundledActionPackExample): Promise<void> {
+    if (!confirmDiscardDirtyChanges()) {
+      return;
+    }
     try {
       const imported = await importWorkspaceBinary(await fetchVerifiedBundledArtifact(example, 'workspace'));
       setWorkspace(imported.workspace);
@@ -1215,6 +1230,9 @@ function App() {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const artifact = await importAnyArtifact(bytes);
 
+      if (artifact.kind !== 'action-pack' && !confirmDiscardDirtyChanges()) {
+        return;
+      }
       if (artifact.kind === 'workspace') {
         const importedWorkspace = await installEmbeddedCustomBlocksFromWorkspace(artifact.workspace);
         setWorkspace(importedWorkspace);
@@ -1583,50 +1601,42 @@ function App() {
   const appIconUrl = getChromeApi().runtime?.getURL?.('icons/icon-48.png') ?? '/icons/icon-48.png';
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-[1500px] flex-col gap-5 px-4 py-5 sm:px-6 lg:px-8 lg:py-8" style={scaleStyle}>
+    <div className="app-shell" style={scaleStyle}>
+      <a className="app-skip-link" href="#main-content">Skip to workspace content</a>
       {workspaceToast ? (
-        <div className="fixed right-5 top-5 z-50 max-w-sm rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800 shadow-[0_18px_42px_rgba(15,118,110,0.18)]">
+        <div role="status" className="fixed right-5 top-5 z-50 max-w-sm rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800 shadow-[0_18px_42px_rgba(15,118,110,0.18)]">
           {workspaceToast}
         </div>
       ) : null}
-      <header className="reveal-panel overflow-hidden rounded-xl border border-slate-200 bg-white px-4 py-5 shadow-[0_18px_46px_rgba(31,41,55,0.08)] sm:px-6 lg:px-7">
-        <div className="flex flex-wrap items-start justify-between gap-5">
-          <div className="flex min-w-0 max-w-3xl gap-4">
-            <img
-              alt="URL Alchemist"
-              className="mt-1 h-11 w-11 shrink-0 rounded-lg shadow-[0_12px_24px_rgba(15,118,110,0.22)]"
-              src={appIconUrl}
-            />
-            <div className="min-w-0">
-              <p className="eyebrow">URL Alchemist Firefox {URL_ALCHEMIST_VERSION}</p>
-              <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">Action Pack Workbench</h1>
-              <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600 sm:text-base">
-                Build workspace source files, compile optimized Action Packs, and stage binary imports through a sandboxed review flow with {REGEX_TIMEOUT_MS}ms regex budgets.
-              </p>
+      <aside className="app-sidebar">
+        <button className="app-brand" type="button" onClick={() => setActiveTab('workspaces')} aria-label="URL Alchemist home">
+          <img alt="" className="h-9 w-9 rounded-lg" src={appIconUrl} />
+          <span><strong>URL Alchemist</strong><small>Workspace studio</small></span>
+        </button>
+        <nav className="app-navigation" aria-label="Options sections">
+          {['Create', 'Library', 'Preferences'].map((group) => (
+            <div className="app-nav-group" key={group}>
+              <p className="app-nav-heading">{group}</p>
+              {OPTIONS_TABS.filter((tab) => tab.group === group).map((tab) => (
+                <button key={tab.id} className={`app-nav-item ${activeTab === tab.id ? 'is-active' : ''}`} aria-current={activeTab === tab.id ? 'page' : undefined} type="button" onClick={() => setActiveTab(tab.id)}>
+                  <span aria-hidden="true" className="app-nav-icon">{tab.icon}</span><span>{tab.label}</span>
+                </button>
+              ))}
             </div>
-          </div>
-          <div className="ml-auto grid min-w-[220px] gap-2 sm:grid-cols-3 lg:min-w-[430px]">
-            <span className={`risk-badge ${state.settings.globalEnabled ? 'bg-teal-100 text-teal-800' : 'risk-badge-danger'}`}>
-              {state.settings.globalEnabled ? 'Engine on' : 'Engine off'}
-            </span>
-            <span className="risk-badge risk-badge-soft">{state.actionPacksV2.length} Action Packs</span>
-            <span className="risk-badge risk-badge-soft">{state.workspacesV2.length} workspaces</span>
-          </div>
+          ))}
+        </nav>
+        <div className="app-sidebar-footer">
+          <span className={`app-engine-dot ${state.settings.globalEnabled ? 'is-on' : ''}`} aria-hidden="true" />
+          <span>{state.settings.globalEnabled ? 'Engine on' : 'Engine paused'}</span>
+          <span className="ml-auto text-[10px] text-slate-400">Firefox {URL_ALCHEMIST_VERSION}</span>
         </div>
-      </header>
-
-      <nav className="panel-shell tab-scroll reveal-panel sticky top-3 z-30 flex gap-2 overflow-x-auto p-2" aria-label="Options sections">
-        {OPTIONS_TABS.map((tab) => (
-          <button
-            key={tab.id}
-            className={`${activeTab === tab.id ? 'primary-button' : 'ghost-button'} flex-none`}
-            type="button"
-            onClick={() => setActiveTab(tab.id)}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </nav>
+      </aside>
+      <main className="app-content" id="main-content" tabIndex={-1}>
+        <header className="app-page-header">
+          <div className="min-w-0"><p className="text-xs text-slate-500">Workspace studio <span aria-hidden="true" className="mx-1">/</span> {OPTIONS_TABS.find((tab) => tab.id === activeTab)?.group}</p><p className="mt-1 truncate text-sm font-semibold text-slate-900">{activeTab === 'workspace-editor' ? workspace.metadata.name : OPTIONS_TABS.find((tab) => tab.id === activeTab)?.label}</p></div>
+          <div className="flex shrink-0 items-center gap-2"><span className="hidden text-xs text-slate-500 sm:inline">{state.workspacesV2.length} workspaces · {state.actionPacksV2.length} Action Packs</span><button className="ghost-button" type="button" onClick={() => newWorkspace()}>+ New workspace</button></div>
+        </header>
+        {activeTab === 'workspaces' ? <WorkspaceHome workspaces={state.workspacesV2} currentWorkspace={workspace} isDirty={workspaceDirty} onNew={newWorkspace} onOpen={switchWorkspace} onResume={() => setActiveTab('workspace-editor')} onExamples={() => setActiveTab('examples')} onImport={() => setActiveTab('import')} /> : null}
 
       {activeTab === 'bundled' || activeTab === 'examples' ? (
         <>
@@ -1666,14 +1676,7 @@ function App() {
           onExportWorkspace={(targetWorkspace) => void exportWorkspaceFile(targetWorkspace)}
           onIncreaseContentBlockerLock={(pack) => void increaseContentBlockerLock(pack)}
           onMarkActionPackReviewed={(pack) => void markActionPackReviewed(pack)}
-          onOpenWorkspace={(targetWorkspace) => {
-            setWorkspace(targetWorkspace);
-            setWorkspaceDirty(false);
-            setUndoStack([]);
-            setActiveTab('workspace-editor');
-            setWorkspaceMessage(`Opened workspace "${targetWorkspace.metadata.name}".`);
-            void clearOpenWorkspaceDraft();
-          }}
+          onOpenWorkspace={(targetWorkspace) => switchWorkspace(targetWorkspace.metadata.id)}
           onPreviewLegacyPack={(pack) => void previewLegacyPack(pack)}
           onToggleActionPack={(pack) => void toggleV2Pack(pack)}
           onToggleActionPackLogging={(pack) => void toggleActionPackLogging(pack)}
@@ -1694,8 +1697,9 @@ function App() {
       {activeTab === 'workspace-editor' ? (
         <>
           {state.settings.ollamaEnabled ? (
-            <section className="panel-shell reveal-panel">
-              <div className="flex flex-wrap items-start justify-between gap-4">
+            <details className="panel-shell" open={pendingOllamaDraft ? true : undefined}>
+              <summary className="cursor-pointer text-sm font-semibold text-slate-800">Draft with Ollama <span className="ml-2 text-xs font-normal text-slate-500">Optional AI assistant</span></summary>
+              <div className="mt-4 flex flex-wrap items-start justify-between gap-4">
                 <div>
                   <p className="eyebrow">AI Connectors</p>
                   <h2 className="mt-2 text-xl font-semibold text-slate-900">Ollama workspace draft</h2>
@@ -1759,8 +1763,9 @@ function App() {
                 </div>
               ) : null}
               {ollamaMessage ? <p className="mt-3 rounded-lg bg-slate-50 px-4 py-3 text-sm text-slate-700">{ollamaMessage}</p> : null}
-            </section>
+            </details>
           ) : null}
+          {workspaceMessage ? <p role="status" className="rounded-lg border border-teal-100 bg-teal-50 px-4 py-2 text-xs text-teal-800">{workspaceMessage}</p> : null}
           <WorkspaceEditor
             advancedModeEnabled={state.settings.advancedModeEnabled}
             allWorkspaces={state.workspacesV2}
@@ -1779,7 +1784,6 @@ function App() {
             onUploadResource={(file) => uploadWorkspaceResource(file)}
             onWorkspaceChange={handleWorkspaceChange}
           />
-          {workspaceMessage ? <p className="rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{workspaceMessage}</p> : null}
         </>
       ) : null}
 
@@ -1832,6 +1836,7 @@ function App() {
 
       {activeTab === 'about' ? <AboutPanel onResetEverything={() => void resetEverything()} /> : null}
 
+      </main>
       <StagingModal
         checksumHex={stagedChecksum}
         hasSandboxRun={hasSandboxRun}
@@ -1846,7 +1851,7 @@ function App() {
         onReviewAcknowledgedChange={setReviewAcknowledged}
         onSandboxInputChange={setSandboxInput}
       />
-    </main>
+    </div>
   );
 }
 

@@ -47,7 +47,7 @@ async function buildReplacementTemplate(
 
   let payload = activity.payload;
   const now = runtime.now ? runtime.now() : new Date();
-  payload = payload.replaceAll('{date}', escapeReplacementLiteral(now.toISOString()));
+  payload = payload.replaceAll('{date}', () => escapeReplacementLiteral(now.toISOString()));
 
   if (payload.includes('{clipboard}')) {
     if (!packUsesClipboard(pack)) {
@@ -55,7 +55,7 @@ async function buildReplacementTemplate(
     }
 
     const clipboard = await runtime.readClipboard();
-    payload = payload.replaceAll('{clipboard}', escapeReplacementLiteral(clipboard));
+    payload = payload.replaceAll('{clipboard}', () => escapeReplacementLiteral(clipboard));
   }
 
   return payload;

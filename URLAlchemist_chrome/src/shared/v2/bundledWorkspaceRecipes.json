@@ -181,12 +181,12 @@
       "category": "Storage",
       "collection": "bundled",
       "risk": "extended",
-      "features": ["Previous and current page card", "Title and URL history", "Local cross-run state"],
+      "features": ["Previous and current page card", "Contextual log entries", "Local cross-run state"],
       "recipe": {
         "kind": "workspace-recipe.v1",
         "workspaceType": "data-modifier",
         "name": "Research Trail",
-        "description": "Shows a friendly previous-versus-current page card, then remembers the current title and URL for the next run.",
+        "description": "Shows a previous-versus-current page card, remembers the current title and URL for the next run, and records a contextual entry when this Action Pack's logging is enabled.",
         "trigger": {
           "type": "CONTEXT_MENU",
           "hotkey": "Ctrl+Shift+R",
@@ -201,6 +201,7 @@
           { "id": "show-card", "type": "ShowMessage", "position": { "x": 980, "y": 80 }, "settings": { "label": "Show research trail", "promptTitle": "Research Trail", "promptMessage": "Previous and current page", "displayMode": "OVERLAY", "displayTimeoutMs": 10000 } },
           { "id": "save-title", "type": "SharedState", "position": { "x": 620, "y": 300 }, "settings": { "label": "Remember current title", "sharedStateMode": "SET", "literalValue": "research-trail:last-title", "literalDataType": "string", "alwaysProcess": true } },
           { "id": "save-url", "type": "SharedState", "position": { "x": 940, "y": 300 }, "settings": { "label": "Remember current URL", "sharedStateMode": "SET", "literalValue": "research-trail:last-url", "literalDataType": "URL", "alwaysProcess": true } },
+          { "id": "log-card", "type": "SaveStringToLog", "position": { "x": 980, "y": 460 }, "settings": { "label": "Log research context", "literalValue": "Research trail:\n{value}", "logSeverity": "info" } },
           { "id": "output", "type": "DataFlowOut", "position": { "x": 1260, "y": 260 }, "settings": { "locked": true } }
         ],
         "connections": [
@@ -211,6 +212,7 @@
           { "from": "card.result", "to": "show-card.message" },
           { "from": "input.pageTitle", "to": "save-title.value" },
           { "from": "input.url", "to": "save-url.value" },
+          { "from": "card.result", "to": "log-card.message" },
           { "from": "input.url", "to": "output.url" }
         ],
         "viewport": { "x": 0, "y": 0, "zoom": 0.82 }

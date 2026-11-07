@@ -206,7 +206,6 @@ export function getVariableFieldSpecs(node: WorkspaceNodeV2): VariableFieldSpec[
         setting: 'literalValue',
         label: 'Message',
         expectedType: 'string',
-        inputHandle: 'message',
         numericMode: 'forbidden',
       }];
     case 'Abort':

@@ -94,6 +94,7 @@ import {
 import { HelpTooltip } from './HelpTooltip';
 import { HotkeyRecorder } from './HotkeyRecorder';
 import { RegexBuilderPanel } from './RegexBuilderPanel';
+import { findValidationNodeTargets } from '../workspaceEditorNavigation';
 
 export interface WorkspaceChangeOptions {
   viewportOnly?: boolean;
@@ -1171,11 +1172,10 @@ function renderBlockSettings(
               <option value="error">Error</option>
             </select>
           </SettingField>
-          {!isConnected('message') ? (
-            <SettingField help="Text written to the local log when the Message input is not connected." label="Message">
-              <textarea className={`${variableAwareClass(node.settings.literalValue, variables, inputClass)} min-h-16`} value={settingText(node.settings.literalValue)} onChange={(event) => onSettingsChange({ literalValue: event.target.value })} />
-            </SettingField>
-          ) : connectedNote('Message')}
+          <SettingField help="Write context, use {value} to place the connected string, or leave it empty to log only the input. Without {value}, the input follows this text." label="Message">
+            <textarea className={`${variableAwareClass(node.settings.literalValue, variables, inputClass)} min-h-16`} placeholder="Cleaned URL: {value}" value={settingText(node.settings.literalValue)} onChange={(event) => onSettingsChange({ literalValue: event.target.value })} />
+          </SettingField>
+          {isConnected('message') ? <p className="text-[11px] leading-5 text-teal-700">Connected string is available as {'{value}'}. Your message adds context to the log entry.</p> : null}
         </div>
       );
     case 'Abort':
@@ -2013,14 +2013,7 @@ function groupedRiskReasons(reasons: string[]): Array<{ key: string; summary: st
 }
 
 function nodeIdsForValidationMessage(workspace: WorkspaceFileV2, message: string): string[] {
-  const normalized = message.toLowerCase();
-  return workspace.nodes
-    .filter((node) => {
-      const title = blockTitle(node).toLowerCase();
-      const definition = getBlockDefinition(node.type).label.toLowerCase();
-      return normalized.includes(title) || normalized.includes(definition);
-    })
-    .map((node) => node.id);
+  return findValidationNodeTargets(workspace, message).map((target) => target.nodeId);
 }
 
 interface ConnectionQuickFix {
@@ -2153,6 +2146,7 @@ interface LogicalFlowDragSession {
 function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITIONS, canUndo = false, workspace, resourceAssets, onUndo, onUploadResource, onWorkspaceChange, invalidEdgeIds, copiedBlocks, onCopiedBlocksChange, focusRequest, heightClassName = 'h-[720px]' }: WorkspaceFlowProps) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const pendingSelectionRef = useRef<Set<string> | null>(null);
+  const handledFocusRequestRef = useRef<number | null>(null);
   const logicalFlowDragRef = useRef<LogicalFlowDragSession | null>(null);
   const normalizedLayoutKeyRef = useRef<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; flowX: number; flowY: number } | null>(null);
@@ -2160,6 +2154,15 @@ function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITION
   const [nodeMeasurements, setNodeMeasurements] = useState<Map<string, { width?: number; height?: number }>>(new Map());
   const [regexBuilderNodeId, setRegexBuilderNodeId] = useState<string | null>(null);
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
+  const [navigatorOpen, setNavigatorOpen] = useState(false);
+  const [navigatorQuery, setNavigatorQuery] = useState('');
+  const navigatorNodes = useMemo(() => {
+    const query = navigatorQuery.trim().toLowerCase();
+    return workspace.nodes.filter((node) => {
+      const definition = definitionForWorkspaceNode(node, availableBlocks);
+      return !query || `${blockTitle(node, definition)} ${definition.label} ${categoryLabel(definition.category)}`.toLowerCase().includes(query);
+    });
+  }, [availableBlocks, navigatorQuery, workspace.nodes]);
   const reducedMotion = useMemo(
     () => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches,
     [],
@@ -2170,6 +2173,13 @@ function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITION
   const updateSelectedNodeIds = useCallback((nodeIds: Set<string>): void => {
     setSelectedNodeIds((current) => sameStringSet(current, nodeIds) ? current : new Set(nodeIds));
   }, []);
+
+  useEffect(() => {
+    handledFocusRequestRef.current = null;
+    setNavigatorOpen(false);
+    setNavigatorQuery('');
+    updateSelectedNodeIds(new Set());
+  }, [updateSelectedNodeIds, workspace.metadata.id]);
 
   const handleSettingsChange = useCallback(
     (nodeId: string, settings: Partial<WorkspaceBlockSettings>): void => {
@@ -2354,11 +2364,10 @@ function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITION
   useEffect(() => {
     const pendingSelection = pendingSelectionRef.current;
     pendingSelectionRef.current = null;
-    setFlowNodes(
-      pendingSelection
-        ? workspaceNodes.map((node) => ({ ...node, selected: pendingSelection.has(node.id) }))
-        : workspaceNodes,
-    );
+    setFlowNodes((current) => {
+      const selection = pendingSelection ?? new Set(current.filter((node) => node.selected).map((node) => node.id));
+      return workspaceNodes.map((node) => ({ ...node, selected: selection.has(node.id) }));
+    });
   }, [workspaceNodes]);
 
   useEffect(() => {
@@ -2790,23 +2799,32 @@ function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITION
     }
 
     if (selectNodes) {
-      pendingSelectionRef.current = new Set(nodeIds);
       updateSelectedNodeIds(new Set(nodeIds));
+      setFlowNodes((current) => current.map((node) => ({ ...node, selected: nodeIds.has(node.id) })));
     }
     void flowInstance.fitView({
       nodes: Array.from(nodeIds).map((id) => ({ id })),
+      maxZoom: 1,
       padding: 0.22,
       duration: reducedMotion ? 0 : 240,
     });
   }
 
   useEffect(() => {
-    if (!focusRequest || !flowInstance || focusRequest.nodeIds.length === 0) {
+    if (!focusRequest || !flowInstance || focusRequest.nodeIds.length === 0 || handledFocusRequestRef.current === focusRequest.requestId) {
       return;
     }
-
-    focusNodeIds(new Set(focusRequest.nodeIds));
-  }, [flowInstance, focusRequest]);
+    if (!focusRequest.nodeIds.every((nodeId) => flowNodes.some((node) => node.id === nodeId))) {
+      return;
+    }
+    // Controlled nodes reach React Flow on the next render. Wait for that commit
+    // before fitting, especially when the requested block was just added.
+    const frame = window.requestAnimationFrame(() => {
+      handledFocusRequestRef.current = focusRequest.requestId;
+      focusNodeIds(new Set(focusRequest.nodeIds));
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [flowInstance, flowNodes, focusRequest]);
 
   function tidyEventLanes(): void {
     onWorkspaceChange(normalizeLogicalFlowGroups(tidyWorkspaceByEventLanes(workspace), nodeMeasurements));
@@ -2828,7 +2846,7 @@ function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITION
   }
 
   return (
-    <div ref={wrapperRef} className={`relative overflow-hidden rounded-lg border border-slate-200 bg-white ${heightClassName}`}>
+    <div ref={wrapperRef} className={`workspace-canvas relative overflow-hidden rounded-xl border border-slate-200 bg-slate-50 ${heightClassName}`}>
       <ReactFlow
         key={workspace.metadata.id}
         colorMode="light"
@@ -2857,7 +2875,7 @@ function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITION
         onNodeDragStop={handleNodeDragStop}
         onNodesChange={handleNodeChanges}
         onMoveEnd={(_event, viewport) => handleViewportChange(viewport)}
-        onPaneClick={() => setContextMenu(null)}
+        onPaneClick={() => { setContextMenu(null); setNavigatorOpen(false); }}
         onPaneContextMenu={(event) => {
           event.preventDefault();
           const flowPosition = flowInstance?.screenToFlowPosition({ x: event.clientX, y: event.clientY }) ?? { x: 360, y: 220 };
@@ -2880,68 +2898,55 @@ function WorkspaceFlow({ advancedModeEnabled, availableBlocks = BLOCK_DEFINITION
         snapGrid={[12, 12]}
         snapToGrid
       >
-        <Panel className="nodrag nowheel" position="top-left">
-          <div className="flex max-w-[min(620px,calc(100vw-260px))] flex-wrap items-center gap-1.5 rounded-lg border border-slate-200 bg-white/92 p-1.5 text-xs shadow-[0_10px_28px_rgba(31,41,55,0.1)] backdrop-blur">
-            <span className="rounded-md bg-slate-100 px-2 py-1 font-semibold text-slate-600">
-              {workspace.nodes.length} blocks / {workspace.edges.length} links
-            </span>
-            <button className="rounded-md border border-slate-200 px-2.5 py-1 font-semibold text-slate-700 hover:border-teal-300 hover:bg-teal-50" type="button" onClick={() => focusNodeIds(new Set(flowNodes.map((node) => node.id)), false)}>
-              Fit
-            </button>
-            <button className="rounded-md border border-slate-200 px-2.5 py-1 font-semibold text-slate-700 hover:border-teal-300 hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-45" disabled={!canUndo} title="Undo (Ctrl+Z / Cmd+Z)" type="button" onClick={onUndo}>
-              Undo
-            </button>
-            <button className="rounded-md border border-slate-200 px-2.5 py-1 font-semibold text-slate-700 hover:border-teal-300 hover:bg-teal-50" type="button" onClick={() => setAllBlocksCollapsed(true)}>
-              Compact all
-            </button>
-            <button className="rounded-md border border-slate-200 px-2.5 py-1 font-semibold text-slate-700 hover:border-teal-300 hover:bg-teal-50" type="button" onClick={() => setAllBlocksCollapsed(false)}>
-              Expand all
-            </button>
-            <button className="rounded-md border border-slate-200 px-2.5 py-1 font-semibold text-slate-700 hover:border-teal-300 hover:bg-teal-50" type="button" onClick={tidyEventLanes}>
-              Tidy lanes
-            </button>
-            {collapsedCount > 0 ? (
-              <span className="rounded-full bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-700">{collapsedCount} compact</span>
-            ) : null}
-            {selectedNodeIds.size > 0 ? (
-              <>
-                <span className="rounded-full bg-teal-50 px-2.5 py-1 font-semibold text-teal-700">{selectedNodeIds.size} selected</span>
-                <button className="rounded-md border border-slate-200 px-2.5 py-1 font-semibold text-slate-700 hover:border-teal-300 hover:bg-teal-50" type="button" onClick={copySelectedBlocks}>
-                  Copy selected
-                </button>
-                <button className="rounded-md border border-slate-200 px-2.5 py-1 font-semibold text-rose-700 hover:border-rose-300 hover:bg-rose-50" type="button" onClick={deleteSelectedBlocks}>
-                  Delete selected
-                </button>
-              </>
-            ) : null}
-            <button className="rounded-md border border-slate-200 px-2.5 py-1 font-semibold text-slate-700 hover:border-teal-300 hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-45" disabled={!copiedBlocks || copiedBlocks.nodes.length === 0} type="button" onClick={pasteCopiedBlocks}>
-              Paste
-            </button>
+        <Panel className="nodrag nowheel workspace-canvas-toolbar" position="top-left" style={{ width: 'calc(100% - 24px)', margin: 12 }}>
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white/95 p-2 text-xs shadow-[0_8px_24px_rgba(31,41,55,0.08)] backdrop-blur">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button className="rounded-lg bg-teal-50 px-3 py-1.5 font-semibold text-teal-800 hover:bg-teal-100" title="Bring every block into view" type="button" onClick={() => focusNodeIds(new Set(flowNodes.map((node) => node.id)), false)}>Fit view</button>
+              <button className="rounded-lg px-3 py-1.5 font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-45" disabled={!canUndo} title="Undo (Ctrl+Z / Cmd+Z)" type="button" onClick={onUndo}>Undo</button>
+              <details className="relative">
+                <summary className="cursor-pointer list-none rounded-lg px-3 py-1.5 font-semibold text-slate-700 hover:bg-slate-100">Layout & tools <span aria-hidden="true">⌄</span></summary>
+                <div className="absolute left-0 top-full z-30 mt-2 grid min-w-48 gap-1 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+                  <button className="rounded-lg px-3 py-2 text-left font-semibold text-slate-700 hover:bg-slate-50" type="button" onClick={tidyEventLanes}>Arrange event lanes</button>
+                  <button className="rounded-lg px-3 py-2 text-left font-semibold text-slate-700 hover:bg-slate-50" type="button" onClick={() => setAllBlocksCollapsed(true)}>Compact all blocks</button>
+                  <button className="rounded-lg px-3 py-2 text-left font-semibold text-slate-700 hover:bg-slate-50" type="button" onClick={() => setAllBlocksCollapsed(false)}>Expand all blocks</button>
+                  <button className="rounded-lg px-3 py-2 text-left font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-45" disabled={!copiedBlocks || copiedBlocks.nodes.length === 0} type="button" onClick={pasteCopiedBlocks}>Paste copied blocks</button>
+                  {collapsedCount > 0 ? <p className="px-3 py-1 text-slate-500">{collapsedCount} blocks compacted</p> : null}
+                </div>
+              </details>
+            </div>
+            <div className="relative">
+              <button aria-expanded={navigatorOpen} aria-controls="workspace-block-navigator" className={`flex items-center gap-2 rounded-lg px-3 py-1.5 font-semibold ${navigatorOpen ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`} type="button" onClick={() => setNavigatorOpen((current) => !current)}>
+                <svg aria-hidden="true" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none"><circle cx="10" cy="10" r="6" stroke="currentColor" strokeWidth="2" /><path d="m15 15 5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+                Find block <span className="opacity-60">{workspace.nodes.length}</span>
+              </button>
+              {navigatorOpen ? <div id="workspace-block-navigator" aria-label="Find a block on the canvas" className="absolute right-0 top-full z-30 mt-2 w-[min(300px,calc(100vw-64px))] rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
+                <div className="mb-2 flex items-center justify-between"><p className="font-semibold text-slate-900">Jump to a block</p><button aria-label="Close block navigator" className="rounded px-2 py-1 text-slate-500 hover:bg-slate-100" type="button" onClick={() => setNavigatorOpen(false)}>×</button></div>
+                <input autoFocus aria-label="Search canvas blocks" className="field-input w-full py-2 text-xs" placeholder="Search by name or type" value={navigatorQuery} onChange={(event) => setNavigatorQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); setNavigatorOpen(false); } }} />
+                <ul className="mt-2 max-h-72 space-y-1 overflow-y-auto">
+                  {navigatorNodes.map((node) => {
+                    const definition = definitionForWorkspaceNode(node, availableBlocks);
+                    return <li key={node.id}><button className="w-full rounded-lg px-3 py-2 text-left hover:bg-teal-50" type="button" onClick={() => { focusNodeIds(new Set([node.id])); setNavigatorOpen(false); }}><span className="block font-semibold text-slate-800">{blockTitle(node, definition)}</span><span className="mt-0.5 block text-[10px] text-slate-500">{definition.label} · {categoryLabel(definition.category)}</span></button></li>;
+                  })}
+                  {navigatorNodes.length === 0 ? <li className="px-3 py-5 text-center text-slate-500">No matching blocks.</li> : null}
+                </ul>
+                <div className="mt-3 border-t border-slate-100 pt-3"><p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Event lanes</p><div className="flex flex-wrap gap-1.5">
+                  {EVENT_LANE_DEFINITIONS.filter((lane) => laneTargets[lane.id].size > 0).map((lane) => <button key={lane.id} className="rounded-md bg-slate-100 px-2 py-1 font-semibold text-slate-600 hover:bg-teal-50" type="button" onClick={() => { focusNodeIds(laneTargets[lane.id]); setNavigatorOpen(false); }}>{lane.label} · {laneTargets[lane.id].size}</button>)}
+                  {laneTargets.other.size > 0 ? <button className="rounded-md bg-slate-100 px-2 py-1 font-semibold text-slate-600 hover:bg-teal-50" type="button" onClick={() => { focusNodeIds(laneTargets.other); setNavigatorOpen(false); }}>Other · {laneTargets.other.size}</button> : null}
+                </div></div>
+              </div> : null}
+            </div>
+            {selectedNodeIds.size > 0 ? <div className="flex w-full flex-wrap items-center gap-2 border-t border-slate-100 pt-2">
+              <span className="rounded-md bg-teal-50 px-2.5 py-1 font-semibold text-teal-700">{selectedNodeIds.size} selected</span>
+              <button className="rounded-md px-2.5 py-1 font-semibold text-slate-700 hover:bg-slate-100" type="button" onClick={copySelectedBlocks}>Copy</button>
+              <button className="rounded-md px-2.5 py-1 font-semibold text-rose-700 hover:bg-rose-50" type="button" onClick={deleteSelectedBlocks}>Delete</button>
+            </div> : null}
           </div>
         </Panel>
-        <Panel className="nodrag nowheel" position="top-right">
-          <div className="grid gap-0.5 rounded-lg border border-slate-200 bg-white/92 p-1.5 text-xs shadow-[0_10px_28px_rgba(31,41,55,0.1)] backdrop-blur">
-            {EVENT_LANE_DEFINITIONS.filter((lane) => laneTargets[lane.id].size > 0).map((lane) => (
-              <button
-                key={lane.id}
-                className="flex min-w-28 items-center justify-between gap-3 rounded-md px-2 py-1 font-semibold text-slate-700 hover:bg-slate-50"
-                type="button"
-                onClick={() => focusNodeIds(laneTargets[lane.id])}
-              >
-                <span>{lane.label}</span>
-                <span className="rounded-full bg-slate-100 px-2 py-0.5 font-mono text-[10px] text-slate-500">{laneTargets[lane.id].size}</span>
-              </button>
-            ))}
-            {laneTargets.other.size > 0 ? (
-              <button className="flex min-w-28 items-center justify-between gap-3 rounded-md px-2 py-1 font-semibold text-slate-700 hover:bg-slate-50" type="button" onClick={() => focusNodeIds(laneTargets.other)}>
-                <span>Other</span>
-                <span className="rounded-full bg-slate-100 px-2 py-0.5 font-mono text-[10px] text-slate-500">{laneTargets.other.size}</span>
-              </button>
-            ) : null}
-          </div>
+        <Panel className="nodrag nowheel workspace-canvas-hints" position="bottom-center">
+          <div className="rounded-lg border border-slate-200 bg-white/90 px-3 py-1.5 text-[10px] text-slate-500 shadow-sm">Drag canvas to pan · Scroll to zoom · Shift + drag to select · Connect matching ports</div>
         </Panel>
         {declaredVariables.length > 0 ? (
-          <Panel className="nodrag nowheel" position="bottom-center">
+          <Panel className="nodrag nowheel" position="bottom-right" style={{ bottom: 124 }}>
             <div className="max-w-72 rounded-lg border border-slate-200 bg-white/92 p-3 text-xs shadow-[0_14px_34px_rgba(31,41,55,0.14)] backdrop-blur">
               <p className="mb-2 font-semibold text-slate-900">Variables</p>
               <div className="flex flex-wrap gap-1.5">
@@ -3093,7 +3098,13 @@ function BlockPicker({ definitions = BLOCK_DEFINITIONS, onAddBlock, quickBlockKi
   }, [closeLibrary, open]);
 
   return (
-    <div className="relative z-20">
+    <div className="relative z-20" onKeyDown={(event) => {
+      if (open && event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        closeLibrary();
+      }
+    }}>
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <button
           ref={toggleButtonRef}
@@ -3286,7 +3297,9 @@ export function WorkspaceEditor({
   onSaveWorkspace,
   onUndo,
 }: WorkspaceEditorProps) {
-  const [metadataCollapsed, setMetadataCollapsed] = useState(false);
+  const [editorStage, setEditorStage] = useState<'configure' | 'build' | 'review'>(() =>
+    !allWorkspaces.some((candidate) => candidate.metadata.id === sourceWorkspace.metadata.id) && sourceWorkspace.metadata.created_at === sourceWorkspace.metadata.updated_at ? 'configure' : 'build',
+  );
   const [isPopout, setIsPopout] = useState(false);
   const [selectedContentSurface, setSelectedContentSurface] = useState<ContentBlockerSurfaceId>('page-load');
   const [copiedBlocks, setCopiedBlocks] = useState<WorkspaceBlockClipboard | null>(null);
@@ -3354,6 +3367,16 @@ export function WorkspaceEditor({
     fields: [],
   };
 
+  useEffect(() => {
+    setEditorStage(!allWorkspaces.some((candidate) => candidate.metadata.id === sourceWorkspace.metadata.id) && sourceWorkspace.metadata.created_at === sourceWorkspace.metadata.updated_at ? 'configure' : 'build');
+    setSelectedContentSurface('page-load');
+    setFocusRequest(null);
+    setDebugOutput(null);
+    setDebugError(null);
+    setDebugTrace([]);
+    setIsPopout(false);
+  }, [sourceWorkspace.metadata.id]);
+
   function updateWorkspace(updates: Partial<WorkspaceFileV2>): void {
     onWorkspaceChange(synchronizeCustomBlockIdentity({
       ...workspace,
@@ -3367,39 +3390,27 @@ export function WorkspaceEditor({
   }
 
   function addToolbarBlock(definition: BlockDefinition): void {
+    const graph = isContentBlocker ? activeContentSurfaceWorkspace : workspace;
+    const position = { x: 320 + graph.nodes.length * 24, y: 260 + graph.nodes.length * 18 };
+    const nextGraph = definition.kind === 'LogicalFlow'
+      ? buildLogicalFlowUnit(graph, position.x, position.y)
+      : {
+          ...graph,
+          metadata: { ...graph.metadata, updated_at: Date.now() },
+          nodes: [...graph.nodes, createWorkspaceNode(definition.kind, position, settingsForDefinition(definition))],
+        };
     if (isContentBlocker) {
-      const surface = contentBlockerSurfaceFor(workspace, selectedContentSurface);
-      if (definition.kind === 'LogicalFlow') {
-        const surfaceUnit = buildLogicalFlowUnit(surfaceWorkspace(workspace, surface), 320 + surface.nodes.length * 24, 260 + surface.nodes.length * 18);
-        onWorkspaceChange(updateContentBlockerSurface({
-          ...workspace,
-          logicalFlows: surfaceUnit.logicalFlows,
-        }, selectedContentSurface, {
-          ...surface,
-          nodes: surfaceUnit.nodes,
-          edges: surfaceUnit.edges,
-          viewport: surfaceUnit.viewport,
-        }));
-        return;
-      }
-      const nextNode = createWorkspaceNode(definition.kind, { x: 320 + surface.nodes.length * 24, y: 260 + surface.nodes.length * 18 }, settingsForDefinition(definition));
-      onWorkspaceChange(updateContentBlockerSurface(workspace, selectedContentSurface, {
-        ...surface,
-        nodes: [...surface.nodes, nextNode],
+      onWorkspaceChange(updateContentBlockerSurface({ ...workspace, logicalFlows: nextGraph.logicalFlows }, selectedContentSurface, {
+        ...activeContentSurface,
+        nodes: nextGraph.nodes,
+        edges: nextGraph.edges,
+        viewport: nextGraph.viewport,
       }));
-      return;
+    } else {
+      onWorkspaceChange(nextGraph);
     }
-
-    if (definition.kind === 'LogicalFlow') {
-      onWorkspaceChange(buildLogicalFlowUnit(workspace, 320 + workspace.nodes.length * 24, 260 + workspace.nodes.length * 18));
-      return;
-    }
-
-    onWorkspaceChange({
-      ...workspace,
-      metadata: { ...workspace.metadata, updated_at: Date.now() },
-      nodes: [...workspace.nodes, createWorkspaceNode(definition.kind, { x: 320 + workspace.nodes.length * 24, y: 260 + workspace.nodes.length * 18 }, settingsForDefinition(definition))],
-    });
+    const oldIds = new Set(graph.nodes.map((node) => node.id));
+    setFocusRequest((current) => ({ requestId: (current?.requestId ?? 0) + 1, nodeIds: nextGraph.nodes.filter((node) => !oldIds.has(node.id)).map((node) => node.id) }));
   }
 
   function updateContentBlockerConfig(updates: Partial<NonNullable<WorkspaceFileV2['contentBlocker']>>): void {
@@ -3521,9 +3532,14 @@ export function WorkspaceEditor({
   }
 
   function focusValidationMessage(message: string): void {
-    const nodeIds = nodeIdsForValidationMessage(workspace, message);
-    if (nodeIds.length > 0) {
-      setFocusRequest({ requestId: Date.now(), nodeIds });
+    const targets = findValidationNodeTargets(workspace, message);
+    if (targets.length > 0) {
+      const surfaceId = targets[0].surfaceId;
+      if (surfaceId) {
+        setSelectedContentSurface(surfaceId);
+      }
+      setEditorStage('build');
+      setFocusRequest((current) => ({ requestId: (current?.requestId ?? 0) + 1, nodeIds: targets.filter((target) => target.surfaceId === surfaceId).map((target) => target.nodeId) }));
     }
   }
 
@@ -3755,15 +3771,15 @@ export function WorkspaceEditor({
     return (
       <div className={expanded ? 'flex h-full min-h-0 flex-col gap-2' : 'grid gap-4'}>
         {!expanded ? <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-semibold text-slate-900">Workspace surface</p>
-            <p className="text-xs text-slate-500">{workspace.nodes.length} blocks, {workspace.edges.length} links.</p>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <p className="text-sm font-semibold text-slate-900">Build your flow</p>
+            <p className="text-xs text-slate-500">Connect outputs to inputs, then test your workspace.</p>
           </div>
           <button className="ghost-button" title="Expand workspace surface" type="button" onClick={() => setIsPopout(true)}>
             <svg aria-hidden="true" className="mr-2 inline-block h-4 w-4 align-[-2px]" fill="none" viewBox="0 0 24 24">
               <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M21 16v5h-5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
             </svg>
-            Pop Out
+            Expand canvas
           </button>
         </div> : null}
         <div className="shrink-0">
@@ -3817,7 +3833,7 @@ export function WorkspaceEditor({
               <svg aria-hidden="true" className="mr-2 inline-block h-4 w-4 align-[-2px]" fill="none" viewBox="0 0 24 24">
                 <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M21 16v5h-5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
               </svg>
-              Pop Out
+              Expand canvas
             </button>
           ) : null}
         </div>
@@ -3916,78 +3932,88 @@ export function WorkspaceEditor({
   }
 
   return (
-    <section className="panel-shell reveal-panel">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <p className="eyebrow">Workspace Editor</p>
-          <h2 className="mt-2 text-2xl font-semibold text-slate-900">Node action builder</h2>
-          <p className="mt-2 max-w-3xl text-sm text-slate-600">
-            Workspaces can be saved while otherwise invalid. Building an Action Pack is blocked until the graph passes its required connections and type checks.
-          </p>
-          <div className="mt-4 flex flex-wrap items-center gap-3">
+    <section className="panel-shell reveal-panel workspace-editor-shell">
+      <div className="workspace-editor-header flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="eyebrow">{typeLabel} workspace</p>
+            <span className={`risk-badge ${isDirty ? 'risk-badge-warn' : 'risk-badge-soft'}`}>{isDirty ? 'Unsaved changes' : 'Saved'}</span>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+          <h2 className="min-w-0 break-words text-xl font-semibold text-slate-900">{workspace.metadata.name || 'Untitled workspace'}</h2>
+          <label className="min-w-0 text-xs text-slate-500">
+            <span className="sr-only">Switch workspace</span>
             <select
-              className="field-select min-w-72"
+              aria-label="Switch workspace"
+              className="field-select max-w-full py-1.5 text-xs sm:max-w-60"
               value={allWorkspaces.some((candidate) => candidate.metadata.id === workspace.metadata.id) ? workspace.metadata.id : '__current__'}
               onChange={(event) => {
                 if (event.target.value === '__new_data_modifier__') {
                   onNewWorkspace('data-modifier');
-                  return;
-                }
-
-                if (event.target.value === '__new_content_blocker__') {
+                } else if (event.target.value === '__new_content_blocker__') {
                   onNewWorkspace('content-blocker');
-                  return;
-                }
-
-                if (event.target.value === '__new_custom_block__') {
+                } else if (event.target.value === '__new_custom_block__') {
                   onNewWorkspace('custom-block');
-                  return;
-                }
-
-                if (event.target.value !== '__current__') {
+                } else if (event.target.value !== '__current__') {
                   onSwitchWorkspace(event.target.value);
                 }
               }}
             >
               <option value="__current__">{workspace.metadata.name} (current draft)</option>
-              <option value="__new_data_modifier__">New Data Modifier Workspace</option>
-              <option value="__new_content_blocker__">New Content Blocker Workspace</option>
-              <option value="__new_custom_block__">New Custom Block Workspace</option>
-              {allWorkspaces.map((savedWorkspace) => (
-                <option key={savedWorkspace.metadata.id} value={savedWorkspace.metadata.id}>
-                  {savedWorkspace.metadata.name} ({workspaceTypeLabel(savedWorkspace.workspaceType)})
-                </option>
-              ))}
+              <optgroup label="Create a workspace">
+                <option value="__new_data_modifier__">New Data Modifier</option>
+                <option value="__new_content_blocker__">New Content Blocker</option>
+                <option value="__new_custom_block__">New Custom Block</option>
+              </optgroup>
+              <optgroup label="Saved workspaces">
+                {allWorkspaces.map((savedWorkspace) => (
+                  <option key={savedWorkspace.metadata.id} value={savedWorkspace.metadata.id}>
+                    {savedWorkspace.metadata.name} ({workspaceTypeLabel(savedWorkspace.workspaceType)})
+                  </option>
+                ))}
+              </optgroup>
             </select>
-            <span className="risk-badge risk-badge-soft">{typeLabel}</span>
-            {isDirty ? <span className="risk-badge risk-badge-warn">Unsaved changes</span> : <span className="risk-badge risk-badge-soft">Saved</span>}
+          </label>
           </div>
         </div>
-        <div className="flex flex-wrap gap-3">
-          <button className="ghost-button" type="button" onClick={() => setMetadataCollapsed((current) => !current)}>
-            {metadataCollapsed ? 'Show Metadata' : 'Hide Metadata'}
+        <div className="flex flex-wrap items-center gap-2">
+          <button aria-label="Undo workspace change" className="ghost-button px-3" disabled={!canUndo} title="Undo (Ctrl+Z / Cmd+Z)" type="button" onClick={onUndo}>Undo</button>
+          <button className="primary-button" type="button" onClick={onSaveWorkspace}>Save workspace</button>
+          <button className="secondary-button" disabled={!compileResult.ok} title={compileResult.ok ? 'Build the current workspace and review installation.' : 'Open Test & review to resolve build issues.'} type="button" onClick={onBuildActionPack}>
+            {isContentBlocker ? 'Compile & install' : isCustomBlock ? 'Install custom block' : 'Build Action Pack'}
           </button>
-          <button className="ghost-button" type="button" onClick={onSaveWorkspace}>
-            Save Workspace
-          </button>
-          <button className="ghost-button" disabled={!canUndo} title="Undo (Ctrl+Z / Cmd+Z)" type="button" onClick={onUndo}>
-            Undo
-          </button>
-          <button className="ghost-button" type="button" onClick={onExportWorkspace}>
-            Export Workspace
-          </button>
-          <button className="secondary-button" disabled={!compileResult.ok} type="button" onClick={onBuildActionPack}>
-            {isContentBlocker ? 'Compile & Install' : isCustomBlock ? 'Install Custom Block' : 'Build Action Pack'}
-          </button>
-          {!isContentBlocker && !isCustomBlock ? (
-            <button className="primary-button" disabled={!compileResult.ok} type="button" onClick={onExportActionPack}>
-              Export .actionpack
-            </button>
-          ) : null}
+          <details className="relative z-30">
+            <summary className="ghost-button cursor-pointer list-none" aria-label="Workspace export options">Export <span aria-hidden="true">⌄</span></summary>
+            <div className="absolute right-0 top-full mt-2 grid min-w-56 gap-1 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+              <button className="ghost-button justify-start text-left text-xs" type="button" onClick={onExportWorkspace}>Editable .workspace</button>
+              {!isContentBlocker && !isCustomBlock ? <button className="ghost-button justify-start text-left text-xs" disabled={!compileResult.ok} type="button" onClick={onExportActionPack}>Compiled .actionpack</button> : null}
+              <p className="px-3 py-2 text-[11px] leading-5 text-slate-500">Save drafts at any time. Action Packs need a valid graph.</p>
+            </div>
+          </details>
         </div>
       </div>
 
-      {!metadataCollapsed ? <div className="mt-6 grid gap-4 lg:grid-cols-4">
+      <nav aria-label="Workspace creation steps" className="workspace-stage-nav mt-3 grid gap-2 sm:grid-cols-3">
+        {([
+          { id: 'configure', label: 'Configure', description: isCustomBlock ? 'Name, ports & block fields' : isContentBlocker ? 'Name, pages & protection' : 'Name & when it runs' },
+          { id: 'build', label: 'Build flow', description: 'Add blocks & connect your idea' },
+          { id: 'review', label: isContentBlocker || isCustomBlock ? 'Review & install' : 'Test & review', description: compileResult.ok ? isCustomBlock ? 'Ready to install your block' : isContentBlocker ? 'Ready to install your blocker' : 'Ready to build your Action Pack' : `${compileResult.validation.errors.length} ${compileResult.validation.errors.length === 1 ? 'issue' : 'issues'} to resolve` },
+        ] as const).map((stage, index) => (
+          <button key={stage.id} aria-current={editorStage === stage.id ? 'step' : undefined} aria-controls={`workspace-stage-${stage.id}`} className={`workspace-stage-button flex items-center gap-2.5 rounded-xl border px-3 py-2 text-left transition ${editorStage === stage.id ? 'border-teal-300 bg-teal-50 text-teal-900' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'}`} type="button" onClick={() => setEditorStage(stage.id)}>
+            <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${editorStage === stage.id ? 'bg-teal-700 text-white' : 'bg-slate-100 text-slate-500'}`}>{index + 1}</span>
+            <span><span className="block text-sm font-semibold">{stage.label}</span><span className="mt-0.5 block text-[11px] opacity-75">{stage.description}</span></span>
+          </button>
+        ))}
+      </nav>
+
+      <div aria-live="polite" className="workspace-readiness mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-1.5 text-xs text-slate-600">
+        <span className="flex items-center gap-2"><span aria-hidden="true" className={`h-2 w-2 rounded-full ${compileResult.ok ? 'bg-emerald-500' : 'bg-amber-500'}`} />{compileResult.ok ? 'Ready to build' : 'Draft in progress'} · {isContentBlocker ? (workspace.surfaces ?? []).reduce((count, surface) => count + surface.nodes.length, workspace.nodes.length) : workspace.nodes.length} blocks{!isContentBlocker && !isCustomBlock ? ` · ${formatRunType(workspace.trigger.type)}` : ''}</span>
+        <button className="font-semibold text-teal-700 hover:underline" type="button" onClick={() => setEditorStage('review')}>{compileResult.ok ? isContentBlocker || isCustomBlock ? 'Review access & install' : 'Review access & test' : `Review ${compileResult.validation.errors.length} build ${compileResult.validation.errors.length === 1 ? 'issue' : 'issues'}`} <span aria-hidden="true">→</span></button>
+      </div>
+
+      {editorStage === 'configure' ? <div id="workspace-stage-configure" className="workspace-stage-content mt-5">
+      <div className="mb-4"><h3 className="text-lg font-semibold text-slate-900">Set up your workspace</h3><p className="mt-1 text-sm text-slate-500">Choose how it starts, then build the flow. You can return and change these details anytime.</p></div>
+      <div className="grid gap-4 lg:grid-cols-4">
         <label className="field-shell">
           <span className="field-label">Workspace Type</span>
           <input className="field-input" readOnly value={typeLabel} />
@@ -4103,98 +4129,32 @@ export function WorkspaceEditor({
             </label>
           </>
         ) : null}
-      </div> : (
-        <div className="mt-5 rounded-lg border border-slate-200 bg-white/70 px-5 py-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm font-semibold text-slate-900">{workspace.metadata.name}</p>
-            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
-              v{workspace.metadata.version} · {isContentBlocker || isCustomBlock ? typeLabel : formatRunType(workspace.trigger.type)}
-            </p>
-          </div>
-        </div>
-      )}
+        <label className="field-shell lg:col-span-4">
+          <span className="field-label">Description</span>
+          <textarea className="field-textarea min-h-20" placeholder="What does this workspace do?" value={workspace.metadata.description ?? ''} onChange={(event) => updateWorkspace({ metadata: { ...workspace.metadata, description: event.target.value } })} />
+        </label>
+      </div>
+      {isCustomBlock ? renderCustomBlockMetadata() : null}
+      {renderEmbeddedCustomBlocks()}
+      <div className="mt-5 flex justify-end"><button className="secondary-button" type="button" onClick={() => setEditorStage('build')}>Continue to build flow <span aria-hidden="true">→</span></button></div>
+      </div> : null}
 
-      {!metadataCollapsed && isCustomBlock ? renderCustomBlockMetadata() : null}
-      {!metadataCollapsed ? renderEmbeddedCustomBlocks() : null}
-
-      <div className="mt-5">
+      {editorStage === 'build' ? <div id="workspace-stage-build" className="workspace-stage-content mt-3">
         {isPopout ? (
           <div className="rounded-lg border border-slate-200 bg-white/70 px-5 py-6 text-sm text-slate-500">
             Workspace surface is open in the expanded editor.
           </div>
         ) : renderSurface()}
-      </div>
-
-      {!isContentBlocker && !isCustomBlock ? <div className="mt-5 rounded-lg border border-slate-200 bg-white/75 px-5 py-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-sm font-semibold text-slate-900">Workspace debug run</p>
-            <p className="mt-1 text-xs text-slate-500">Runs the current workspace in a sandbox with the source values below and records the VM trace.</p>
-          </div>
-          <button className="secondary-button" disabled={debugBusy} type="button" onClick={() => void runWorkspaceDebug()}>
-            {debugBusy ? 'Running...' : 'Run Debug'}
-          </button>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+          <button className="ghost-button" type="button" onClick={() => setEditorStage('configure')}>← Configure workspace</button>
+          <button className="secondary-button" type="button" onClick={() => setEditorStage('review')}>{isContentBlocker || isCustomBlock ? 'Review before installing' : 'Continue to test & review'} <span aria-hidden="true">→</span></button>
         </div>
-        <div className="mt-4 grid gap-3 lg:grid-cols-5">
-          <label className="field-shell lg:col-span-2">
-            <span className="field-label">Test URL</span>
-            <input className="field-input" value={debugUrl} onChange={(event) => setDebugUrl(event.target.value)} />
-          </label>
-          <label className="field-shell">
-            <span className="field-label">Handler</span>
-            <select className="field-select" value={debugHandler} onChange={(event) => setDebugHandler(event.target.value as GraphEventHandler)}>
-              <option value="trigger">{formatEventHandler('trigger')}</option>
-              <option value="keyboard">{formatEventHandler('keyboard')}</option>
-              <option value="mouse">{formatEventHandler('mouse')}</option>
-              <option value="tick">{formatEventHandler('tick')}</option>
-            </select>
-          </label>
-          <label className="field-shell">
-            <span className="field-label">Page Title</span>
-            <input className="field-input" value={debugPageTitle} onChange={(event) => setDebugPageTitle(event.target.value)} />
-          </label>
-          <label className="field-shell">
-            <span className="field-label">Clipboard</span>
-            <input className="field-input" value={debugClipboard} onChange={(event) => setDebugClipboard(event.target.value)} />
-          </label>
-          <label className="field-shell lg:col-span-2">
-            <span className="field-label">Selected Text</span>
-            <input className="field-input" value={debugSelectedText} onChange={(event) => setDebugSelectedText(event.target.value)} />
-          </label>
-          <label className="field-shell lg:col-span-3">
-            <span className="field-label">Result</span>
-            <textarea className="field-textarea min-h-24" readOnly value={debugError ?? debugOutput ?? ''} />
-          </label>
-        </div>
-        {debugTrace.length > 0 ? (
-          <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/80">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-2">
-              <p className="text-xs font-semibold text-slate-700">Trace ({debugTrace.length})</p>
-              <button className="ghost-button px-3 py-1.5 text-xs" type="button" onClick={() => void copyDebugTrace()}>
-                Copy Trace
-              </button>
-            </div>
-            <div className="max-h-72 overflow-y-auto">
-              <ol className="divide-y divide-slate-200 text-xs">
-                {debugTrace.map((entry, index) => (
-                  <li key={`${entry.nodeId}:${index}`} className="grid gap-1 px-4 py-3 md:grid-cols-[12rem_1fr]">
-                    <span className="font-mono font-semibold text-slate-600">{entry.op}</span>
-                    <span className="text-slate-700">
-                      <span className="font-semibold">{entry.message}</span>
-                      {entry.preview ? <span className="ml-2 break-all text-slate-500">{entry.preview}</span> : null}
-                      <span className="ml-2 font-mono text-slate-400">{entry.nodeId}</span>
-                    </span>
-                  </li>
-                ))}
-              </ol>
-            </div>
-          </div>
-        ) : null}
       </div> : null}
 
+      {editorStage === 'review' ? <div id="workspace-stage-review" className="workspace-stage-content mt-5">
       <div className="mt-5 grid gap-4 lg:grid-cols-2">
         <div className={`rounded-lg border px-5 py-4 ${compileResult.validation.valid ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-800'}`}>
-          <p className="text-sm font-semibold">{compileResult.validation.valid ? 'Workspace can build.' : 'Build is blocked.'}</p>
+          <p className="text-sm font-semibold">{compileResult.ok ? 'Your workspace is ready to build.' : 'Resolve these issues to build.'}</p>
           {compileResult.validation.errors.length > 0 ? (
             <ul className="mt-2 list-disc pl-5 text-sm">
               {compileResult.validation.errors.map((error, index) => {
@@ -4266,6 +4226,75 @@ export function WorkspaceEditor({
           ) : null}
         </div>
       </div>
+
+      {!isContentBlocker && !isCustomBlock ? <div className="mt-5 rounded-lg border border-slate-200 bg-white/75 px-5 py-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-slate-900">Try your workspace</p>
+            <p className="mt-1 text-xs text-slate-500">Test with sample inputs in a sandbox before installing. Page changes and other effects are recorded in the trace.</p>
+          </div>
+          <button className="secondary-button" disabled={debugBusy || !compileResult.ok} type="button" onClick={() => void runWorkspaceDebug()}>
+            {debugBusy ? 'Running...' : 'Run sandbox test'}
+          </button>
+        </div>
+        <div className="mt-4 grid gap-3 lg:grid-cols-5">
+          <label className="field-shell lg:col-span-2">
+            <span className="field-label">Test URL</span>
+            <input className="field-input" value={debugUrl} onChange={(event) => setDebugUrl(event.target.value)} />
+          </label>
+          <label className="field-shell">
+            <span className="field-label">Handler</span>
+            <select className="field-select" value={debugHandler} onChange={(event) => setDebugHandler(event.target.value as GraphEventHandler)}>
+              <option value="trigger">{formatEventHandler('trigger')}</option>
+              <option value="keyboard">{formatEventHandler('keyboard')}</option>
+              <option value="mouse">{formatEventHandler('mouse')}</option>
+              <option value="tick">{formatEventHandler('tick')}</option>
+            </select>
+          </label>
+          <label className="field-shell">
+            <span className="field-label">Page Title</span>
+            <input className="field-input" value={debugPageTitle} onChange={(event) => setDebugPageTitle(event.target.value)} />
+          </label>
+          <label className="field-shell">
+            <span className="field-label">Clipboard</span>
+            <input className="field-input" value={debugClipboard} onChange={(event) => setDebugClipboard(event.target.value)} />
+          </label>
+          <label className="field-shell lg:col-span-2">
+            <span className="field-label">Selected Text</span>
+            <input className="field-input" value={debugSelectedText} onChange={(event) => setDebugSelectedText(event.target.value)} />
+          </label>
+          <label className="field-shell lg:col-span-3">
+            <span className="field-label">Result</span>
+            <textarea className="field-textarea min-h-24" readOnly value={debugError ?? debugOutput ?? ''} />
+          </label>
+        </div>
+        {debugTrace.length > 0 ? (
+          <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/80">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-2">
+              <p className="text-xs font-semibold text-slate-700">Trace ({debugTrace.length})</p>
+              <button className="ghost-button px-3 py-1.5 text-xs" type="button" onClick={() => void copyDebugTrace()}>
+                Copy Trace
+              </button>
+            </div>
+            <div className="max-h-72 overflow-y-auto">
+              <ol className="divide-y divide-slate-200 text-xs">
+                {debugTrace.map((entry, index) => (
+                  <li key={`${entry.nodeId}:${index}`} className="grid gap-1 px-4 py-3 md:grid-cols-[12rem_1fr]">
+                    <span className="font-mono font-semibold text-slate-600">{entry.op}</span>
+                    <span className="text-slate-700">
+                      <span className="font-semibold">{entry.message}</span>
+                      {entry.preview ? <span className="ml-2 break-all text-slate-500">{entry.preview}</span> : null}
+                      <span className="ml-2 font-mono text-slate-400">{entry.nodeId}</span>
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </div>
+        ) : null}
+      </div> : null}
+
+      </div> : null}
       {isPopout ? createPortal(
         <div className="fixed inset-0 z-40 bg-slate-950/60 p-2 backdrop-blur-sm">
           <div className="flex h-full min-h-0 flex-col rounded-xl border border-white/60 bg-white p-2.5 shadow-[0_32px_90px_rgba(31,41,55,0.35)]">

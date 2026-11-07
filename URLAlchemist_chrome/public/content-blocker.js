@@ -15,6 +15,17 @@
       mediaDataUrl: '',
     };
 
+    if (params.has('tasks')) {
+      try {
+        const tasks = JSON.parse(params.get('tasks'));
+        if (!Array.isArray(tasks)) throw new Error('Invalid challenge tasks');
+        payload.tasks = tasks;
+      } catch {
+        payload.mode = 'error';
+        payload.message = 'The challenge configuration could not be loaded.';
+      }
+    }
+
     const id = params.get('id');
     if (id && chromeApi?.storage?.session) {
       const stored = await chromeApi.storage.session.get(id);

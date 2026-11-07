@@ -1,3 +1,5 @@
+import { RuntimeSessions, isTabSessionKey, isPackSessionKey, isExpiredAllowance } from './runtimeSessions';
+import { createRemoteAssetResolver } from './remoteAssetCache';
 import {
   CLIPBOARD_BINARY_MAX_TIMEOUT_MS,
   CLIPBOARD_BINARY_WORST_CASE_BYTES_PER_SECOND,
@@ -26,20 +28,14 @@ import { appendActionPackLogEntry, appendTraceEntry, loadStoredState, updateActi
 import type { ActionPack, EngineIssue, GlobalSettings, TriggerType, WorkspaceTriggerType } from '../shared/types';
 import { createPageRegexExecutor } from '../shared/regex/pageRunner';
 import { isActionPackLocked, isContentBlockerActionPack } from '../shared/v2/installMetadata';
-import { base64FromBytes, readLimitedResponseBytes } from '../shared/v2/remoteBytes';
-import { validateRemoteUrl } from '../shared/v2/remoteUrl';
 import { resolveResourceAsset } from '../shared/v2/resources';
 import type { AssetRef, CompiledActionPackV2, ContentBlockerChallengeTask, GraphEventHandler, GraphValue, OverlayRuntimeEvent, WorkspaceInputSource } from '../shared/v2/types';
-import { evaluateCompiledActionPackCondition, executeCompiledActionPackV2, type AssetRequest, type DisplayRequest, type GraphRuntime, type OverlayControlRequest, type OverlayDrawRequest, type UserInteractionRequest } from '../shared/v2/vm';
+import { evaluateCompiledActionPackCondition, executeCompiledActionPackV2, type DisplayRequest, type GraphRuntime, type OverlayControlRequest, type OverlayDrawRequest, type UserInteractionRequest } from '../shared/v2/vm';
 
 const redirectTrail = new Map<string, { url: string; depth: number; expiresAt: number }>();
-const fallbackTriggerHistory = new Map<string, number[]>();
 const INTERVAL_ALARM_PREFIX = 'url-alchemist-interval:';
 const CONDITIONAL_ALARM_PREFIX = 'url-alchemist-conditional:';
-const remoteAssetCache = new Map<string, AssetRef>();
-const fallbackOverlaySessions = new Map<string, { active: boolean; url: string; updatedAt: number }>();
-const fallbackSharedState = new Map<string, GraphValue>();
-const fallbackConditionStates = new Map<string, boolean>();
+const resolveRemoteAsset = createRemoteAssetResolver();
 const CONTENT_BLOCKER_PAGE = 'content-blocker.html';
 const CONTENT_BLOCKER_ALLOW_TTL_MS = 10 * 60 * 1000;
 
@@ -192,87 +188,53 @@ function conditionStateStorageKey(pack: CompiledActionPackV2): string {
   return pack.triggerPlan.conditionStateKey ?? `url-alchemist-condition:${pack.manifest.id}`;
 }
 
+let runtimePackOwners: Map<string, string> | undefined;
+
+async function loadRuntimePackOwners(): Promise<Map<string, string>> {
+  if (!runtimePackOwners) {
+    const stored = await chrome.storage.local.get('url-alchemist-state');
+    const packs = (stored['url-alchemist-state'] as { actionPacksV2?: CompiledActionPackV2[] } | undefined)?.actionPacksV2 ?? [];
+    // An onChanged event may have delivered newer ownership while get awaited.
+    runtimePackOwners ??= new Map(packs.map((pack) => [pack.manifest.id, conditionStateStorageKey(pack)]));
+  }
+  return runtimePackOwners;
+}
+
+const runtimeSessions = new RuntimeSessions(sessionStorageArea, async ({ tabId, packId }) => {
+  if (tabId !== undefined) {
+    try { await chrome.tabs.get(tabId); } catch { return false; }
+  }
+  return (await loadRuntimePackOwners()).has(packId);
+});
+
 async function getOverlaySession(tabId: number, packId: string): Promise<{ active: boolean; url: string; updatedAt: number }> {
-  const key = overlaySessionKey(tabId, packId);
-  const sessionStorage = sessionStorageArea();
-  if (!sessionStorage) {
-    return fallbackOverlaySessions.get(key) ?? { active: false, url: '', updatedAt: 0 };
-  }
-
-  const stored = await sessionStorage.get(key);
-  const value = stored[key];
-  if (typeof value === 'object' && value !== null && 'active' in value) {
-    return value as { active: boolean; url: string; updatedAt: number };
-  }
-
-  return { active: false, url: '', updatedAt: 0 };
+  return await runtimeSessions.get(overlaySessionKey(tabId, packId)) ?? { active: false, url: '', updatedAt: 0 };
 }
 
 async function saveOverlaySession(tabId: number, packId: string, active: boolean, url: string): Promise<void> {
   const key = overlaySessionKey(tabId, packId);
-  const value = { active, url, updatedAt: Date.now() };
-  const sessionStorage = sessionStorageArea();
-  if (!sessionStorage) {
-    fallbackOverlaySessions.set(key, value);
-    return;
-  }
-
-  await sessionStorage.set({ [key]: value });
+  if (!active) { await runtimeSessions.removeWhere((candidate) => candidate === key); return; }
+  await runtimeSessions.set(key, { active, url, updatedAt: Date.now() }, { tabId, packId });
 }
 
 async function loadSharedGraphValue(packId: string, key: string): Promise<GraphValue | undefined> {
-  const storageKey = sharedStateKey(packId, key);
-  const sessionStorage = sessionStorageArea();
-  if (!sessionStorage) {
-    return fallbackSharedState.get(storageKey);
-  }
-
-  const stored = await sessionStorage.get(storageKey);
-  return stored[storageKey] as GraphValue | undefined;
+  return runtimeSessions.get(sharedStateKey(packId, key));
 }
 
 async function saveSharedGraphValue(packId: string, key: string, value: GraphValue): Promise<void> {
-  const storageKey = sharedStateKey(packId, key);
-  const sessionStorage = sessionStorageArea();
-  if (!sessionStorage) {
-    fallbackSharedState.set(storageKey, value);
-    return;
-  }
-
-  await sessionStorage.set({ [storageKey]: value });
+  await runtimeSessions.set(sharedStateKey(packId, key), value, { packId });
 }
 
 async function deleteSharedGraphValue(packId: string, key: string): Promise<void> {
-  const storageKey = sharedStateKey(packId, key);
-  const sessionStorage = sessionStorageArea();
-  if (!sessionStorage) {
-    fallbackSharedState.delete(storageKey);
-    return;
-  }
-
-  await sessionStorage.remove(storageKey);
+  await runtimeSessions.removeWhere((candidate) => candidate === sharedStateKey(packId, key));
 }
 
 async function loadConditionState(pack: CompiledActionPackV2): Promise<boolean> {
-  const key = conditionStateStorageKey(pack);
-  const sessionStorage = sessionStorageArea();
-  if (!sessionStorage) {
-    return fallbackConditionStates.get(key) ?? false;
-  }
-
-  const stored = await sessionStorage.get(key);
-  return stored[key] === true;
+  return await runtimeSessions.get(conditionStateStorageKey(pack)) === true;
 }
 
 async function saveConditionState(pack: CompiledActionPackV2, matched: boolean): Promise<void> {
-  const key = conditionStateStorageKey(pack);
-  const sessionStorage = sessionStorageArea();
-  if (!sessionStorage) {
-    fallbackConditionStates.set(key, matched);
-    return;
-  }
-
-  await sessionStorage.set({ [key]: matched });
+  await runtimeSessions.set(conditionStateStorageKey(pack), matched, { packId: pack.manifest.id });
 }
 
 const baseRuntime: GraphRuntime = {
@@ -304,51 +266,6 @@ async function sendContentGraphMessage(tabId: number | undefined, message: objec
   return response.data;
 }
 
-async function resolveRemoteAsset(request: AssetRequest): Promise<AssetRef> {
-  const cacheKey = `${request.kind}:${request.maxBytes}:${request.url}`;
-  const cached = remoteAssetCache.get(cacheKey);
-  if (cached) {
-    return cached;
-  }
-
-  const controller = new AbortController();
-  const timeout = globalThis.setTimeout(() => controller.abort(), request.timeoutMs);
-  try {
-    const validatedUrl = validateRemoteUrl(request.url);
-    const response = await fetch(validatedUrl, {
-      method: 'GET',
-      redirect: 'error',
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      throw new Error(`Remote asset request failed with HTTP ${response.status}`);
-    }
-
-    const contentLength = Number(response.headers.get('content-length') ?? '0');
-    if (contentLength > request.maxBytes) {
-      throw new Error('Remote asset exceeded the configured byte limit');
-    }
-
-    const bytes = await readLimitedResponseBytes(response, request.maxBytes, 'Remote asset');
-    const asset: AssetRef = {
-      source: 'embedded',
-      kind: request.kind,
-      mimeType: response.headers.get('content-type')?.split(';')[0]?.trim() || `${request.kind}/*`,
-      name: new URL(request.url).pathname.split('/').filter(Boolean).pop(),
-      dataBase64: base64FromBytes(bytes),
-      compression: 'none',
-      sizeBytes: bytes.byteLength,
-      cacheKey,
-    };
-    if (remoteAssetCache.size > 12) {
-      remoteAssetCache.clear();
-    }
-    remoteAssetCache.set(cacheKey, asset);
-    return asset;
-  } finally {
-    globalThis.clearTimeout(timeout);
-  }
-}
 
 function getBinaryClipboardPayload(value: GraphValue): { mimeType: string; dataBase64: string } {
   const payload = value.value;
@@ -603,26 +520,12 @@ function triggerHistoryKey(packId: string): string {
 }
 
 async function loadTriggerHistory(packId: string): Promise<number[]> {
-  const key = triggerHistoryKey(packId);
-  const sessionStorage = chrome.storage?.session;
-  if (!sessionStorage) {
-    return fallbackTriggerHistory.get(key) ?? [];
-  }
-
-  const stored = await sessionStorage.get(key);
-  const value = stored[key];
+  const value = await runtimeSessions.get<unknown>(triggerHistoryKey(packId));
   return Array.isArray(value) ? value.filter((entry): entry is number => typeof entry === 'number') : [];
 }
 
 async function saveTriggerHistory(packId: string, timestamps: number[]): Promise<void> {
-  const key = triggerHistoryKey(packId);
-  const sessionStorage = chrome.storage?.session;
-  if (!sessionStorage) {
-    fallbackTriggerHistory.set(key, timestamps);
-    return;
-  }
-
-  await sessionStorage.set({ [key]: timestamps });
+  await runtimeSessions.set(triggerHistoryKey(packId), timestamps, { packId });
 }
 
 async function recordTriggerOrSkip(pack: CompiledActionPackV2): Promise<boolean> {
@@ -651,26 +554,21 @@ function contentBlockerAllowanceKey(tabId: number, packId: string, sourceUrl: st
   return `url-alchemist-content-blocker-allow:${tabId}:${packId}:${sourceUrl}`;
 }
 
-async function grantContentBlockerAllowance(tabId: number, packId: string, sourceUrl: string): Promise<void> {
-  const key = contentBlockerAllowanceKey(tabId, packId, sourceUrl);
-  if (chrome.storage?.session) {
-    await chrome.storage.session.set({ [key]: Date.now() + CONTENT_BLOCKER_ALLOW_TTL_MS });
-  }
-}
-
 async function hasContentBlockerAllowance(tabId: number, packId: string, sourceUrl: string): Promise<boolean> {
   const key = contentBlockerAllowanceKey(tabId, packId, sourceUrl);
-  if (!chrome.storage?.session) {
-    return false;
-  }
-
-  const stored = await chrome.storage.session.get(key);
-  const expiresAt = stored[key];
-  if (typeof expiresAt !== 'number' || expiresAt < Date.now()) {
-    await chrome.storage.session.remove(key);
+  const value = await runtimeSessions.get<unknown>(key);
+  if (value === undefined) return false;
+  if (isExpiredAllowance(key, value)) {
+    await runtimeSessions.removeWhere((candidate, stored) => candidate === key && isExpiredAllowance(candidate, stored));
     return false;
   }
   return true;
+}
+
+async function grantContentBlockerAllowance(tabId: number, packId: string, sourceUrl: string): Promise<void> {
+  await runtimeSessions.removeWhere((key, value) => isExpiredAllowance(key, value));
+  await runtimeSessions.set(contentBlockerAllowanceKey(tabId, packId, sourceUrl),
+    { expiresAt: Date.now() + CONTENT_BLOCKER_ALLOW_TTL_MS }, { tabId, packId });
 }
 
 function numericGraphValue(value: GraphValue | undefined): number | null {
@@ -688,6 +586,7 @@ function numericGraphValue(value: GraphValue | undefined): number | null {
 }
 
 async function createContentBlockerPageUrl(
+  tabId: number,
   pack: CompiledActionPackV2,
   sourceUrl: string,
   mode: ContentBlockerPagePayload['mode'],
@@ -711,7 +610,7 @@ async function createContentBlockerPageUrl(
 
   const id = `url-alchemist-content-blocker:${crypto.randomUUID()}`;
   if (chrome.storage?.session) {
-    await chrome.storage.session.set({ [id]: payload });
+    await runtimeSessions.set(id, { ...payload, tabId }, { tabId, packId: pack.manifest.id });
     return `${contentBlockerPageUrl()}?id=${encodeURIComponent(id)}`;
   }
 
@@ -722,6 +621,7 @@ async function createContentBlockerPageUrl(
     packId: payload.packId,
     packName: payload.packName,
     sourceUrl: payload.sourceUrl,
+    tasks: JSON.stringify(payload.tasks ?? []),
   });
   if (reason) {
     params.set('reason', reason);
@@ -795,7 +695,7 @@ async function redirectToContentBlockerPage(
       },
     });
   }
-  await chrome.tabs.update(tabId, { url: await createContentBlockerPageUrl(pack, inputUrl, mode, reason) });
+  await chrome.tabs.update(tabId, { url: await createContentBlockerPageUrl(tabId, pack, inputUrl, mode, reason) });
 }
 
 async function applyContentBlockerPacks(
@@ -1242,6 +1142,45 @@ async function runOverlayEvent(tabId: number, url: string, packId: string, event
   }
 }
 
+function reportSessionCleanupError(error: unknown): void {
+  console.warn('[URL Alchemist] Runtime session cleanup failed', error);
+}
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  for (const key of redirectTrail.keys()) {
+    if (key.startsWith(`${tabId}:`)) redirectTrail.delete(key);
+  }
+  void runtimeSessions.removeWhere((key, value) => isTabSessionKey(key, tabId)
+    || (key.startsWith('url-alchemist-content-blocker:') && (value as { tabId?: number })?.tabId === tabId),
+  ).catch(reportSessionCleanupError);
+});
+
+// Reconcile entries left by older versions or a suspended background worker.
+// Ownership checks run inside the serialized cleanup, before later writes.
+void runtimeSessions.removeWhere(async (key, value) => {
+  if (isExpiredAllowance(key, value)) return true;
+  const tabMatch = key.match(/^url-alchemist-(?:overlay-session|content-blocker-allow):([0-9]+):/);
+  const isPagePayload = key.startsWith('url-alchemist-content-blocker:');
+  const tabId = tabMatch ? Number(tabMatch[1]) : isPagePayload ? (value as { tabId?: number })?.tabId : undefined;
+  if (tabId !== undefined) {
+    try { await chrome.tabs.get(tabId); } catch { return true; }
+  }
+  if (!tabMatch && !isPagePayload && !/^url-alchemist-(?:v2-shared|trigger-log|condition):/.test(key)) return false;
+  const owners = await loadRuntimePackOwners();
+  return ![...owners].some(([packId, conditionKey]) => isPackSessionKey(key, packId, conditionKey)
+    || (isPagePayload && (value as ContentBlockerPagePayload)?.packId === packId));
+}).catch(reportSessionCleanupError);
+
+// Alarms survive service-worker suspension; expired per-URL grants must not
+// accumulate in a tab that remains open for days.
+const SESSION_CLEANUP_ALARM = 'url-alchemist-session-cleanup';
+void chrome.alarms.create(SESSION_CLEANUP_ALARM, { periodInMinutes: 1 });
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === SESSION_CLEANUP_ALARM) {
+    void runtimeSessions.removeWhere((key, value) => isExpiredAllowance(key, value)).catch(reportSessionCleanupError);
+  }
+});
+
 chrome.runtime.onInstalled.addListener(() => {
   void ensureContextMenu();
   void syncIntervalAlarms();
@@ -1275,6 +1214,20 @@ chrome.alarms?.onAlarm.addListener((alarm) => {
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName === 'local' && changes['url-alchemist-state']) {
     void syncIntervalAlarms();
+    const change = changes['url-alchemist-state'];
+    const previous = (change.oldValue as { actionPacksV2?: CompiledActionPackV2[] } | undefined)?.actionPacksV2 ?? [];
+    const current = (change.newValue as { actionPacksV2?: CompiledActionPackV2[] } | undefined)?.actionPacksV2 ?? [];
+    runtimePackOwners = new Map(current.map((pack) => [pack.manifest.id, conditionStateStorageKey(pack)]));
+    const removed = previous.filter((pack) => !current.some((entry) => entry.manifest.id === pack.manifest.id));
+    if (removed.length) {
+      void runtimeSessions.removeWhere((key, value) => removed.some((pack) =>
+        isPackSessionKey(key, pack.manifest.id, conditionStateStorageKey(pack))
+        || (key.startsWith('url-alchemist-content-blocker:') && (value as ContentBlockerPagePayload)?.packId === pack.manifest.id),
+      )).catch(reportSessionCleanupError);
+      for (const key of redirectTrail.keys()) {
+        if (removed.some((pack) => key.endsWith(`:${pack.manifest.id}`))) redirectTrail.delete(key);
+      }
+    }
   }
 });
 

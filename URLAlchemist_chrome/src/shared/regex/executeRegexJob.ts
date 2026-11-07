@@ -75,10 +75,25 @@ function applyFragmentAction(fragment: string, action: ActionType, replacement: 
   }
 }
 
-function resolveReplacement(pattern: string, match: RegExpExecArray, replacement: string): string {
-  const regex = parsePattern(pattern, false);
-  regex.lastIndex = 0;
-  return match[0].replace(regex, replacement);
+function resolveReplacement(input: string, match: RegExpExecArray, replacement: string): string {
+  // Use the original match and input: re-matching match[0] loses lookaround,
+  // anchors, and the context needed by $` and $'. Callback results stay literal.
+  return replacement.replace(/\$(\$|&|`|'|<[^>]*>|[0-9]{1,2})/g, (token, reference: string) => {
+    if (reference === '$') return '$';
+    if (reference === '&') return match[0];
+    if (reference === '`') return input.slice(0, match.index);
+    if (reference === "'") return input.slice(match.index + match[0].length);
+    if (reference.startsWith('<')) {
+      return match.groups ? match.groups[reference.slice(1, -1)] ?? '' : token;
+    }
+    const index = Number(reference);
+    if (index > 0 && index < match.length) return match[index] ?? '';
+    const first = Number(reference[0]);
+    if (reference.length === 2 && first > 0 && first < match.length) {
+      return (match[first] ?? '') + reference[1];
+    }
+    return token;
+  });
 }
 
 function selectNthMatch(input: string, pattern: string, nthOccurrence: number): RegExpExecArray | null {
@@ -94,7 +109,9 @@ function selectNthMatch(input: string, pattern: string, nthOccurrence: number): 
     }
 
     if (match[0] === '') {
-      regex.lastIndex += 1;
+      // AdvanceStringIndex must skip a complete Unicode code point.
+      const codePoint = input.codePointAt(regex.lastIndex);
+      regex.lastIndex += codePoint !== undefined && codePoint > 0xffff ? 2 : 1;
     }
 
     match = regex.exec(input);
@@ -162,7 +179,7 @@ function transformAroundPattern(
   const before = input.slice(0, match.index);
   const matchedText = input.slice(match.index, match.index + match[0].length);
   const after = input.slice(match.index + match[0].length);
-  const resolvedReplacement = resolveReplacement(pattern, match, replacement);
+  const resolvedReplacement = resolveReplacement(input, match, replacement);
 
   if (mode === 'BEFORE_PATTERN') {
     return {
@@ -199,7 +216,7 @@ function transformNthOccurrence(
   const before = input.slice(0, match.index);
   const matchedText = input.slice(match.index, match.index + match[0].length);
   const after = input.slice(match.index + match[0].length);
-  const resolvedReplacement = resolveReplacement(pattern, match, replacement);
+  const resolvedReplacement = resolveReplacement(input, match, replacement);
 
   return {
     kind: 'transform',

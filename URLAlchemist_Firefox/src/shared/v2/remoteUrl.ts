@@ -53,18 +53,15 @@ function parseIpv4MappedIpv6(hostname: string): number[] | null {
 }
 
 export function isPrivateOrLocalRemoteHost(hostname: string): boolean {
-  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, '');
-  if (!normalized || normalized === 'localhost' || normalized.endsWith('.local')) {
+  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+  if (!normalized || normalized === 'localhost' || normalized.endsWith('.localhost') || normalized.endsWith('.local')) {
     return true;
   }
 
   if (
     normalized === '::' ||
     normalized === '::1' ||
-    normalized.startsWith('fe80:') ||
-    normalized.startsWith('fc') ||
-    normalized.startsWith('fd') ||
-    normalized.startsWith('ff')
+    (normalized.includes(':') && /^(?:fe[89ab][0-9a-f]:|f[cd][0-9a-f]{2}:|ff[0-9a-f]{2}:)/.test(normalized))
   ) {
     return true;
   }
